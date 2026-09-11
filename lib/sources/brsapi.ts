@@ -68,12 +68,18 @@ export function parseBrsIndex(json: any): { value: number; changePct: number | n
   const nameOf = (o: any) => String(pick(o, ['name', 'l30', 'title', 'index_name', 'lVal30']) ?? '');
   const main =
     arr.find((o) => /شاخص\s*کل/.test(nameOf(o)) && !/هم\s*وزن|فرابورس/.test(nameOf(o))) ??
-    arr.find((o) => isNum(num(pick(o, ['value', 'index_value', 'last_value', 'close'])))) ??
+    arr.find((o) => isNum(num(pick(o, ['value', 'index_value', 'last_value', 'close', 'index'])))) ??
     arr[0];
   if (!main) return null;
-  const value = num(pick(main, ['value', 'index_value', 'last_value', 'close', 'xNivInuClMresIbs', 'pl', 'pc']));
-  const changePct = num(pick(main, ['change_percent', 'percent', 'change_pct', 'xVarIdxJRfV', 'plp', 'pcp']));
+  const value = num(pick(main, ['value', 'index_value', 'last_value', 'close', 'xNivInuClMresIbs', 'pl', 'pc', 'index']));
   if (!isNum(value) || value <= 0) return null;
+  let changePct = num(pick(main, ['change_percent', 'percent', 'change_pct', 'xVarIdxJRfV', 'plp', 'pcp']));
+  if (!isNum(changePct)) {
+    // some BrsApi responses give only the absolute point change (e.g. "index_change"), not a percent
+    const changeAbs = num(pick(main, ['index_change', 'change', 'change_value']));
+    const prev = value - changeAbs;
+    if (isNum(changeAbs) && prev !== 0) changePct = (changeAbs / prev) * 100;
+  }
   return { value, changePct: isNum(changePct) ? changePct : null };
 }
 

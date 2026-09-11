@@ -58,6 +58,12 @@ export async function GET(req: Request) {
     probe('brsGoldCurrency', fetchBrsGoldCurrency, (j) => parseBrsTetherRial(j, null)),
     probe('coingecko', () => fetchCgMarkets(undefined, 5), (j) => (Array.isArray(j) ? j.map((c: any) => c.symbol) : null)),
     probe('telegram', () => fetchJson(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getMe`), (j) => j?.result?.username ?? null),
+    probe('telegramWebhook', () => fetchJson(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getWebhookInfo`), (j) => {
+      const r = j?.result;
+      if (!r) return null;
+      // ok means "a webhook URL is registered and Telegram reports no delivery error" — run /api/telegram/setup if this is null/empty/erroring
+      return r.url ? { url: r.url, pending_update_count: r.pending_update_count, last_error_date: r.last_error_date ?? null, last_error_message: r.last_error_message ?? null } : null;
+    }),
   ]);
   return NextResponse.json({ ok: results.every((r) => r.ok) && storeOk, storeMode, storeOk, results });
 }
