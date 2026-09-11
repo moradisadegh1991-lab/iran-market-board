@@ -53,6 +53,40 @@ export interface AssetRisk {
   annualVolPct: number | null;
   horizons: Record<HorizonKey, HorizonRisk | null>;
   hidden?: boolean;
+  basis?: string; // where the long history comes from
+}
+
+export type ScenarioGroup = 'fx' | 'gold' | 'crypto' | 'tse' | 'alt';
+
+export interface ScenarioRow {
+  h: HorizonKey;
+  label: string;
+  days: number;
+  worst: number;
+  base: number;
+  best: number;
+  worstPct: number;
+  basePct: number;
+  bestPct: number;
+  histWorstPct: number | null;
+  histBestPct: number | null;
+  confidence: number; // 0..1
+}
+
+export interface AssetScenario {
+  key: string;
+  label: string;
+  symbol?: string;
+  unit: 'toman' | 'usd' | 'point';
+  group: ScenarioGroup;
+  price: number | null;
+  points: number;
+  basis: string;
+  annualVolPct: number | null;
+  rows: Record<HorizonKey, ScenarioRow | null>;
+  drivers: string[];
+  summary: string;
+  missingReason?: string;
 }
 
 export interface CryptoRow {
@@ -85,6 +119,7 @@ export interface StockRow {
   r60: number | null;
   volSurge: number | null;
   pe: number | null;
+  sector: string | null;
   score: number;
   riskMonth: number | null;
   reasons: string[];
@@ -110,7 +145,7 @@ export interface Portfolio {
 }
 
 export interface Snapshot {
-  version: 1;
+  version: 2;
   generatedAt: string;
   storeMode: 'redis' | 'memory';
   sources: SourceStatus[];
@@ -118,6 +153,7 @@ export interface Snapshot {
   risk: AssetRisk[];
   crypto: { coins: CryptoRow[]; memes: CryptoRow[]; note: string };
   stocks: { rows: StockRow[]; mode: 'history' | 'warmup' | 'unavailable'; historyDays: number; note: string };
+  scenarios: { assets: AssetScenario[]; note: string };
   portfolios: Record<Profile, Record<PortfolioHorizon, Portfolio>>;
   defaultProfile: Profile;
 }

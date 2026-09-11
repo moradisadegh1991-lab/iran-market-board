@@ -25,7 +25,12 @@ export const SOURCE_LABELS: Record<string, string> = {
   histPaxg: 'تاریخچه انس (PAXG)',
   histBtc: 'تاریخچه بیت‌کوین',
   histEth: 'تاریخچه اتریوم',
-  histUsdt: 'تاریخچه تتر/ریال',
+  histUsdt: 'تاریخچه تتر/ریال (نوبیتکس)',
+  tgjuHistUsd: 'تاریخچه دلار (TGJU)',
+  tgjuHistCoin: 'تاریخچه سکه (TGJU)',
+  tgjuHistG18: 'تاریخچه طلای ۱۸ (TGJU)',
+  tgjuHistOns: 'تاریخچه انس (TGJU)',
+  tseIndexHist: 'تاریخچه شاخص کل بورس',
 };
 
 const ingestOnly = new Set(

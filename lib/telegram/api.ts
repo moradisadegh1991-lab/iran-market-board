@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { errMsg } from '@/lib/http';
 
 const token = () => {
@@ -5,6 +6,19 @@ const token = () => {
   if (!t) throw new Error('TELEGRAM_BOT_TOKEN is not set');
   return t;
 };
+
+/**
+ * Telegram only accepts secret_token matching [A-Za-z0-9_-]{1,256}.
+ * If the env value is clean it's used as-is; otherwise (stray quotes, spaces, Persian chars …)
+ * we derive a valid token from its SHA-256. setup and webhook both call this, so they always agree.
+ */
+export function webhookSecret(): string | null {
+  const raw = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!raw) return null;
+  const trimmed = raw.trim().replace(/^["']|["']$/g, '');
+  if (/^[A-Za-z0-9_-]{1,256}$/.test(trimmed)) return trimmed;
+  return createHash('sha256').update(raw).digest('hex');
+}
 
 export async function tg(method: string, body: Record<string, unknown>): Promise<any> {
   const res = await fetch(`https://api.telegram.org/bot${token()}/${method}`, {
@@ -19,10 +33,11 @@ export async function tg(method: string, body: Record<string, unknown>): Promise
 }
 
 export const MENU = [
-  ['💱 قیمت‌ها', '⚠️ ریسک بازارها'],
+  ['💱 قیمت‌ها', '🎯 سناریوها'],
+  ['⚠️ ریسک بازارها', '🧺 سبد دارایی'],
   ['🪙 ۱۰ کوین', '🐸 ۱۰ میم‌کوین'],
-  ['📈 ۱۰ سهم', '🧺 سبد دارایی'],
-  ['📋 گزارش کامل', '🌐 داشبورد'],
+  ['📈 ۱۰ سهم', '🌐 داشبورد'],
+  ['📋 گزارش کامل'],
 ];
 
 export const replyKeyboard = { keyboard: MENU.map((row) => row.map((text) => ({ text }))), resize_keyboard: true, is_persistent: true };

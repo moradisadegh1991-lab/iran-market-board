@@ -59,12 +59,12 @@ function cryptoBlocks(rows: Snapshot['crypto']['coins']) {
   );
 }
 
-export const coinsMsg = (s: Snapshot) => pack('🪙 <b>۱۰ کوین با مومنتوم قوی (افق ۱ هفته)</b>', [...cryptoBlocks(s.crypto.coins), `\n<i>${esc(s.crypto.note)}</i>`], s);
-export const memesMsg = (s: Snapshot) => pack('🐸 <b>۱۰ میم‌کوین با مومنتوم قوی (افق ۱ هفته)</b>', [...cryptoBlocks(s.crypto.memes), `\n<i>${esc(s.crypto.note)}</i>`], s);
+export const coinsMsg = (s: Snapshot) => pack('🪙 <b>۱۰ کوین با مومنتوم قوی (افق ۱ هفته)</b>', [...cryptoBlocks(s.crypto.coins.slice(0, 10)), `\n<i>${esc(s.crypto.note)}</i>`], s);
+export const memesMsg = (s: Snapshot) => pack('🐸 <b>۱۰ میم‌کوین با مومنتوم قوی (افق ۱ هفته)</b>', [...cryptoBlocks(s.crypto.memes.slice(0, 10)), `\n<i>${esc(s.crypto.note)}</i>`], s);
 
 export function stocksMsg(s: Snapshot): string[] {
   if (!s.stocks.rows.length) return pack('📈 <b>بورس و فرابورس</b>', [esc(s.stocks.note)], s);
-  const blocks = s.stocks.rows.map(
+  const blocks = s.stocks.rows.slice(0, 10).map(
     (r) =>
       `${r.rank}. <b>${esc(r.symbol)}</b> ${fmtInt(isNum(r.price) ? r.price : null)} ریال · امروز ${fmtPct(r.chgToday)}${isNum(r.r20) ? ` · ۲۰روز ${fmtPct(r.r20, 0)}` : ''} · امتیاز ${fmtInt(r.score)}${r.flags.length ? ` · ⚠️${esc(r.flags.join('، '))}` : ''}\n     ↳ ${esc(r.reasons.join('؛ '))}`,
   );
@@ -83,7 +83,21 @@ export function portfolioMsg(s: Snapshot, profile: Profile = s.defaultProfile): 
   return pack(`🧺 <b>سبد پیشنهادی — پروفایل ${PROFILE_LABEL[profile]}</b>`, blocks, s);
 }
 
+export function scenariosMsg(s: Snapshot): string[] {
+  const blocks = s.scenarios.assets.map((a) => {
+    const name = a.symbol ? `${esc(a.label)} (${esc(a.symbol)})` : esc(a.label);
+    if (a.missingReason) return `\n<b>${name}</b>\n  ${esc(a.missingReason)}`;
+    const rows = Object.values(a.rows)
+      .filter((r): r is NonNullable<typeof r> => !!r)
+      .map((r) => `  ${r.label}: 🔻${fmtPrice(r.worst)} (${fmtPct(r.worstPct, 0)}) · 🔺${fmtPrice(r.best)} (${fmtPct(r.bestPct, 0)})`);
+    const why = a.drivers.slice(0, 2).map((d) => `  ↳ ${esc(d)}`);
+    return `\n<b>${name}</b>${unitTxt(a.unit) ? ` <i>(${unitTxt(a.unit).trim()})</i>` : ''}\n${rows.join('\n')}\n${why.join('\n')}`;
+  });
+  blocks.push(`\n<i>${esc(s.scenarios.note)}</i>`);
+  return pack('🎯 <b>بدترین و بهترین سناریو</b> (بازه ۹۰٪)', blocks, s);
+}
+
 export function fullReport(s: Snapshot): string[] {
-  return [...pricesMsg(s), ...riskMsg(s), ...coinsMsg(s), ...memesMsg(s), ...stocksMsg(s), ...portfolioMsg(s)];
+  return [...pricesMsg(s), ...scenariosMsg(s), ...riskMsg(s), ...coinsMsg(s), ...memesMsg(s), ...stocksMsg(s), ...portfolioMsg(s)];
 }
 

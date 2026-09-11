@@ -36,3 +36,10 @@ export async function fetchCgDaily(id: string, days = 365): Promise<[number, num
   if (!Array.isArray(json?.prices)) throw new Error(`market_chart ${id}: bad response`);
   return json.prices as [number, number][];
 }
+
+/** Intraday prices: days=1 → ~5-minute points, days=7 → hourly points */
+export async function fetchCgRange(id: string, days: 1 | 7): Promise<[number, number][]> {
+  const json = await fetchJson(`${BASE}/coins/${id}/market_chart?vs_currency=usd&days=${days}`, { headers: headers(), timeoutMs: 20_000 });
+  if (!Array.isArray(json?.prices)) throw new Error(`market_chart ${id} ${days}d: bad response`);
+  return json.prices as [number, number][];
+}

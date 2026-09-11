@@ -89,6 +89,7 @@ export function screenTse(
           r60: f.r60 === null ? null : f.r60 * 100,
           volSurge: f.surge,
           pe: f.s.pe,
+          sector: f.s.sector,
           score: Math.round(clamp(score, 0, 1) * 100),
           riskMonth: risk?.hold ?? null,
           reasons: reasons.slice(0, 3),
@@ -96,7 +97,7 @@ export function screenTse(
         } satisfies StockRow;
       });
       return {
-        rows: rows.sort((a, b) => b.score - a.score).slice(0, 10).map((r, i) => ({ ...r, rank: i + 1 })),
+        rows: rows.sort((a, b) => b.score - a.score).slice(0, 25).map((r, i) => ({ ...r, rank: i + 1 })),
         mode: 'history',
         historyDays,
         note: `غربال بر پایه ${historyDays} روز معاملاتی ذخیره‌شده.`,
@@ -132,6 +133,7 @@ export function screenTse(
         r60: null,
         volSurge: null,
         pe: s.pe,
+        sector: s.sector,
         score: Math.round(clamp(score, 0, 1) * 100),
         riskMonth: null,
         reasons: ['فقط داده‌های امروز (حالت گرم‌شدن)'],
@@ -139,7 +141,7 @@ export function screenTse(
       } satisfies StockRow;
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 10)
+    .slice(0, 25)
     .map((r, i) => ({ ...r, rank: i + 1 }));
   return {
     rows,

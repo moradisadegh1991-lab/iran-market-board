@@ -36,19 +36,42 @@ const symbols = Array.from({ length: 520 }, (_, i) => {
 }).map((s) => ({ ...s, l18: s.l18.replace(/[0-9]/g, '') + Math.random().toString(36).slice(2, 4).replace(/[0-9]/g, 'x') }));
 
 const udf = gbm(420, 900000, 0.0012, 0.012);
+const isoDay = (msAgo: number) => new Date(now - msAgo).toISOString().slice(0, 10);
+// TGJU summary-table-data rows: [open, low, high, close, change, change%, 'YYYY/MM/DD', jalali], newest first
+const tgjuRows = (start: number, mu: number, sigma: number, n = 470) => {
+  const p = gbm(n, start, mu, sigma);
+  return p.map((v, i) => [String(v), String(v), String(v), Math.round(v).toLocaleString('en-US'), '<span class="low">1</span>', '<span>0.1%</span>', isoDay((n - 1 - i) * DAY).replace(/-/g, '/'), '1405/01/01']).reverse();
+};
+const tgjuHist: Record<string, unknown[]> = {
+  price_dollar_rl: tgjuRows(1_000_000, 0.0012, 0.013),
+  sekee: tgjuRows(900_000_000, 0.0013, 0.016),
+  geram18: tgjuRows(90_000_000, 0.0012, 0.014),
+  ons: tgjuRows(2600, 0.0008, 0.009),
+};
+const tseIdxHist = gbm(300, 2_000_000, 0.0015, 0.011);
 (globalThis as any).fetch = async (input: string | URL) => {
   const url = String(input);
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  if (url.includes('summary-table-data/')) {
+    const slug = url.split('summary-table-data/')[1];
+    return tgjuHist[slug] ? json({ recordsTotal: 470, data: tgjuHist[slug] }) : new Response('nf', { status: 404 });
+  }
+  if (url.includes('cdn.tsetmc.com/api/Index/GetIndexB2History'))
+    return json({ indexB2: tseIdxHist.map((v, i) => ({ dEven: Number(isoDay((299 - i) * 1.4 * DAY).replace(/-/g, '')), xNivInuClMresIbs: v })) });
+  if (url.includes('Market/Gold_Currency'))
+    return json({ gold: [], currency: [], cryptocurrency: [{ symbol: 'USDT', name: 'تتر', price: 106500, change_percent: 0.2 }] });
+  // Nobitex is blocked from Vercel in production — simulate that so every fallback path is exercised
+  if (url.includes('nobitex')) return new Response('Forbidden', { status: 403 });
   if (url.includes('tgju')) return json({ current: { price_dollar_rl: { p: '1,050,000', dp: '0.5', dt: 'high' }, sekee: { p: '980,000,000', dp: '1.1', dt: 'low' }, geram18: { p: '95,000,000', dp: '0.3', dt: 'high' }, ons: { p: '3,650.12', dp: '0.2', dt: 'low' } } });
   if (url.includes('gold-api')) return json({ price: 3650 });
-  if (url.includes('udf/history')) return json({ s: 'ok', t: udf.map((_, i) => Math.floor((now - (419 - i) * DAY) / 1000)), c: udf });
-  if (url.includes('nobitex') && url.includes('dstCurrency=rls,usdt')) return json({ status: 'ok', stats: { 'usdt-rls': { latest: '1060000', dayChange: '0.4' }, 'btc-usdt': { latest: '112000', dayChange: '-1.2' }, 'eth-usdt': { latest: '4200', dayChange: '2.1' } } });
-  if (url.includes('nobitex')) return json({ status: 'ok', stats: { 'c3-rls': { latest: '10' }, 'mem2-rls': { latest: '5' }, 'c5-rls': { isClosed: true } } });
   if (url.includes('Index.php')) return json({ data: [{ name: 'شاخص کل (هم وزن)', value: '800000' }, { name: 'شاخص کل', value: '2450000', change_percent: '0.8' }] });
   if (url.includes('AllSymbols.php')) return json(symbols);
   if (url.includes('market_chart')) {
-    const p = gbm(366, 30000, 0.001, 0.025);
-    return json({ prices: p.map((v, i) => [now - (365 - i) * DAY, v]) });
+    const days = Number(/days=(\d+)/.exec(url)?.[1] ?? 365);
+    const n = days === 1 ? 288 : days === 7 ? 168 : 366;
+    const step = days === 1 ? 300_000 : days === 7 ? 3_600_000 : DAY;
+    const p = gbm(n, 30000, 0.0005, days === 365 ? 0.025 : 0.004);
+    return json({ prices: p.map((v, i) => [now - (n - 1 - i) * step, v]) });
   }
   if (url.includes('category=meme-token')) return json(Array.from({ length: 120 }, (_, i) => cgCoin(i, true)));
   if (url.includes('/coins/markets')) return json(Array.from({ length: 250 }, (_, i) => cgCoin(i, false)));
@@ -91,11 +114,34 @@ const udf = gbm(420, 900000, 0.0012, 0.012);
   const usd = s.risk.find((r) => r.key === 'usd')!;
   assert.ok(usd.horizons.y1, 'usd yearly risk should exist via proxy history');
   assert.ok(s.risk.find((r) => r.key === 'tse')!.horizons.m1, 'tse monthly risk from seeded index');
-  assert.equal(s.crypto.coins.length, 10);
-  assert.equal(s.crypto.memes.length, 10);
+  assert.ok(s.crypto.coins.length >= 10 && s.crypto.coins.length <= 25, `coins ${s.crypto.coins.length}`);
+  assert.ok(s.crypto.memes.length >= 10, `memes ${s.crypto.memes.length}`);
+  // no asset may be stuck on "1 day of data" even though Nobitex is blocked
+  for (const k of ['usd', 'usdt', 'g18', 'coin', 'ons', 'btc', 'eth', 'tse']) {
+    const a = s.risk.find((r) => r.key === k)!;
+    assert.ok(a.points >= 200, `${k} history points ${a.points} (basis ${a.basis})`);
+  }
+  const usdtItem = s.live.items.find((i) => i.key === 'usdt')!;
+  assert.ok(usdtItem.price && usdtItem.price > 90000 && usdtItem.price < 130000, `usdt via BrsApi fallback ${usdtItem.price}`);
+  // scenarios
+  const sc = s.scenarios.assets;
+  for (const k of ['usd', 'g18', 'coin', 'ons', 'btc', 'tse']) assert.ok(sc.find((a) => a.key === k), `scenario ${k}`);
+  assert.equal(sc.filter((a) => a.group === 'alt').length, 3, 'three altcoin scenarios');
+  for (const a of sc) {
+    for (const [h, r] of Object.entries(a.rows)) {
+      if (!r) continue;
+      assert.ok(r.worst > 0 && r.worst < r.base && r.base < r.best, `${a.key}.${h} ordering ${r.worst} ${r.base} ${r.best}`);
+      assert.ok(r.worstPct > -100 && r.bestPct > 0, `${a.key}.${h} pct ${r.worstPct} ${r.bestPct}`);
+      if (h !== 'y1') assert.ok(r.worstPct < 0, `${a.key}.${h} worst case should be a loss: ${r.worstPct}`);
+    }
+    assert.ok(a.rows.y1 && a.rows.d1, `${a.key} has 1d and 1y rows (${a.missingReason ?? ''})`);
+    assert.ok(a.drivers.length >= 3 && a.summary.length > 20, `${a.key} reasoning`);
+  }
+  const widen = (k: string) => sc.find((a) => a.key === k)!.rows;
+  assert.ok(widen('usd').y1!.bestPct > widen('usd').m1!.bestPct, 'longer horizon → wider range');
   assert.ok(!s.crypto.coins.some((c) => c.symbol === 'USDT' || /wrapped/i.test(c.name)), 'stable/wrapped excluded');
   assert.equal(s.stocks.mode, 'history');
-  assert.equal(s.stocks.rows.length, 10);
+  assert.ok(s.stocks.rows.length >= 10, `stocks ${s.stocks.rows.length}`);
   for (const prof of Object.values(s.portfolios))
     for (const p of Object.values(prof)) {
       const sum = p.lines.reduce((a, l) => a + l.weight, 0);
@@ -103,6 +149,19 @@ const udf = gbm(420, 900000, 0.0012, 0.012);
       assert.ok(p.lines.every((l) => l.weight >= 0));
     }
   assert.equal(s.portfolios.conservative.y1.lines.find((l) => l.cls === 'spec')!.weight, 0);
+
+  const { getChart } = await import('@/lib/chart');
+  const c1y = await getChart('usd', '1y');
+  assert.equal(c1y.resolution, 'daily');
+  assert.ok(c1y.points.length > 300 && c1y.stats, `usd 1y chart ${c1y.points.length}`);
+  assert.ok(c1y.stats!.last > 90000 && c1y.stats!.last < 130000, `chart in toman ${c1y.stats!.last}`);
+  const c1d = await getChart('g18', '1d');
+  assert.ok(c1d.note && c1d.points.length >= 5, 'rial 1d chart falls back to daily with a note until intraday accumulates');
+  const cbtc = await getChart('btc', '1d');
+  assert.equal(cbtc.resolution, 'intraday');
+  const alt = sc.find((a) => a.group === 'alt')!;
+  const calt = await getChart(`cg:${alt.key.slice(4)}`, '3m');
+  assert.ok(calt.points.length > 60, 'altcoin 3m chart');
 
   const cached = await getSnapshot();
   assert.equal(cached.generatedAt, s.generatedAt, 'second call served from cache');
@@ -123,7 +182,11 @@ const udf = gbm(420, 900000, 0.0012, 0.012);
   console.log('top coins:', s.crypto.coins.slice(0, 3).map((c) => `${c.symbol}:${c.score}:${c.onNobitex}`).join(' '));
   console.log('top stocks:', s.stocks.rows.slice(0, 3).map((r) => `${r.symbol}:${r.score}`).join(' '));
   console.log('balanced m3:', s.portfolios.balanced.m3.lines.map((l) => `${l.cls}=${l.weight}`).join(' '), 'vol', s.portfolios.balanced.m3.annualVolPct?.toFixed(1));
-  console.log('\n--- sample telegram (risk) ---\n' + f.riskMsg(s)[0].slice(0, 700));
+  const tseSc = sc.find((a) => a.key === 'tse')!;
+  console.log('tse scenario:', Object.values(tseSc.rows).map((r) => r && `${r.label}: ${r.worstPct.toFixed(1)} / ${r.basePct.toFixed(1)} / ${r.bestPct.toFixed(1)}`).join(' | '));
+  console.log('tse drivers:\n - ' + tseSc.drivers.join('\n - '));
+  console.log('usd basis:', s.risk.find((r) => r.key === 'usd')!.basis, '· tse basis:', s.risk.find((r) => r.key === 'tse')!.basis);
+  console.log('\n--- sample telegram (scenarios) ---\n' + (f.scenariosMsg ? f.scenariosMsg(s)[0].slice(0, 900) : '(none)'));
   console.log('\nSMOKE OK');
 })().catch((e) => {
   console.error(e);

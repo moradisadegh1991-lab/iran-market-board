@@ -1,20 +1,24 @@
 import { kv, storeMode } from '@/lib/store';
 import { errMsg } from '@/lib/http';
-import { fmtPct, isNum, isTseSessionOpen, isTseTradingDay, rialToToman, tehranDate } from '@/lib/num';
+import { clamp, fmtInt, fmtNum, fmtPct, fmtPrice, isNum, isTseSessionOpen, isTseTradingDay, rialToToman, tehranDate } from '@/lib/num';
+import { median } from '@/lib/engine/stats';
 import { cachedSource } from '@/lib/sources/cache';
 import { fetchTgju, parseTgju } from '@/lib/sources/tgju';
 import { fetchGoldApi, parseGoldApi } from '@/lib/sources/goldapi';
-import { fetchNobitexDaily, fetchNobitexStats, fetchNobitexTradable, parseNobitex } from '@/lib/sources/nobitex';
-import { fetchBrsIndex, fetchBrsSymbols, fetchBrsGoldCurrency, parseBrsIndex, parseBrsSymbols, parseBrsTetherRial } from '@/lib/sources/brsapi';
-import { fetchCgDaily, fetchCgMarkets, type CgCoin } from '@/lib/sources/coingecko';
-import { dailyMap, loadDaily, loadTse, pairsToMap, productMap, saveDaily, saveTse, spliceSeries, upsertDailyPoint, upsertTseDay } from '@/lib/history';
+import { fetchNobitexStats, fetchNobitexTradable, parseNobitex } from '@/lib/sources/nobitex';
+import { fetchBrsGoldCurrency, fetchBrsIndex, fetchBrsSymbols, parseBrsIndex, parseBrsSymbols, parseBrsTetherRial, type TseSymbol } from '@/lib/sources/brsapi';
+import { fetchCgMarkets, type CgCoin } from '@/lib/sources/coingecko';
+import { dailyMap, loadDaily, loadTse, saveDaily, saveTse, upsertDailyPoint, upsertTseDay } from '@/lib/history';
+import { recordIntraday } from '@/lib/intraday';
+import { buildSeries, coinSeries, loadSeriesInputs, type SeriesInputs } from '@/lib/series';
 import { computeRisk } from '@/lib/engine/risk';
 import { candidateSymbols, screenCrypto } from '@/lib/engine/crypto';
 import { screenTse } from '@/lib/engine/tse';
 import { buildPortfolios } from '@/lib/engine/portfolio';
-import type { AssetRisk, BoardItem, Profile, RiskAssetKey, Snapshot, SourceStatus } from '@/lib/types';
+import { betaVs, buildScenario, returnCorrelation } from '@/lib/engine/scenario';
+import type { AssetRisk, AssetScenario, BoardItem, CryptoRow, Profile, RiskAssetKey, Snapshot, SourceStatus } from '@/lib/types';
 
-const SNAP_KEY = 'snapshot:v1';
+const SNAP_KEY = 'snapshot:v2';
 const LOCK_KEY = 'snapshot:lock';
 const COIN_PURE_GRAMS = 7.3224; // Emami coin: 8.136 g × 0.900
 const OZ = 31.1035;
@@ -39,26 +43,20 @@ export async function getSnapshot(opts: { force?: boolean } = {}): Promise<Snaps
 
 async function buildSnapshot(): Promise<Snapshot> {
   const now = new Date();
-  // BrsApi free tier (TSETMC_AllSymbols / TSETMC_Index) caps at 100 req/day each.
-  // 240s in-session + 3600s off-session ≈ 80 req/day worst case — stays under the cap
-  // even with continuous visitor traffic. Override via env if you're on a paid plan.
-  const tseSessionTtl = Number(process.env.TSE_SESSION_TTL_SEC || 240);
-  const tseOffHoursTtl = Number(process.env.TSE_OFFHOURS_TTL_SEC || 3600);
-  const tseTtl = isTseSessionOpen(now) ? tseSessionTtl : tseOffHoursTtl;
+  // BrsApi free tier (TSETMC_AllSymbols / TSETMC_Index) caps at 100 req/day each:
+  // 240 s in-session + 3600 s off-session ≈ 80 req/day worst case.
+  const tseTtl = isTseSessionOpen(now) ? Number(process.env.TSE_SESSION_TTL_SEC || 240) : Number(process.env.TSE_OFFHOURS_TTL_SEC || 3600);
 
-  const [tgjuR, goldR, nobR, idxR, symR, gcR, cgR, memeR, hPaxg, hBtc, hEth, hUsdt] = await Promise.all([
+  const [tgjuR, goldR, nobR, idxR, symR, gcR, cgR, memeR, daily] = await Promise.all([
     cachedSource('tgju', 60, fetchTgju),
     cachedSource('goldapi', 60, fetchGoldApi),
     cachedSource('nobitex', 60, fetchNobitexStats),
     cachedSource('brsIndex', tseTtl, fetchBrsIndex, 4 * 24 * 3600),
     cachedSource('brsSymbols', tseTtl, fetchBrsSymbols, 4 * 24 * 3600),
-    cachedSource('brsGoldCurrency', 120, fetchBrsGoldCurrency, 4 * 24 * 3600), // fallback for USDT if Nobitex is blocked
+    cachedSource('brsGoldCurrency', 120, fetchBrsGoldCurrency, 4 * 24 * 3600), // USDT fallback when Nobitex is blocked
     cachedSource<CgCoin[]>('cgMarkets', 300, () => fetchCgMarkets(undefined, 250), 6 * 3600),
     cachedSource<CgCoin[]>('cgMemes', 300, () => fetchCgMarkets('meme-token', 120), 6 * 3600),
-    cachedSource('histPaxg', 12 * 3600, () => fetchCgDaily('pax-gold'), 10 * 24 * 3600),
-    cachedSource('histBtc', 12 * 3600, () => fetchCgDaily('bitcoin'), 10 * 24 * 3600),
-    cachedSource('histEth', 12 * 3600, () => fetchCgDaily('ethereum'), 10 * 24 * 3600),
-    cachedSource('histUsdt', 12 * 3600, () => fetchNobitexDaily('USDTIRT'), 10 * 24 * 3600),
+    loadDaily(),
   ]);
 
   // ── live board ──
@@ -77,9 +75,9 @@ async function buildSnapshot(): Promise<Snapshot> {
   const coinBubblePct = tg.coin && coinIntrinsic ? (tg.coin.price / coinIntrinsic - 1) * 100 : null;
   const g18BubblePct = tg.g18 && g18Intrinsic ? (tg.g18.price / g18Intrinsic - 1) * 100 : null;
   const usdtPremiumPct = isNum(usdtR) && isNum(usdR) ? (usdtR / usdR - 1) * 100 : null;
-  const btcUsd = nb.btcUsdt?.price ?? cgR.data?.find((c) => c.id === 'bitcoin')?.current_price ?? null;
-  const ethUsd = nb.ethUsdt?.price ?? cgR.data?.find((c) => c.id === 'ethereum')?.current_price ?? null;
-  const cgChange = (id: string) => cgR.data?.find((c) => c.id === id)?.price_change_percentage_24h_in_currency ?? null;
+  const cgFind = (id: string) => cgR.data?.find((c) => c.id === id);
+  const btcUsd = nb.btcUsdt?.price ?? cgFind('bitcoin')?.current_price ?? null;
+  const ethUsd = nb.ethUsdt?.price ?? cgFind('ethereum')?.current_price ?? null;
 
   const items: BoardItem[] = [
     { key: 'usd', label: 'دلار آزاد', price: rialToToman(usdR) || null, unit: 'toman', changePct: tg.usd?.changePct ?? null },
@@ -87,23 +85,24 @@ async function buildSnapshot(): Promise<Snapshot> {
     { key: 'coin', label: 'سکه امامی', price: rialToToman(tg.coin?.price) || null, unit: 'toman', changePct: tg.coin?.changePct ?? null, note: isNum(coinBubblePct) ? `حباب ${fmtPct(coinBubblePct, 1, false)}` : undefined },
     { key: 'g18', label: 'طلای ۱۸ عیار (گرم)', price: rialToToman(tg.g18?.price) || null, unit: 'toman', changePct: tg.g18?.changePct ?? null, note: isNum(g18BubblePct) ? `حباب ${fmtPct(g18BubblePct, 1, false)}` : undefined },
     { key: 'ons', label: 'انس جهانی طلا', price: ons, unit: 'usd', changePct: tg.ons?.changePct ?? null },
-    { key: 'btc', label: 'بیت‌کوین', price: btcUsd, unit: 'usd', changePct: nb.btcUsdt?.changePct ?? cgChange('bitcoin') },
-    { key: 'eth', label: 'اتریوم', price: ethUsd, unit: 'usd', changePct: nb.ethUsdt?.changePct ?? cgChange('ethereum') },
+    { key: 'btc', label: 'بیت‌کوین', price: btcUsd, unit: 'usd', changePct: nb.btcUsdt?.changePct ?? cgFind('bitcoin')?.price_change_percentage_24h_in_currency ?? null },
+    { key: 'eth', label: 'اتریوم', price: ethUsd, unit: 'usd', changePct: nb.ethUsdt?.changePct ?? cgFind('ethereum')?.price_change_percentage_24h_in_currency ?? null },
     { key: 'tse', label: 'شاخص کل بورس', price: idx?.value ?? null, unit: 'point', changePct: idx?.changePct ?? null },
   ];
 
-  // ── rolling history (write at most every 10 min / TSE every 20 min) ──
+  // ── rolling history (daily every 10 min at most, TSE symbols every 20 min, intraday every 10 min) ──
   const today = tehranDate(now);
-  const daily = await loadDaily();
-  const lastDailyWrite = (await kv.get<number>('hist:daily:lastWrite')) ?? 0;
-  upsertDailyPoint(daily, today, {
+  const livePoint = {
     usd: usdR, usdt: usdtR, g18: tg.g18?.price, coin: tg.coin?.price, ons, btc: btcUsd, eth: ethUsd,
     tse: isTseTradingDay(now) ? idx?.value : null,
-  });
+  };
+  upsertDailyPoint(daily, today, livePoint);
+  const lastDailyWrite = (await kv.get<number>('hist:daily:lastWrite')) ?? 0;
   if (Date.now() - lastDailyWrite > 10 * 60 * 1000) {
     await saveDaily(daily);
     await kv.set('hist:daily:lastWrite', Date.now());
   }
+  await recordIntraday(now.getTime(), { ...livePoint, tse: isTseSessionOpen(now) ? idx?.value : null });
 
   const tseStore = await loadTse();
   if (symbols && isTseTradingDay(now)) {
@@ -114,29 +113,24 @@ async function buildSnapshot(): Promise<Snapshot> {
     }
   }
 
-  // ── risk ──
-  const paxg = pairsToMap(hPaxg.data);
-  const usdtUdf = pairsToMap(hUsdt.data);
-  const btcP = pairsToMap(hBtc.data);
-  const ethP = pairsToMap(hEth.data);
-  const goldIrrProxy = productMap(paxg, usdtUdf);
-
-  const defs: { key: RiskAssetKey; label: string; unit: AssetRisk['unit']; actual: Map<string, number>; proxy: Map<string, number>; price: number | null; addOn?: number; hidden?: boolean }[] = [
-    { key: 'usd', label: 'دلار آزاد', unit: 'toman', actual: dailyMap(daily, 'usd'), proxy: usdtUdf, price: rialToToman(usdR) || null },
-    { key: 'usdt', label: 'تتر', unit: 'toman', actual: dailyMap(daily, 'usdt'), proxy: usdtUdf, price: rialToToman(usdtR) || null },
-    { key: 'g18', label: 'طلای ۱۸', unit: 'toman', actual: dailyMap(daily, 'g18'), proxy: goldIrrProxy, price: rialToToman(tg.g18?.price) || null, addOn: isNum(g18BubblePct) ? Math.max(-8, Math.min(12, g18BubblePct * 1.5)) : 0 },
-    { key: 'coin', label: 'سکه امامی', unit: 'toman', actual: dailyMap(daily, 'coin'), proxy: goldIrrProxy, price: rialToToman(tg.coin?.price) || null, addOn: isNum(coinBubblePct) ? Math.max(-10, Math.min(15, coinBubblePct * 1.5)) : 0 },
-    { key: 'ons', label: 'انس جهانی', unit: 'usd', actual: dailyMap(daily, 'ons'), proxy: paxg, price: ons },
-    { key: 'btc', label: 'بیت‌کوین', unit: 'usd', actual: dailyMap(daily, 'btc'), proxy: btcP, price: btcUsd },
-    { key: 'eth', label: 'اتریوم', unit: 'usd', actual: dailyMap(daily, 'eth'), proxy: ethP, price: ethUsd },
-    { key: 'tse', label: 'شاخص کل بورس', unit: 'point', actual: dailyMap(daily, 'tse'), proxy: new Map(), price: idx?.value ?? null },
-    { key: 'btc_irt', label: 'بیت‌کوین (تومانی)', unit: 'toman', actual: productMap(dailyMap(daily, 'btc'), dailyMap(daily, 'usdt')), proxy: productMap(btcP, usdtUdf), price: null, hidden: true },
+  // ── long histories + risk ──
+  const inputs = await loadSeriesInputs(daily);
+  const defs: { key: RiskAssetKey; label: string; unit: AssetRisk['unit']; price: number | null; addOn?: number; hidden?: boolean }[] = [
+    { key: 'usd', label: 'دلار آزاد', unit: 'toman', price: rialToToman(usdR) || null },
+    { key: 'usdt', label: 'تتر', unit: 'toman', price: rialToToman(usdtR) || null },
+    { key: 'g18', label: 'طلای ۱۸', unit: 'toman', price: rialToToman(tg.g18?.price) || null, addOn: isNum(g18BubblePct) ? clamp(g18BubblePct * 1.5, -8, 12) : 0 },
+    { key: 'coin', label: 'سکه امامی', unit: 'toman', price: rialToToman(tg.coin?.price) || null, addOn: isNum(coinBubblePct) ? clamp(coinBubblePct * 1.5, -10, 15) : 0 },
+    { key: 'ons', label: 'انس جهانی', unit: 'usd', price: ons },
+    { key: 'btc', label: 'بیت‌کوین', unit: 'usd', price: btcUsd },
+    { key: 'eth', label: 'اتریوم', unit: 'usd', price: ethUsd },
+    { key: 'tse', label: 'شاخص کل بورس', unit: 'point', price: idx?.value ?? null },
+    { key: 'btc_irt', label: 'بیت‌کوین (تومانی)', unit: 'toman', price: null, hidden: true },
   ];
-
+  const seriesByKey = new Map(defs.map((d) => [d.key, buildSeries(inputs, d.key)]));
   const risk: AssetRisk[] = defs.map((d) => {
-    const { dates, prices } = spliceSeries(d.actual, d.proxy);
+    const { dates, prices, basis } = seriesByKey.get(d.key)!;
     const { horizons, annualVolPct } = computeRisk(dates, prices, d.addOn ?? 0);
-    return { key: d.key, label: d.label, unit: d.unit, price: d.price, points: prices.length, firstDate: dates[0] ?? null, annualVolPct, horizons, hidden: d.hidden };
+    return { key: d.key, label: d.label, unit: d.unit, price: d.price, points: prices.length, firstDate: dates[0] ?? null, annualVolPct, horizons, hidden: d.hidden, basis };
   });
 
   // ── crypto screen ──
@@ -147,28 +141,22 @@ async function buildSnapshot(): Promise<Snapshot> {
   const crypto = screenCrypto(cgR.data, memeR.data, tradR.data ? new Set(tradR.data) : null);
 
   // ── TSE screen ──
-  const tseIdx = spliceSeries(dailyMap(daily, 'tse'), new Map()).prices;
-  const stocks = screenTse(symbols, tseStore, tseIdx);
+  const tseSeries = seriesByKey.get('tse')!;
+  const stocks = screenTse(symbols, tseStore, tseSeries.prices);
+
+  // ── scenarios ──
+  const scenarios = await buildScenarios({ inputs, seriesByKey, defs, crypto: crypto.coins, symbols, usdR, usdtPremiumPct, coinBubblePct, g18BubblePct, g18Intrinsic, coinIntrinsic });
 
   const defaultProfile = (['conservative', 'balanced', 'aggressive'].includes(process.env.DEFAULT_RISK_PROFILE ?? '')
     ? process.env.DEFAULT_RISK_PROFILE
     : 'balanced') as Profile;
 
   const sources: SourceStatus[] = [tgjuR, goldR, nobR, idxR, symR, gcR, cgR, memeR].map((r) => r.status);
-  const hist = [hPaxg, hBtc, hEth, hUsdt];
-  sources.push({
-    name: 'history',
-    label: 'تاریخچه پایه ریسک',
-    ok: hist.every((h) => h.status.ok),
-    stale: hist.some((h) => h.status.stale),
-    ageSec: Math.max(...hist.map((h) => h.status.ageSec ?? 0)),
-    via: 'fetch',
-    error: hist.map((h) => h.status.error).filter(Boolean).join(' | ') || undefined,
-  });
+  sources.push(...inputs.statuses);
   if (tradR.status) sources.push(tradR.status);
 
   return {
-    version: 1,
+    version: 2,
     generatedAt: now.toISOString(),
     storeMode,
     sources,
@@ -176,10 +164,116 @@ async function buildSnapshot(): Promise<Snapshot> {
     risk,
     crypto: {
       ...crypto,
-      note: 'غربال مومنتوم و توجه بازار در ۷ روز اخیر — نه پیش‌بینی قیمت. قدرت پیش‌بینی چنین رتبه‌بندی‌هایی به‌ویژه برای میم‌کوین‌ها ضعیف و ناپایدار است.',
+      note: 'غربال مومنتوم و توجه بازار در ۷ روز اخیر، نه پیش‌بینی قیمت. قدرت پیش‌بینی چنین رتبه‌بندی‌هایی به‌ویژه برای میم‌کوین‌ها ضعیف و ناپایدار است.',
     },
     stocks,
+    scenarios: {
+      assets: scenarios,
+      note: 'بدترین سناریو یعنی فقط در ۵٪ حالت‌ها قیمت از آن پایین‌تر می‌رود و بهترین سناریو یعنی فقط در ۵٪ حالت‌ها بالاتر. رویدادهای کاملاً پیش‌بینی‌نشده (جنگ، تغییر ناگهانی سیاست ارزی) می‌توانند قیمت را بیرون از این بازه ببرند.',
+    },
     portfolios: buildPortfolios(risk, { items, coinBubblePct, g18BubblePct, usdtPremiumPct }, crypto.coins),
     defaultProfile,
   };
+}
+
+interface ScenarioCtx {
+  inputs: SeriesInputs;
+  seriesByKey: Map<RiskAssetKey, ReturnType<typeof buildSeries>>;
+  defs: { key: RiskAssetKey; label: string; unit: AssetRisk['unit']; price: number | null }[];
+  crypto: CryptoRow[];
+  symbols: TseSymbol[] | null;
+  usdR: number | null;
+  usdtPremiumPct: number | null;
+  coinBubblePct: number | null;
+  g18BubblePct: number | null;
+  g18Intrinsic: number | null;
+  coinIntrinsic: number | null;
+}
+
+const mapOf = (s: { dates: string[]; prices: number[] }) => new Map(s.dates.map((d, i) => [d, s.prices[i]]));
+
+async function buildScenarios(c: ScenarioCtx): Promise<AssetScenario[]> {
+  const S = (k: RiskAssetKey) => c.seriesByKey.get(k)!;
+  const def = (k: RiskAssetKey) => c.defs.find((d) => d.key === k)!;
+  const corr = (a: RiskAssetKey, b: RiskAssetKey) => returnCorrelation(mapOf(S(a)), mapOf(S(b)), 20);
+  const corrTxt = (r: number | null, what: string) =>
+    isNum(r) ? `همبستگی بازده ماهانه با ${what}: ${fmtPct(r * 100, 0)} (۱۰۰٪ یعنی کاملاً هم‌جهت، صفر یعنی بی‌ارتباط).` : null;
+  const lines = (...xs: (string | null | false | undefined)[]) => xs.filter((x): x is string => !!x);
+
+  const out: AssetScenario[] = [];
+  const core = (key: RiskAssetKey, group: AssetScenario['group'], context: string[], bubblePct?: number | null) => {
+    const s = S(key);
+    const d = def(key);
+    out.push(buildScenario({ key, label: d.label, unit: d.unit, group, price: d.price, dates: s.dates, prices: s.prices, basis: s.basis, reconstructed: s.reconstructed, bubblePct, context }));
+  };
+
+  core('usd', 'fx', lines(
+    'دلار آزاد به اخبار سیاسی، مذاکرات و انتظار تورمی حساس است و معمولاً «پله‌ای» جهش می‌کند؛ اصلاح دُم پهن برای همین است.',
+    isNum(c.usdtPremiumPct) && `فاصله تتر با دلار آزاد ${fmtPct(c.usdtPremiumPct)} است؛ پرمیوم مثبت معمولاً نشانه تقاضای بیشتر برای ارز است.`,
+  ));
+  core('g18', 'gold', lines(
+    'قیمت طلای ۱۸ عیار ≈ انس جهانی × دلار آزاد × ۰٫۷۵ ÷ ۳۱٫۱؛ پس سناریوی آن ترکیبی از سناریوی انس و دلار است.',
+    isNum(c.g18Intrinsic) && `ارزش ذاتی امروز بر همین پایه: ${fmtPrice(rialToToman(c.g18Intrinsic))} تومان (حباب ${fmtPct(c.g18BubblePct, 1)}).`,
+    corrTxt(corr('g18', 'usd'), 'دلار'),
+  ), c.g18BubblePct);
+  core('coin', 'gold', lines(
+    isNum(c.coinIntrinsic) && `ارزش ذاتی سکه (۷٫۳۲ گرم طلای خالص): ${fmtPrice(rialToToman(c.coinIntrinsic))} تومان؛ حباب ${fmtPct(c.coinBubblePct, 1)}. حباب بالا در بازار آرام معمولاً کم می‌شود.`,
+  ), c.coinBubblePct);
+  core('ons', 'gold', lines(
+    'انس جهانی دلاری است و به نرخ بهره آمریکا، قدرت دلار جهانی و خرید بانک‌های مرکزی حساس است؛ نوسانش معمولاً از دارایی‌های ریالی و کریپتو کمتر است.',
+  ));
+
+  const btcS = S('btc');
+  const btcRet = btcS.prices.slice(-366);
+  let bigDays = 0;
+  for (let i = 1; i < btcRet.length; i++) if (Math.abs(btcRet[i] / btcRet[i - 1] - 1) > 0.05) bigDays++;
+  core('btc', 'crypto', lines(
+    btcRet.length > 100 && `در سال گذشته ${fmtInt(bigDays)} روز حرکت روزانه بیش از ۵٪ داشته؛ کریپتو ۲۴ ساعته و بدون دامنه نوسان معامله می‌شود.`,
+    'بیت‌کوین با اشتهای ریسک جهانی و ورود/خروج صندوق‌های ETF هم‌جهت است.',
+  ));
+
+  // TSE — breadth, flows, valuation and sectors from today's full symbol list
+  const liquid = (c.symbols ?? []).filter((s) => s.tno > 0 && s.tval >= Number(process.env.TSE_MIN_TVAL || 5e9));
+  const breadth = liquid.length ? (liquid.filter((s) => (s.lastChgPct ?? s.chgPct ?? 0) > 0).length / liquid.length) * 100 : null;
+  const flowToman = liquid.some((s) => s.netRealFlow !== null) ? liquid.reduce((a, s) => a + (s.netRealFlow ?? 0), 0) / 10 : null;
+  const pes = liquid.map((s) => s.pe).filter((p): p is number => isNum(p) && p > 0 && p < 200);
+  const sectorVal = new Map<string, number>();
+  for (const s of liquid) if (s.sector) sectorVal.set(s.sector, (sectorVal.get(s.sector) ?? 0) + s.tval);
+  const topSectors = [...sectorVal.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n);
+  core('tse', 'tse', lines(
+    isNum(breadth) && `عرض بازار: در آخرین جلسه ${fmtPct(breadth, 0, false)} نمادهای پرمعامله مثبت بودند (بالای ۶۰٪ = بازار همه‌جانبه صعودی، زیر ۴۰٪ = فشار فروش گسترده).`,
+    isNum(flowToman) && `برآیند پول حقیقی: ${flowToman >= 0 ? 'ورود' : 'خروج'} ${fmtPrice(Math.abs(flowToman) / 1e9)} میلیارد تومان؛ خروج پایدار پول حقیقی معمولاً پیش‌درآمد ضعف شاخص است.`,
+    pes.length >= 20 && `میانه P/E نمادهای پرمعامله ${fmtNum(median(pes), 1)} است؛ P/E پایین‌تر یعنی سهام نسبت به سودشان ارزان‌ترند و فضای افت محدودتر است.`,
+    topSectors.length > 0 && `بیشترین ارزش معاملات در صنایع: ${topSectors.join('، ')}.`,
+    corrTxt(corr('tse', 'usd'), 'دلار آزاد'),
+    'بورس تهران دامنه نوسان روزانه و صف خرید/فروش دارد؛ به همین دلیل حرکت‌ها چندروزه ادامه پیدا می‌کند و در افق‌های بلند نوسان بزرگ‌تر محاسبه شده.',
+  ));
+
+  // three strongest altcoins from the weekly screen
+  const btcMap = mapOf(btcS);
+  const alts = c.crypto.filter((x) => !['BTC', 'ETH', 'WBTC', 'STETH'].includes(x.symbol) && x.mcap >= 1e9).slice(0, 3);
+  const altSeries = await Promise.all(alts.map((a) => coinSeries(a.id).catch(() => null)));
+  alts.forEach((a, i) => {
+    const s = altSeries[i];
+    const bv = s ? betaVs(new Map(s.dates.map((d, j) => [d, s.prices[j]])), btcMap) : null;
+    out.push(
+      buildScenario({
+        key: `alt:${a.id}`,
+        label: a.name,
+        symbol: a.symbol,
+        unit: 'usd',
+        group: 'alt',
+        price: a.price,
+        dates: s?.dates ?? [],
+        prices: s?.prices ?? [],
+        basis: 'CoinGecko',
+        context: lines(
+          `رتبه ${fmtInt(a.rank)} در غربال هفتگی کوین‌ها با امتیاز ${fmtInt(a.score)}: ${a.reasons.join('؛ ')}.`,
+          bv && `بتای روزانه نسبت به بیت‌کوین ${fmtPrice(bv.beta)} و نوسانش ${fmtPrice(bv.volRatio)} برابر بیت‌کوین است؛ یعنی اگر بیت‌کوین ۱۰٪ افت کند، این کوین به‌طور میانگین حدود ${fmtPct(bv.beta * 10, 0, false)} افت می‌کند.`,
+          'آلت‌کوین‌ها در بازار نزولی معمولاً سریع‌تر و عمیق‌تر از بیت‌کوین افت می‌کنند؛ حجم این بخش را کوچک نگه دارید.',
+        ),
+      }),
+    );
+  });
+  return out;
 }

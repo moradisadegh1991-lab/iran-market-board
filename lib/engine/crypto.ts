@@ -53,7 +53,7 @@ function isExcluded(c: CgCoin): boolean {
   return false;
 }
 
-function rank(feats: Feat[], meme: boolean, tradable: Set<string> | null, take = 10): CryptoRow[] {
+function rank(feats: Feat[], meme: boolean, tradable: Set<string> | null, take = 25): CryptoRow[] {
   if (!feats.length) return [];
   const R = (f: (x: Feat) => number | null) => pctRank(feats.map((x) => f(x) ?? NaN));
   const rTrend = R((x) => x.trend), rM7 = R((x) => x.m7), rM30 = R((x) => x.m30);

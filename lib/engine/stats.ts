@@ -97,3 +97,41 @@ export const median = (a: number[]) => {
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
+
+/** sample skewness and excess kurtosis */
+export function moments(a: number[]): { skew: number; exKurt: number } {
+  const n = a.length;
+  if (n < 8) return { skew: 0, exKurt: 0 };
+  const m = mean(a);
+  let m2 = 0, m3 = 0, m4 = 0;
+  for (const x of a) {
+    const d = x - m;
+    m2 += d * d;
+    m3 += d * d * d;
+    m4 += d * d * d * d;
+  }
+  m2 /= n; m3 /= n; m4 /= n;
+  if (m2 <= 0) return { skew: 0, exKurt: 0 };
+  return { skew: m3 / m2 ** 1.5, exKurt: m4 / (m2 * m2) - 3 };
+}
+
+/** lag-1 autocorrelation */
+export function autocorr1(a: number[]): number {
+  if (a.length < 10) return 0;
+  const m = mean(a);
+  let num = 0, den = 0;
+  for (let i = 0; i < a.length; i++) {
+    den += (a[i] - m) ** 2;
+    if (i > 0) num += (a[i] - m) * (a[i - 1] - m);
+  }
+  return den > 0 ? num / den : 0;
+}
+
+/** linear-interpolated quantile (q in 0..1) */
+export function quantile(a: number[], q: number): number {
+  if (!a.length) return NaN;
+  const s = [...a].sort((x, y) => x - y);
+  const pos = (s.length - 1) * q;
+  const lo = Math.floor(pos), hi = Math.ceil(pos);
+  return s[lo] + (s[hi] - s[lo]) * (pos - lo);
+}

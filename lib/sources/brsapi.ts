@@ -98,6 +98,7 @@ export interface TseSymbol {
   eps: number | null;
   maxAllowed: number | null;
   netRealFlow: number | null; // rial, individuals buy - sell (if provided)
+  sector: string | null;
 }
 
 const EXCLUDE_NAME = /صندوق|اوراق|صکوک|اجاره|مرابحه|حق\s*تقدم|تسهیلات|گواهی|اختیار|آتی|سلف|منفعت|استصناع/;
@@ -146,6 +147,7 @@ export function parseBrsSymbols(json: any): TseSymbol[] {
       eps: pct(['eps']),
       maxAllowed: price(['tmax', 'psGelStaMax']),
       netRealFlow: flow,
+      sector: String(pick(s, ['cs', 'sector', 'sector_name']) ?? '').trim() || null,
     });
   }
   return out;

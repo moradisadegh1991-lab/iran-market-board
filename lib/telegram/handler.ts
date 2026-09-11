@@ -2,7 +2,7 @@ import { kv } from '@/lib/store';
 import { getSnapshot } from '@/lib/snapshot';
 import { baseUrl } from '@/lib/auth';
 import { safeSend, tg } from './api';
-import { coinsMsg, fullReport, memesMsg, portfolioMsg, pricesMsg, riskMsg, stocksMsg } from './format';
+import { coinsMsg, fullReport, memesMsg, portfolioMsg, pricesMsg, riskMsg, scenariosMsg, stocksMsg } from './format';
 import type { Profile, Snapshot } from '@/lib/types';
 
 export const SUBS_KEY = 'tg:subscribers';
@@ -13,6 +13,7 @@ const ROUTES: Route[] = [
   { match: /^\/stop/, special: 'stop' },
   { match: /^\/(help)|راهنما/, special: 'help' },
   { match: /^\/prices|قیمت/, build: pricesMsg },
+  { match: /^\/scenarios|سناریو/, build: scenariosMsg },
   { match: /^\/risk|ریسک/, build: riskMsg },
   { match: /^\/meme|میم/, build: memesMsg },
   { match: /^\/crypto|کوین/, build: coinsMsg },
@@ -27,6 +28,7 @@ const ROUTES: Route[] = [
 const HELP = [
   '<b>راهنمای ربات تابلوی بازار</b>',
   '/prices قیمت لحظه‌ای',
+  '/scenarios بدترین و بهترین سناریوی قیمت در ۶ افق',
   '/risk ریسک خرید، نگهداری و فروش در ۶ افق',
   '/crypto ده کوین با مومنتوم قوی',
   '/meme ده میم‌کوین با مومنتوم قوی',
