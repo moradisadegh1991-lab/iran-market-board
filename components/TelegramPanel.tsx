@@ -11,7 +11,7 @@ export default function TelegramPanel({ botUsername }: { botUsername: string }) 
       const res = await fetch('/api/telegram/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret }, body: '{}' });
       const j = await res.json();
       if (!res.ok || !j.ok) throw new Error(j.error === 'forbidden' ? 'رمز مدیر اشتباه است.' : j.error || 'ارسال انجام نشد.');
-      setState({ busy: false, msg: `ارسال شد: ${j.messages} پیام به ${j.sent} گفتگو${j.failed?.length ? ` — ${j.failed.length} مورد ناموفق` : ''}` });
+      setState({ busy: false, msg: `ارسال شد: ${j.messages} پیام به ${j.sent} گفتگو${j.failed?.length ? ` — ${j.failed.length} مورد ناموفق (${j.failed[0].chat}: ${j.failed[0].error})` : ''}` });
     } catch (e) {
       setState({ busy: false, msg: e instanceof Error ? e.message : 'ارسال انجام نشد.' });
     }
