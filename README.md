@@ -1,0 +1,192 @@
+# تابلوی بازار ایران — Iran Market Board
+
+داشبورد Next.js روی Vercel + ربات تلگرام برای دلار، تتر، طلا و سکه، کریپتو و بورس تهران/فرابورس.
+
+- قیمت لحظه‌ای + حباب سکه و طلای ۱۸ + پرمیوم تتر
+- ریسک خرید / نگهداری / فروش در ۶ افق (روزانه تا سالانه)
+- ۱۰ کوین + ۱۰ میم‌کوین (غربال مومنتوم هفتگی)
+- ۱۰ سهم بورس/فرابورس (غربال یک‌ماهه)
+- سبد دارایی برای ۳ پروفایل ریسک × افق‌های ۱، ۳، ۶ و ۱۲ ماهه
+- ارسال همه بخش‌ها به تلگرام (دستورها + گزارش روزانه به کانال و مشترکان)
+
+> ⚠️ خروجی‌ها رتبه‌بندی و مدل آماری‌اند، نه پیش‌بینی قیمت یا توصیه سرمایه‌گذاری.
+
+---
+
+## ۱) Deploy
+
+```bash
+unzip iran-market-board.zip && cd iran-market-board
+npm install
+npm run typecheck && npm run smoke   # تست آفلاین کامل (بدون اینترنت)
+git init && git add . && git commit -m "init"
+git remote add origin git@github.com:moradisadegh1991-lab/iran-market-board.git
+git push -u origin main
+```
+
+در Vercel: **Add New → Project → Import** همین ریپو. Framework خودکار Next.js است.
+
+### Storage
+`Vercel → Storage → Marketplace → Upstash Redis → Connect` روی همین پروژه.
+متغیرهای `KV_REST_API_URL / KV_REST_API_TOKEN` یا `UPSTASH_REDIS_REST_URL / TOKEN` خودکار اضافه می‌شوند؛ هر دو پشتیبانی می‌شوند.
+بدون Redis برنامه اجرا می‌شود ولی تاریخچه، کش و مشترکان ربات بعد از هر cold start پاک می‌شوند (بنر زرد بالای صفحه).
+
+### Environment Variables (حداقل)
+| متغیر | توضیح |
+|---|---|
+| `ADMIN_SECRET` | رشته تصادفی بلند؛ برای diag، ingest، setup و broadcast |
+| `CRON_SECRET` | Vercel خودش در هدر cron می‌فرستد |
+| `BRSAPI_KEY` | کلید BrsApi.ir (برای شاخص و نمادهای بورس) |
+| `TELEGRAM_BOT_TOKEN` | از @BotFather |
+| `TELEGRAM_WEBHOOK_SECRET` | رشته تصادفی (فقط `A-Z a-z 0-9 _ -`) |
+| `NEXT_PUBLIC_BOT_USERNAME` | نام ربات بدون @ |
+| `TELEGRAM_CHANNEL_ID` | اختیاری، مثل `@mychannel`؛ ربات باید ادمین کانال باشد |
+| `COINGECKO_API_KEY` | اختیاری (Demo key)، برای rate limit کمتر |
+
+بقیه در `.env.example`. بعد از تغییر env یک Redeploy بزنید.
+
+---
+
+## ۲) اولین کار بعد از Deploy: تست اتصال منابع
+
+```
+https://YOUR-APP.vercel.app/api/diag?secret=ADMIN_SECRET
+```
+
+برای هر منبع `ok`، زمان پاسخ، کلیدهای JSON خام و یک نمونه پارس‌شده برمی‌گردد.
+
+- اگر `tgju` یا `nobitex` یا `brsIndex/brsSymbols` خطای 403 / timeout دادند، یعنی IP دیتاسنتر Vercel را مسدود کرده‌اند → بخش ۵.
+- در `brsIndex` و `brsSymbols` بررسی کنید `parsed` مقدار واقعی دارد؛ پارسر نام فیلدها را به‌صورت تدافعی حدس می‌زند (`l18, pl, pc, tval, …`). اگر خالی بود، خروجی `rawKeys` را برای اصلاح `lib/sources/brsapi.ts` استفاده کنید.
+
+---
+
+## ۳) ربات تلگرام
+
+```
+https://YOUR-APP.vercel.app/api/telegram/setup?secret=ADMIN_SECRET
+```
+webhook و منوی دستورها را ثبت می‌کند. بعد در ربات `/start` بزنید.
+
+| دستور | خروجی |
+|---|---|
+| `/prices` | قیمت‌ها، حباب و پرمیوم |
+| `/risk` | ریسک ۶ افق همه دارایی‌ها |
+| `/crypto` · `/meme` | ۱۰ کوین · ۱۰ میم‌کوین هفته |
+| `/stocks` | ۱۰ سهم ماه |
+| `/portfolio` · `/portfolio_safe` · `/portfolio_bold` | سبد متعادل · محتاط · جسور |
+| `/all` | گزارش کامل (چند پیام) |
+| `/stop` | لغو گزارش روزانه |
+
+ارسال دستی به کانال + همه مشترکان:
+```bash
+curl -X POST https://YOUR-APP.vercel.app/api/telegram/broadcast -H "x-admin-secret: ADMIN_SECRET"
+```
+یا از پنل «ربات تلگرام» پایین داشبورد.
+
+### Cron (UTC)
+| مسیر | زمان | تهران |
+|---|---|---|
+| `/api/cron/refresh` | `0 10 * * *` | ۱۳:۳۰ (بعد از بسته شدن بازار؛ ثبت روز معاملاتی) |
+| `/api/cron/broadcast` | `30 4 * * *` | ۸:۰۰ صبح |
+
+پلن Hobby فقط cron روزانه مجاز است؛ این دو همین‌طورند. `DAILY_BROADCAST=0` گزارش روزانه را خاموش می‌کند.
+
+---
+
+## ۴) پر کردن تاریخچه بورس (ضروری برای غربال سهام)
+
+غربال یک‌ماهه به حداقل ۲۰ روز معاملاتی ذخیره‌شده نیاز دارد. تا آن زمان حالت «گرم‌شدن» فعال است و رتبه‌بندی فقط با معاملات همان روز انجام می‌شود (اعتبار پایین).
+
+برای پر کردن فوری، از ماشینی که TSETMC را باز می‌کند (معمولاً IP ایران):
+
+```bash
+# فقط Python 3 استاندارد لازم است (Termux هم کافی است)
+python3 scripts/backfill_tse.py --probe                 # تست دسترسی به TSETMC با ۳ نماد
+python3 scripts/backfill_tse.py \
+  --url https://YOUR-APP.vercel.app --secret ADMIN_SECRET \
+  --days 60 --top 300
+```
+
+اسکریپت از endpointهای `cdn.tsetmc.com` استفاده می‌کند (market watch، سابقه قیمت پایانی، سابقه شاخص کل). این endpointها غیررسمی‌اند و ممکن است تغییر کنند؛ اگر `--probe` خطا داد، فایل CSV را از هر منبعی (خروجی TSETMC، pytse-client، …) بسازید:
+
+```csv
+symbol,date,close,value
+فولاد,2026-08-20,5230,120000000000
+```
+```bash
+python3 scripts/backfill_tse.py --url https://YOUR-APP.vercel.app --secret ADMIN_SECRET --csv history.csv
+```
+- `date` میلادی `YYYY-MM-DD`، `close` و `value` به **ریال**.
+- حروف «ي/ك» عربی خودکار به «ی/ک» فارسی تبدیل می‌شوند تا با نام نمادهای BrsApi یکی شوند.
+- سرور حداکثر ۸۰ روز و ۴۵۰ نماد نگه می‌دارد.
+
+---
+
+## ۵) اگر منبعی IP ویرسل را مسدود کرد: `/api/ingest`
+
+۱. نام منبع را در env بگذارید تا Vercel دیگر مستقیم درخواست نزند:
+```
+INGEST_ONLY_SOURCES=tgju,nobitex
+```
+۲. از ماشینی با IP ایران (مثلاً n8n روی Termux، هر ۵ دقیقه) JSON خام همان API را push کنید:
+
+```bash
+URL=https://YOUR-APP.vercel.app/api/ingest
+SECRET=ADMIN_SECRET
+
+# TGJU
+curl -s https://call.tgju.org/ajax.json \
+ | jq -c '{source:"tgju", data:.}' \
+ | curl -s -X POST "$URL" -H "x-admin-secret: $SECRET" -H "content-type: application/json" -d @-
+
+# Nobitex
+curl -s "https://api.nobitex.ir/market/stats?srcCurrency=usdt,btc,eth&dstCurrency=rls,usdt" \
+ | jq -c '{source:"nobitex", data:.}' \
+ | curl -s -X POST "$URL" -H "x-admin-secret: $SECRET" -H "content-type: application/json" -d @-
+```
+
+در n8n: `HTTP Request (API منبع)` → `HTTP Request (POST به /api/ingest)` با body
+`{"source":"tgju","data": {{ $json }} }` و هدر `x-admin-secret`.
+
+قالب‌های قابل قبول:
+```jsonc
+{"source": "tgju|goldapi|nobitex|brsIndex|brsSymbols", "data": <JSON خام API>}
+{"kind": "daily", "asset": "usd|usdt|g18|coin|ons|btc|eth|tse", "points": [{"date":"2026-01-31","value":1050000}]}  // ریال
+{"kind": "tse", "symbols": {"فولاد": [{"date":"2026-01-31","close":5230,"value":1.2e11}]}}
+```
+`kind: daily` برای وارد کردن سابقه واقعی دلار و سکه است (مثلاً از خروجی قدیمی n8n) تا ریسک بلندمدت به‌جای proxy از داده واقعی ساخته شود.
+
+---
+
+## ۶) مدل‌ها در یک نگاه
+
+**ریسک (۶ افق)** — بازده لگاریتمی با توزیع نرمال؛ روند تاریخی ۵۰٪ کوچک می‌شود، نوسان کوتاه‌مدت ترکیب EWMA (λ=0.94) و انحراف معیار نمونه است. آستانه افت/رشد: ۲٪ روزانه، ۴٪ هفتگی، ۸٪ ماهانه، ۱۲٪ سه‌ماهه، ۱۸٪ شش‌ماهه، ۲۵٪ سالانه.
+- خرید = احتمال افت + گرانی (RSI و z-score) + بیشینه افت اخیر + (حباب برای سکه و طلا)
+- نگهداری = احتمال افت + بیشینه افت
+- فروش = احتمال جاماندن از رشد + ارزانی نسبی
+
+تا تاریخچه واقعی جمع شود، بازده‌ها با proxy ساخته می‌شوند: دلار ← USDT/IRT نوبیتکس، طلا ← PAXG × تتر. ستون «اعتماد به داده» این را نشان می‌دهد.
+
+**کریپتو (هفته)** — رتبه صدکی: روند ۷ روزه × R²، بازده ۷ و ۳۰ روزه، گردش معاملات به ارزش بازار، نزدیکی به سقف، آرامش نوسان؛ جریمه جهش ۲۴ ساعته. استیبل‌کوین‌ها، توکن‌های wrapped/staked و نمادهای تکراری حذف می‌شوند.
+
+**سهام (ماه)** — قدرت نسبی ۲۰ روزه به شاخص، بازده ۶۰ روزه، جهش ارزش معاملات ۵ روز به ۴۰ روز، نزدیکی به سقف ۶۰ روزه، SMA20/50، ورود پول حقیقی؛ جریمه اشباع خرید، صف خرید، P/E بالا و زیان‌ده. فیلتر نقدشوندگی: `TSE_MIN_TVAL`.
+
+**سبد** — وزن پایه هر پروفایل/افق در `lib/engine/portfolio.ts` (قابل ویرایش)، ضریب ۰٫۴ تا ۱٫۶ بر اساس ریسک ورود همان افق، سقف هر دسته، کف درآمد ثابت، نوسان سبد با ماتریس همبستگی فرضی و VaR ۹۵٪.
+
+---
+
+## ۷) ساختار
+
+```
+app/api/        snapshot · diag · ingest · cron/* · telegram/{webhook,setup,broadcast}
+lib/sources/    tgju · goldapi · nobitex · brsapi · coingecko · cache
+lib/engine/     stats · risk · crypto · tse · portfolio
+lib/telegram/   api · format · handler
+components/     Dashboard · RatesBoard · RiskMatrix · CryptoScreener · StockScreener · PortfolioPanel · TelegramPanel
+scripts/        smoke.ts (تست آفلاین) · backfill_tse.py
+```
+
+## محدودیت‌های واقعی
+- endpointهای TGJU، نوبیتکس، BrsApi و TSETMC ممکن است بدون اطلاع تغییر کنند یا IP خارجی را ببندند؛ `/api/diag` را بعد از هر خطا چک کنید.
+- غربال‌ها رتبه‌بندی مومنتوم‌اند؛ دقت پیش‌بینی آن‌ها به‌ویژه برای میم‌کوین‌ها و سهام با صف پایین است.
+- همبستگی‌ها و وزن‌های پایه سبد فرض‌اند، نه برآورد آماری.

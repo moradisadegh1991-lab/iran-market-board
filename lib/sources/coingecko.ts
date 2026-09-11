@@ -1,0 +1,38 @@
+import { fetchJson } from '@/lib/http';
+
+const BASE = 'https://api.coingecko.com/api/v3';
+const headers = (): Record<string, string> =>
+  process.env.COINGECKO_API_KEY ? { 'x-cg-demo-api-key': process.env.COINGECKO_API_KEY } : {};
+
+export interface CgCoin {
+  id: string;
+  symbol: string;
+  name: string;
+  image?: string;
+  current_price: number;
+  market_cap: number;
+  market_cap_rank?: number;
+  total_volume: number;
+  price_change_percentage_24h_in_currency?: number | null;
+  price_change_percentage_7d_in_currency?: number | null;
+  price_change_percentage_30d_in_currency?: number | null;
+  sparkline_in_7d?: { price: (number | null)[] };
+}
+
+export const fetchCgMarkets = (category?: string, perPage = 250) =>
+  fetchJson<CgCoin[]>(
+    `${BASE}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${perPage}&page=1&sparkline=true&price_change_percentage=24h,7d,30d${
+      category ? `&category=${category}` : ''
+    }`,
+    { headers: headers(), timeoutMs: 20_000 },
+  );
+
+/** Daily prices for ~1y: [[ms, price], ...] */
+export async function fetchCgDaily(id: string, days = 365): Promise<[number, number][]> {
+  const json = await fetchJson(`${BASE}/coins/${id}/market_chart?vs_currency=usd&days=${days}`, {
+    headers: headers(),
+    timeoutMs: 20_000,
+  });
+  if (!Array.isArray(json?.prices)) throw new Error(`market_chart ${id}: bad response`);
+  return json.prices as [number, number][];
+}
