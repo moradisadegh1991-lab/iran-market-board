@@ -8,6 +8,7 @@ import { fmtDateTimeFa } from '@/lib/num';
 export const PAGES = [
   { href: '/', label: 'نمای کلی' },
   { href: '/scenarios', label: 'سناریوها' },
+  { href: '/simulator', label: 'معامله‌گر' },
   { href: '/charts', label: 'نمودار' },
   { href: '/risk', label: 'ریسک' },
   { href: '/stocks', label: 'بورس' },

@@ -29,6 +29,31 @@ export async function fetchJson<T = any>(
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
+/** Plain-text fetch (RSS/XML) with the same UA, timeout and retry behaviour as fetchJson. */
+export async function fetchText(
+  url: string,
+  opts: { headers?: Record<string, string>; timeoutMs?: number; retries?: number } = {},
+): Promise<string> {
+  const retries = opts.retries ?? 1;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': UA, Accept: 'application/rss+xml, application/xml, text/xml, */*', ...opts.headers },
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 12_000),
+        cache: 'no-store',
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
+      return text;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 export function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }

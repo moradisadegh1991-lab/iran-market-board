@@ -334,6 +334,96 @@ ol.list { counter-reset: n; }
 @media (max-width: 380px) {
   .board-grid { grid-template-columns: 1fr; }
 }
+/* ── Simulator ──
+   The order ticket reads like a form you'd hand a broker; the result opens with a lapis "statement" (the page's one bold moment,
+   echoing the rate board), and the journal is a dated ledger: the sequence number is real, trades are a sequence. */
+.ticket { margin-top: 14px; }
+.ticket h2 { margin-bottom: 12px; }
+.ticket-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 28px; }
+.field { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 8px; align-content: start; }
+.field legend { font-weight: 700; font-size: 14.5px; color: var(--ink); padding: 0; margin-bottom: 8px; }
+.date-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.date-pair label { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
+.date-pair input { font: inherit; color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-s); padding: 7px 10px; background: var(--surface); direction: ltr; text-align: right; min-width: 0; width: 100%; }
+.date-pair small { color: var(--ink-2); font-size: 12.5px; }
+.amount.wide input { width: 100%; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.amount.wide { display: flex; }
+.ticket-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.btn.run { padding: 11px 26px; font-size: 15.5px; font-weight: 700; background: var(--teal); }
+.btn.run:hover { background: #0a5f62; }
+
+.sim-result { display: grid; gap: 18px; margin-top: 22px; scroll-margin-top: 110px; }
+.statement { background: var(--lapis); color: #f3f5fa; border-radius: var(--r-m); padding: 18px 22px 16px; }
+.statement-range { margin: 0 0 10px; color: #c7d0e2; font-size: 13.5px; }
+.statement-main { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 32px; padding-bottom: 14px; border-bottom: 1px solid var(--lapis-line); }
+.statement-label { display: block; font-size: 13px; color: #c7d0e2; }
+.statement-final { display: block; font-size: clamp(26px, 5vw, 38px); font-weight: 800; line-height: 1.3; }
+.statement-pnl strong { font-size: clamp(19px, 3.4vw, 25px); font-weight: 800; }
+.statement-pnl.up strong { color: #7fd6a6; }
+.statement-pnl.down strong { color: #f2a097; }
+.statement-stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px 18px; margin: 12px 0 0; }
+.statement-stats dt { font-size: 12.5px; color: #aab6cc; }
+.statement-stats dd { margin: 0; font-weight: 700; font-size: 15.5px; }
+.statement-stats small { font-weight: 400; color: #c7d0e2; }
+.sim-warn { margin: 0; padding-inline-start: 1.6em; display: grid; gap: 4px; background: #fff6dd; border-color: #ecd28f; color: #5b4510; }
+
+.section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 8px; }
+.bench-toggles { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.equity-host { height: 340px; }
+.key { display: inline-block; width: 18px; height: 0; border-top: 3px solid; vertical-align: middle; margin-inline-end: 2px; }
+.k-strategy { border-color: var(--lapis); }
+.k-deposit { border-color: #8a94a6; border-top-style: dashed; }
+.k-usd { border-color: var(--teal); border-top-width: 2px; }
+.k-equal { border-color: #b07d1a; border-top-width: 1px; }
+
+.analysis { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); padding: 18px 22px; }
+.analysis h2 { margin-bottom: 4px; }
+.analysis-part { max-width: 76ch; }
+.analysis-part h3 { font-size: 15px; margin: 14px 0 2px; color: var(--lapis); }
+.analysis-part p { margin: 0; color: var(--ink-2); line-height: 1.9; }
+.analysis-part.narrative { margin-top: 16px; padding-top: 4px; border-top: 1px solid var(--line-soft); }
+.analysis-part.narrative p + p { margin-top: 8px; }
+
+.journal { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); }
+.entry { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 0 14px; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); }
+.entry:last-child { border-bottom: 0; }
+.entry-when { display: grid; align-content: start; justify-items: start; gap: 0; padding-inline-end: 12px; border-inline-end: 3px solid var(--line); }
+.entry.buy .entry-when { border-inline-end-color: var(--up-wing); }
+.entry.sell .entry-when { border-inline-end-color: var(--down-wing); }
+.entry-n { font-size: 12px; color: var(--muted); }
+.entry-day { font-weight: 800; font-size: 15px; color: var(--ink); line-height: 1.4; }
+.entry-when small { color: var(--muted); font-size: 12px; }
+.entry-line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.entry-line strong { font-size: 15.5px; }
+.entry-amt { margin-inline-start: auto; font-weight: 800; }
+.act { font-size: 13px; font-weight: 700; border-radius: 4px; padding: 0 8px; }
+.act.buy { background: var(--up-soft); color: #0c5a33; }
+.act.sell { background: var(--down-soft); color: #7a2a22; }
+.entry-sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.entry .why { margin-top: 8px; }
+.cites { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.cites li { font-size: 14px; line-height: 1.6; color: var(--ink); }
+.cites a { color: var(--ink); text-decoration: underline; text-decoration-color: #b8c2cf; text-underline-offset: 3px; }
+.cites a:hover { text-decoration-color: var(--teal); }
+.cites small { display: block; color: var(--muted); font-size: 12.5px; }
+.fx { font-size: 11px; margin-inline-end: 6px; }
+.t tr.me th, .t tr.me td { background: var(--teal-soft); font-weight: 700; }
+.news-used h2 { margin-bottom: 4px; }
+
+@media (max-width: 980px) {
+  .statement-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .ticket-grid { grid-template-columns: 1fr; }
+  .statement { padding: 16px; }
+  .statement-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .entry { grid-template-columns: 62px minmax(0, 1fr); padding: 12px; gap: 0 10px; }
+  .entry-amt { margin-inline-start: 0; flex-basis: 100%; }
+  .ticket-foot .btn.run { flex: 1 1 100%; }
+  .equity-host { height: 280px; }
+  .analysis { padding: 16px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .spin, .skeleton { animation: none; }
