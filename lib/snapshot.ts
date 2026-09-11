@@ -39,7 +39,12 @@ export async function getSnapshot(opts: { force?: boolean } = {}): Promise<Snaps
 
 async function buildSnapshot(): Promise<Snapshot> {
   const now = new Date();
-  const tseTtl = isTseSessionOpen(now) ? 150 : 1800;
+  // BrsApi free tier (TSETMC_AllSymbols / TSETMC_Index) caps at 100 req/day each.
+  // 240s in-session + 3600s off-session ≈ 80 req/day worst case — stays under the cap
+  // even with continuous visitor traffic. Override via env if you're on a paid plan.
+  const tseSessionTtl = Number(process.env.TSE_SESSION_TTL_SEC || 240);
+  const tseOffHoursTtl = Number(process.env.TSE_OFFHOURS_TTL_SEC || 3600);
+  const tseTtl = isTseSessionOpen(now) ? tseSessionTtl : tseOffHoursTtl;
 
   const [tgjuR, goldR, nobR, idxR, symR, cgR, memeR, hPaxg, hBtc, hEth, hUsdt] = await Promise.all([
     cachedSource('tgju', 60, fetchTgju),
