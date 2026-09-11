@@ -17,6 +17,45 @@ export const fetchBrsSymbols = () =>
     { timeoutMs: 25_000 },
   );
 
+/** Free "Gold_Currency" feed (package Market_CGCC) — includes a cryptocurrency block with Tether.
+ *  Used only as a fallback for USDT/IRT when Nobitex is unreachable (e.g. blocked from Vercel's IP). */
+export const fetchBrsGoldCurrency = () => fetchJson(`${base()}/Market/Gold_Currency.php?key=${key()}`, { timeoutMs: 15_000 });
+
+/** Recursively collect every array found anywhere in the payload (shape/grouping is unconfirmed — see /api/diag). */
+function allArrays(json: any, depth = 0): any[][] {
+  if (depth > 3 || !json || typeof json !== 'object') return [];
+  if (Array.isArray(json)) return [json];
+  return Object.values(json).flatMap((v) => allArrays(v, depth + 1));
+}
+
+/**
+ * Tether/USDT price from the free Gold_Currency feed, in Rial. Field names AND the price unit
+ * (Toman vs Rial) are unconfirmed — check /api/diag's `brsGoldCurrency` entry once deployed.
+ * As a safety net, the result is discarded unless it's within 50%–160% of the known dollar
+ * rate (usdRial): USDT tracks the dollar closely, so anything further off is a misread field,
+ * not a real price — better to show "—" than a wrong number.
+ */
+export function parseBrsTetherRial(json: any, usdRial: number | null): { price: number; changePct: number | null } | null {
+  const isTether = (o: any) => {
+    const sym = String(pick(o, ['symbol', 'symbol_en', 'en_symbol', 'code']) ?? '').toLowerCase();
+    const name = String(pick(o, ['name', 'name_fa', 'title', 'name_en']) ?? '');
+    return sym === 'usdt' || sym === 'tether' || /تتر/.test(name) || /tether/i.test(name);
+  };
+  const item = allArrays(json)
+    .flat()
+    .find((o) => o && typeof o === 'object' && isTether(o));
+  if (!item) return null;
+
+  const raw = num(pick(item, ['price', 'price_toman', 'toman_price', 'price_irr', 'p', 'value', 'last_price', 'close_price']));
+  if (!isNum(raw) || raw <= 0) return null;
+  const changePct = num(pick(item, ['change_percent', 'percent', 'change', 'dp', 'change_value']));
+
+  if (!isNum(usdRial) || usdRial <= 0) return { price: raw, changePct: isNum(changePct) ? changePct : null }; // can't sanity-check, best effort
+  const candidates = [raw, raw * 10, raw / 10]; // unit could be Toman, Rial, or (unlikely) something else
+  const best = candidates.find((c) => c >= usdRial * 0.5 && c <= usdRial * 1.6);
+  return best ? { price: best, changePct: isNum(changePct) ? changePct : null } : null;
+}
+
 function asArray(json: any): any[] {
   if (Array.isArray(json)) return json;
   for (const k of ['data', 'symbols', 'result', 'items', 'index']) if (Array.isArray(json?.[k])) return json[k];

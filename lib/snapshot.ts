@@ -5,7 +5,7 @@ import { cachedSource } from '@/lib/sources/cache';
 import { fetchTgju, parseTgju } from '@/lib/sources/tgju';
 import { fetchGoldApi, parseGoldApi } from '@/lib/sources/goldapi';
 import { fetchNobitexDaily, fetchNobitexStats, fetchNobitexTradable, parseNobitex } from '@/lib/sources/nobitex';
-import { fetchBrsIndex, fetchBrsSymbols, parseBrsIndex, parseBrsSymbols } from '@/lib/sources/brsapi';
+import { fetchBrsIndex, fetchBrsSymbols, fetchBrsGoldCurrency, parseBrsIndex, parseBrsSymbols, parseBrsTetherRial } from '@/lib/sources/brsapi';
 import { fetchCgDaily, fetchCgMarkets, type CgCoin } from '@/lib/sources/coingecko';
 import { dailyMap, loadDaily, loadTse, pairsToMap, productMap, saveDaily, saveTse, spliceSeries, upsertDailyPoint, upsertTseDay } from '@/lib/history';
 import { computeRisk } from '@/lib/engine/risk';
@@ -46,12 +46,13 @@ async function buildSnapshot(): Promise<Snapshot> {
   const tseOffHoursTtl = Number(process.env.TSE_OFFHOURS_TTL_SEC || 3600);
   const tseTtl = isTseSessionOpen(now) ? tseSessionTtl : tseOffHoursTtl;
 
-  const [tgjuR, goldR, nobR, idxR, symR, cgR, memeR, hPaxg, hBtc, hEth, hUsdt] = await Promise.all([
+  const [tgjuR, goldR, nobR, idxR, symR, gcR, cgR, memeR, hPaxg, hBtc, hEth, hUsdt] = await Promise.all([
     cachedSource('tgju', 60, fetchTgju),
     cachedSource('goldapi', 60, fetchGoldApi),
     cachedSource('nobitex', 60, fetchNobitexStats),
     cachedSource('brsIndex', tseTtl, fetchBrsIndex, 4 * 24 * 3600),
     cachedSource('brsSymbols', tseTtl, fetchBrsSymbols, 4 * 24 * 3600),
+    cachedSource('brsGoldCurrency', 120, fetchBrsGoldCurrency, 4 * 24 * 3600), // fallback for USDT if Nobitex is blocked
     cachedSource<CgCoin[]>('cgMarkets', 300, () => fetchCgMarkets(undefined, 250), 6 * 3600),
     cachedSource<CgCoin[]>('cgMemes', 300, () => fetchCgMarkets('meme-token', 120), 6 * 3600),
     cachedSource('histPaxg', 12 * 3600, () => fetchCgDaily('pax-gold'), 10 * 24 * 3600),
@@ -68,7 +69,9 @@ async function buildSnapshot(): Promise<Snapshot> {
   const symbols = symR.data ? parseBrsSymbols(symR.data) : null;
 
   const usdR = tg.usd?.price ?? null; // rial
-  const usdtR = nb.usdtRls?.price ?? null;
+  const brsTether = gcR.data ? parseBrsTetherRial(gcR.data, usdR) : null;
+  const usdtR = nb.usdtRls?.price ?? brsTether?.price ?? null;
+  const usdtChangePct = nb.usdtRls?.changePct ?? brsTether?.changePct ?? null;
   const g18Intrinsic = isNum(ons) && isNum(usdR) ? (ons / OZ) * 0.75 * usdR : null;
   const coinIntrinsic = isNum(ons) && isNum(usdR) ? (ons / OZ) * COIN_PURE_GRAMS * usdR : null;
   const coinBubblePct = tg.coin && coinIntrinsic ? (tg.coin.price / coinIntrinsic - 1) * 100 : null;
@@ -80,7 +83,7 @@ async function buildSnapshot(): Promise<Snapshot> {
 
   const items: BoardItem[] = [
     { key: 'usd', label: 'دلار آزاد', price: rialToToman(usdR) || null, unit: 'toman', changePct: tg.usd?.changePct ?? null },
-    { key: 'usdt', label: 'تتر', price: rialToToman(usdtR) || null, unit: 'toman', changePct: nb.usdtRls?.changePct ?? null, note: isNum(usdtPremiumPct) ? `پرمیوم نسبت به دلار ${fmtPct(usdtPremiumPct)}` : undefined },
+    { key: 'usdt', label: 'تتر', price: rialToToman(usdtR) || null, unit: 'toman', changePct: usdtChangePct, note: isNum(usdtPremiumPct) ? `پرمیوم نسبت به دلار ${fmtPct(usdtPremiumPct)}` : undefined },
     { key: 'coin', label: 'سکه امامی', price: rialToToman(tg.coin?.price) || null, unit: 'toman', changePct: tg.coin?.changePct ?? null, note: isNum(coinBubblePct) ? `حباب ${fmtPct(coinBubblePct, 1, false)}` : undefined },
     { key: 'g18', label: 'طلای ۱۸ عیار (گرم)', price: rialToToman(tg.g18?.price) || null, unit: 'toman', changePct: tg.g18?.changePct ?? null, note: isNum(g18BubblePct) ? `حباب ${fmtPct(g18BubblePct, 1, false)}` : undefined },
     { key: 'ons', label: 'انس جهانی طلا', price: ons, unit: 'usd', changePct: tg.ons?.changePct ?? null },
@@ -151,7 +154,7 @@ async function buildSnapshot(): Promise<Snapshot> {
     ? process.env.DEFAULT_RISK_PROFILE
     : 'balanced') as Profile;
 
-  const sources: SourceStatus[] = [tgjuR, goldR, nobR, idxR, symR, cgR, memeR].map((r) => r.status);
+  const sources: SourceStatus[] = [tgjuR, goldR, nobR, idxR, symR, gcR, cgR, memeR].map((r) => r.status);
   const hist = [hPaxg, hBtc, hEth, hUsdt];
   sources.push({
     name: 'history',

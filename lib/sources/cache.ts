@@ -18,6 +18,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   nobitex: 'نوبیتکس (تتر، BTC)',
   brsIndex: 'BrsApi (شاخص کل)',
   brsSymbols: 'BrsApi (نمادها)',
+  brsGoldCurrency: 'BrsApi (طلا و ارز، پشتیبان تتر)',
   cgMarkets: 'CoinGecko (بازار کریپتو)',
   cgMemes: 'CoinGecko (میم‌کوین‌ها)',
   nobitexScreen: 'نوبیتکس (نمادهای قابل معامله)',

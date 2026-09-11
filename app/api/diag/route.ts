@@ -6,7 +6,7 @@ import { errMsg, fetchJson } from '@/lib/http';
 import { fetchTgju, parseTgju } from '@/lib/sources/tgju';
 import { fetchGoldApi, parseGoldApi } from '@/lib/sources/goldapi';
 import { fetchNobitexDaily, fetchNobitexStats, parseNobitex } from '@/lib/sources/nobitex';
-import { fetchBrsIndex, fetchBrsSymbols, parseBrsIndex, parseBrsSymbols } from '@/lib/sources/brsapi';
+import { fetchBrsIndex, fetchBrsSymbols, fetchBrsGoldCurrency, parseBrsIndex, parseBrsSymbols, parseBrsTetherRial } from '@/lib/sources/brsapi';
 import { fetchCgMarkets } from '@/lib/sources/coingecko';
 
 export const dynamic = 'force-dynamic';
@@ -54,6 +54,8 @@ export async function GET(req: Request) {
       const rows = parseBrsSymbols(j);
       return rows.length ? { count: rows.length, first: rows[0], withFlow: rows.filter((r) => r.netRealFlow !== null).length } : null;
     }),
+    // sanity check skipped here (no usdRial in scope) — shows the raw match so you can eyeball the unit/field names
+    probe('brsGoldCurrency', fetchBrsGoldCurrency, (j) => parseBrsTetherRial(j, null)),
     probe('coingecko', () => fetchCgMarkets(undefined, 5), (j) => (Array.isArray(j) ? j.map((c: any) => c.symbol) : null)),
     probe('telegram', () => fetchJson(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getMe`), (j) => j?.result?.username ?? null),
   ]);
