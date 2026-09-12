@@ -37,7 +37,7 @@ export const MENU = [
   ['⚠️ ریسک بازارها', '🧺 سبد دارایی'],
   ['🪙 ۱۰ کوین', '🐸 ۱۰ میم‌کوین'],
   ['📈 ۱۰ سهم', '🌐 داشبورد'],
-  ['📋 گزارش کامل'],
+  ['📋 گزارش کامل', '🤖 معامله برخط'],
 ];
 
 export const replyKeyboard = { keyboard: MENU.map((row) => row.map((text) => ({ text }))), resize_keyboard: true, is_persistent: true };

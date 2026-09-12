@@ -4,7 +4,9 @@ import { errMsg } from '@/lib/http';
 import { isNum, tehranDate } from '@/lib/num';
 import { buildSeries, loadSeriesInputs, type AssetSeries } from '@/lib/series';
 import { loadNews, type NewsLoad } from '@/lib/news';
-import { PROFILES, SIM_ASSETS, simulate, type SimAsset, type SimProfile, type SimResult, type SimSeries } from '@/lib/engine/simulator';
+import { DEFAULT_PARAMS, PROFILES, SIM_ASSETS, simulate, type SimAsset, type SimParams, type SimProfile, type SimResult, type SimSeries } from '@/lib/engine/simulator';
+import type { LearnOutcome } from '@/lib/engine/learning';
+import { applyLearning, getLearnedParams, lookupFromSeries, noveltyOf } from '@/lib/learning';
 
 export interface SimRequest {
   start: string;
@@ -13,12 +15,23 @@ export interface SimRequest {
   profile: SimProfile;
   assets: SimAsset[];
   useNews: boolean;
+  engine: 'learned' | 'baseline';
+  learn: boolean; // admin only — checked in the route
+}
+
+export interface EngineComparison {
+  baseline: { returnPct: number; maxDrawdownPct: number; trades: number; winRatePct: number | null; finalToman: number };
+  learned: { returnPct: number; maxDrawdownPct: number; trades: number; winRatePct: number | null; finalToman: number };
+  overlapPct: number; // share of this window the learned engine had already seen → in-sample if high
 }
 
 export interface SimResponse extends SimResult {
   news: { enabled: boolean; items: number; reviewed: number; chunksLoaded: number; chunksTotal: number; sources: string[]; errors: string[] };
   narrative: { text: string; model: string } | null;
   narrativeError: string | null;
+  engine: { used: 'learned' | 'baseline'; version: number };
+  comparison: EngineComparison | null;
+  learning: LearnOutcome | null;
   generatedAt: string;
   cached: boolean;
 }
@@ -48,7 +61,7 @@ function toRial(usdPriced: AssetSeries, usd: AssetSeries): { dates: string[]; pr
 }
 const daysApart = (a: string, b: string) => Math.abs(Date.parse(b) - Date.parse(a)) / 86400000;
 
-async function loadAllSeries() {
+export async function loadAllSeries() {
   const inp = await loadSeriesInputs();
   const usd = buildSeries(inp, 'usd');
   const ons = buildSeries(inp, 'ons');
@@ -96,15 +109,19 @@ export function validate(body: any): SimRequest {
   const valid = SIM_ASSETS.map((a) => a.key);
   const assets = (Array.isArray(body?.assets) ? body.assets : []).filter((a: string): a is SimAsset => valid.includes(a as SimAsset));
   if (!assets.length) throw new Error('دست‌کم یک دارایی برای معامله انتخاب کنید.');
-  return { start, end, capitalToman, profile, assets: [...new Set(assets)] as SimAsset[], useNews: body?.useNews !== false };
+  const learn = body?.learn === true;
+  const engine = learn || body?.engine !== 'baseline' ? 'learned' : 'baseline'; // learning always evaluates the learned engine
+  return { start, end, capitalToman, profile, assets: [...new Set(assets)] as SimAsset[], useNews: body?.useNews !== false, engine, learn };
 }
 
 export async function runSimulation(req: SimRequest, budgetMs = 52_000): Promise<SimResponse> {
   const t0 = Date.now();
   const fixedIncomeYield = Number(process.env.FIXED_INCOME_YIELD || 0.3);
-  const cacheKey = `sim:v1:${createHash('sha1').update(JSON.stringify({ ...req, fixedIncomeYield, day: tehranDate() })).digest('hex')}`;
-  const hit = await kv.get<SimResponse>(cacheKey);
-  if (hit && (hit.news.chunksLoaded === hit.news.chunksTotal || !req.useNews)) return { ...hit, cached: true };
+  const params: SimParams = req.engine === 'learned' ? await getLearnedParams() : DEFAULT_PARAMS;
+  const { learn: _learn, ...cacheable } = req;
+  const cacheKey = `sim:v2:${createHash('sha1').update(JSON.stringify({ ...cacheable, fixedIncomeYield, day: tehranDate(), pv: params.version })).digest('hex')}`;
+  const hit = req.learn ? null : await kv.get<SimResponse>(cacheKey);
+  if (hit && (hit.news.chunksLoaded === hit.news.chunksTotal || !req.useNews)) return { ...hit, learning: null, cached: true };
 
   const [{ series, usd, ons }, news] = await Promise.all([
     loadAllSeries(),
@@ -113,7 +130,7 @@ export async function runSimulation(req: SimRequest, budgetMs = 52_000): Promise
       : Promise.resolve<NewsLoad>({ items: [], reviewed: 0, chunksTotal: 0, chunksLoaded: 0, sources: [], errors: [] }),
   ]);
 
-  const result = simulate({
+  const simInput = {
     start: req.start,
     end: req.end,
     capitalToman: req.capitalToman,
@@ -124,7 +141,19 @@ export async function runSimulation(req: SimRequest, budgetMs = 52_000): Promise
     ons: { dates: ons.dates, prices: ons.prices },
     usdRef: { dates: usd.dates, prices: usd.prices },
     news: news.items,
-  });
+  };
+  const result = simulate(simInput, params);
+
+  // honest check: does the learned engine actually beat the original rules on this same window?
+  let comparison: EngineComparison | null = null;
+  if (params.version > 0) {
+    const base = simulate(simInput, DEFAULT_PARAMS);
+    const pick = (r: SimResult) => ({ returnPct: r.metrics.returnPct, maxDrawdownPct: r.metrics.maxDrawdownPct, trades: r.metrics.trades, winRatePct: r.metrics.winRatePct, finalToman: r.metrics.finalEquity });
+    const { overlapFraction } = await noveltyOf(result);
+    comparison = { baseline: pick(base), learned: pick(result), overlapPct: overlapFraction * 100 };
+  }
+  let learning: LearnOutcome | null = null;
+  if (req.learn) learning = await applyLearning(result, lookupFromSeries(series), 'backtest', `بک‌تست ${PROFILES[req.profile].label}`);
   if (req.useNews && news.chunksTotal && news.chunksLoaded < news.chunksTotal) {
     result.warnings.unshift(`اخبار ${news.chunksLoaded} از ${news.chunksTotal} بخش ماهانه دریافت شد (محدودیت زمان یا در دسترس نبودن منبع). اجرای دوباره، بخش‌های باقی‌مانده را از حافظه ادامه می‌دهد.`);
   }
@@ -145,6 +174,9 @@ export async function runSimulation(req: SimRequest, budgetMs = 52_000): Promise
     news: { enabled: req.useNews, items: news.items.length, reviewed: news.reviewed, chunksLoaded: news.chunksLoaded, chunksTotal: news.chunksTotal, sources: news.sources, errors: news.errors },
     narrative,
     narrativeError,
+    engine: { used: req.engine, version: params.version },
+    comparison,
+    learning,
     generatedAt: new Date().toISOString(),
     cached: false,
   };

@@ -288,6 +288,22 @@ ol.list { counter-reset: n; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-inline-end: 8px; }
 .notes { margin: 12px 0 0; padding-inline-start: 1.2em; color: var(--muted); font-size: 14px; }
 
+/* ── Live paper trading ── */
+.live-status { margin-top: 14px; }
+.live-status-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 14px; }
+.live-status .k { font-size: 12.5px; color: var(--muted); }
+.live-status .v { font-weight: 700; }
+.live-status .v.big { font-size: 19px; line-height: 1.5; }
+.field-label { display: block; font-weight: 700; font-size: 14.5px; color: var(--ink); margin-bottom: 8px; }
+.cap-field input { font: inherit; color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-s); padding: 7px 10px; background: var(--surface); direction: ltr; text-align: right; width: 100%; min-width: 0; }
+.btn.run.danger { background: var(--down); }
+.btn.run.danger:hover { background: #8e2f26; }
+.event-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); }
+.event-row { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 10px 16px; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+.event-row:last-child { border-bottom: 0; }
+.event-when { color: var(--muted); font-size: 12.5px; flex: 0 0 auto; }
+.event-text { flex: 1 1 14rem; min-width: 0; }
+
 /* ── Bot & sources ── */
 .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
 .split h2 { margin-bottom: 10px; }

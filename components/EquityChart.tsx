@@ -8,20 +8,23 @@ export interface EquityLine {
   color: string;
   dashed?: boolean;
   width?: 1 | 2 | 3;
-  points: { date: string; value: number }[];
+  points: { date: string; value: number; t?: number }[]; // t (ms) → intraday placement
 }
 export interface EquityMarker {
   date: string;
   side: 'buy' | 'sell';
   text: string;
+  at?: number; // ms, for intraday charts
 }
 
 const faDay = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', month: 'short', day: 'numeric' });
 const faDayYear = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', year: 'numeric', month: 'short', day: 'numeric' });
 const ts = (iso: string) => Math.floor(Date.parse(`${iso}T12:00:00Z`) / 1000) as UTCTimestamp;
+const faDayTime = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const when = (date: string, t?: number) => (t ? (Math.floor(t / 1000) as UTCTimestamp) : ts(date));
 const compact = (v: number) => (v >= 1e9 ? `${(v / 1e9).toLocaleString('fa-IR', { maximumFractionDigits: 2 })} میلیارد` : v >= 1e6 ? `${(v / 1e6).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} میلیون` : v.toLocaleString('fa-IR', { maximumFractionDigits: 0 }));
 
-export default function EquityChart({ lines, markers }: { lines: EquityLine[]; markers: EquityMarker[] }) {
+export default function EquityChart({ lines, markers, intraday = false, label = 'نمودار ارزش سرمایه در طول شبیه‌سازی' }: { lines: EquityLine[]; markers: EquityMarker[]; intraday?: boolean; label?: string }) {
   const host = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef(new Map<string, ISeriesApi<'Line'>>());
@@ -43,7 +46,7 @@ export default function EquityChart({ lines, markers }: { lines: EquityLine[]; m
         timeScale: { borderVisible: false, fixLeftEdge: true, fixRightEdge: true, tickMarkFormatter: (t: Time) => faDay.format(new Date((t as number) * 1000)) },
         crosshair: { mode: lw.CrosshairMode.Magnet, vertLine: { labelBackgroundColor: '#1A2848' }, horzLine: { labelBackgroundColor: '#1A2848' } },
         handleScroll: { vertTouchDrag: false },
-        localization: { locale: 'fa-IR', priceFormatter: compact, timeFormatter: (t: Time) => faDayYear.format(new Date((t as number) * 1000)) },
+        localization: { locale: 'fa-IR', priceFormatter: compact, timeFormatter: (t: Time) => (intraday ? faDayTime : faDayYear).format(new Date((t as number) * 1000)) },
       });
       apply();
     })();
@@ -76,12 +79,12 @@ export default function EquityChart({ lines, markers }: { lines: EquityLine[]; m
         seriesRef.current.set(l.key, s);
       }
       s.applyOptions({ color: l.color, lineWidth: l.width ?? 2, lineStyle: l.dashed ? lw.LineStyle.Dashed : lw.LineStyle.Solid });
-      s.setData(l.points.map((p) => ({ time: ts(p.date), value: p.value })));
+      s.setData(l.points.map((p) => ({ time: when(p.date, p.t), value: p.value })));
     }
     const main = seriesRef.current.get(lines[0]?.key);
     if (main) {
       const data = markers
-        .map((m) => ({ time: ts(m.date) as Time, position: m.side === 'buy' ? ('belowBar' as const) : ('aboveBar' as const), shape: m.side === 'buy' ? ('arrowUp' as const) : ('arrowDown' as const), color: m.side === 'buy' ? '#117A45' : '#B83A2F', text: m.text }))
+        .map((m) => ({ time: when(m.date, m.at) as Time, position: m.side === 'buy' ? ('belowBar' as const) : ('aboveBar' as const), shape: m.side === 'buy' ? ('arrowUp' as const) : ('arrowDown' as const), color: m.side === 'buy' ? '#117A45' : '#B83A2F', text: m.text }))
         .sort((a, b) => (a.time as number) - (b.time as number));
       if (markersRef.current) markersRef.current.setMarkers(data);
       else markersRef.current = lw.createSeriesMarkers(main, data);
@@ -91,5 +94,5 @@ export default function EquityChart({ lines, markers }: { lines: EquityLine[]; m
 
   useEffect(apply, [lines, markers]);
 
-  return <div ref={host} className="chart-host equity-host" dir="ltr" role="img" aria-label="نمودار ارزش سرمایه در طول شبیه‌سازی" />;
+  return <div ref={host} className="chart-host equity-host" dir="ltr" role="img" aria-label={label} />;
 }

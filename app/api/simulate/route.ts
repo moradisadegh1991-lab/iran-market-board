@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { errMsg } from '@/lib/http';
+import { isAdmin } from '@/lib/auth';
 import { getCoverage, runSimulation, validate } from '@/lib/simulate';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,9 @@ export async function POST(req: Request) {
     input = validate(body);
   } catch (e) {
     return NextResponse.json({ error: errMsg(e) }, { status: 400 });
+  }
+  if (input.learn && !isAdmin(req)) {
+    return NextResponse.json({ error: 'آموزش موتور فقط با رمز مدیر (ADMIN_SECRET) ممکن است.' }, { status: 403 });
   }
   try {
     return NextResponse.json(await runSimulation(input));

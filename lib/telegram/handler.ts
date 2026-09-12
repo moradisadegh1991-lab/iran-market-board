@@ -2,13 +2,19 @@ import { kv } from '@/lib/store';
 import { getSnapshot } from '@/lib/snapshot';
 import { baseUrl } from '@/lib/auth';
 import { safeSend, tg } from './api';
+import { statusMessage } from './paper';
+import { getPaperState, NOTIFY_KEY, stopSession } from '@/lib/paper';
 import { coinsMsg, fullReport, memesMsg, portfolioMsg, pricesMsg, riskMsg, scenariosMsg, stocksMsg } from './format';
 import type { Profile, Snapshot } from '@/lib/types';
 
 export const SUBS_KEY = 'tg:subscribers';
 
-type Route = { match: RegExp; build?: (s: Snapshot) => string[]; special?: 'start' | 'stop' | 'dashboard' | 'help' };
+type Route = { match: RegExp; build?: (s: Snapshot) => string[]; special?: 'start' | 'stop' | 'dashboard' | 'help' | 'live' | 'live_on' | 'live_off' | 'live_stop' };
 const ROUTES: Route[] = [
+  { match: /^\/live_on\b/, special: 'live_on' },
+  { match: /^\/live_off\b/, special: 'live_off' },
+  { match: /^\/live_stop\b|پایان معامله/, special: 'live_stop' },
+  { match: /^\/live\b|معامله برخط/, special: 'live' },
   { match: /^\/start/, special: 'start' },
   { match: /^\/stop/, special: 'stop' },
   { match: /^\/(help)|راهنما/, special: 'help' },
@@ -35,6 +41,7 @@ const HELP = [
   '/stocks ده سهم بورس و فرابورس',
   '/portfolio سبد متعادل · /portfolio_safe محتاط · /portfolio_bold جسور',
   '/all گزارش کامل',
+  '/live وضعیت معامله برخط · /live_on رمز: دریافت اعلان هر معامله · /live_off لغو اعلان · /live_stop پایان معامله',
   '/stop لغو گزارش روزانه',
 ].join('\n');
 
@@ -61,6 +68,41 @@ export async function handleUpdate(update: any): Promise<void> {
   }
   if (route.special === 'help') {
     await safeSend(chatId, [HELP], true);
+    return;
+  }
+  if (route.special === 'live') {
+    const { active } = await getPaperState();
+    await safeSend(chatId, [statusMessage(active)], true);
+    return;
+  }
+  if (route.special === 'live_on') {
+    const given = text.split(/\s+/)[1] ?? '';
+    if (msg?.message_id) await tg('deleteMessage', { chat_id: chatId, message_id: msg.message_id }).catch(() => {}); // don't leave the secret in the chat
+    if (!process.env.ADMIN_SECRET || given !== process.env.ADMIN_SECRET) {
+      await safeSend(chatId, ['رمز نادرست است. شکل درست: <code>/live_on ADMIN_SECRET</code>'], true);
+      return;
+    }
+    await kv.sadd(NOTIFY_KEY, String(chatId));
+    await safeSend(chatId, ['🔔 اعلان معاملات برخط برای این گفتگو فعال شد. پیام حاوی رمز پاک شد.\nپایان معامله: /live_stop · لغو اعلان: /live_off'], true);
+    return;
+  }
+  if (route.special === 'live_off') {
+    await kv.srem(NOTIFY_KEY, String(chatId));
+    await safeSend(chatId, ['🔕 اعلان معاملات برخط برای این گفتگو غیرفعال شد.'], true);
+    return;
+  }
+  if (route.special === 'live_stop') {
+    const allowed = await kv.smembers(NOTIFY_KEY).catch(() => [] as string[]);
+    if (!allowed.includes(String(chatId))) {
+      await safeSend(chatId, ['فقط گفتگویی که با <code>/live_on ADMIN_SECRET</code> تأیید شده می‌تواند معامله را پایان دهد.'], true);
+      return;
+    }
+    try {
+      await safeSend(chatId, ['⏳ در حال بستن معامله برخط و محاسبه نتیجه…']);
+      await stopSession(); // the finish report is sent to every registered chat
+    } catch (e) {
+      await safeSend(chatId, [`⚠️ ${e instanceof Error ? e.message : 'پایان معامله انجام نشد.'}`], true);
+    }
     return;
   }
   if (route.special === 'dashboard') {
