@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { isAdmin } from '@/lib/auth';
 import { storeMode, kv } from '@/lib/store';
 import { errMsg, fetchJson } from '@/lib/http';
-import { fetchTgju, parseTgju } from '@/lib/sources/tgju';
+import { fetchTgju, findLikelyKeys, parseTgju } from '@/lib/sources/tgju';
 import { fetchGoldApi, parseGoldApi } from '@/lib/sources/goldapi';
 import { fetchNobitexDaily, fetchNobitexStats, parseNobitex } from '@/lib/sources/nobitex';
 import { fetchBrsIndex, fetchBrsSymbols, fetchBrsGoldCurrency, parseBrsIndex, parseBrsMarketBook, parseBrsSymbols, parseBrsTetherRial } from '@/lib/sources/brsapi';
@@ -51,7 +51,14 @@ export async function GET(req: Request) {
   const results = await Promise.all([
     probe('tgju', fetchTgju, (j) => {
       const p = parseTgju(j);
-      return p.usd || p.coin || p.g18 ? p : null;
+      return p.usd || p.coin || p.g18
+        ? {
+            ...p,
+            // نفت برنت و DXY هنوز حدسی‌اند؛ اگر null ماندند، این دو فهرست را برای من بفرستید تا کلید درست را پیدا کنم
+            oilLikelyKeys: findLikelyKeys(j, ['oil', 'brent', 'crude', 'naft', 'نفت']),
+            dollarIndexLikelyKeys: findLikelyKeys(j, ['dxy', 'usdx', 'dollar_index', 'dollar-index', 'usd_index']),
+          }
+        : null;
     }),
     probe('goldapi', fetchGoldApi, parseGoldApi),
     probe('nobitex', fetchNobitexStats, (j) => {

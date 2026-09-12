@@ -88,6 +88,8 @@ async function buildSnapshot(): Promise<Snapshot> {
     { key: 'btc', label: 'بیت‌کوین', price: btcUsd, unit: 'usd', changePct: nb.btcUsdt?.changePct ?? cgFind('bitcoin')?.price_change_percentage_24h_in_currency ?? null },
     { key: 'eth', label: 'اتریوم', price: ethUsd, unit: 'usd', changePct: nb.ethUsdt?.changePct ?? cgFind('ethereum')?.price_change_percentage_24h_in_currency ?? null },
     { key: 'tse', label: 'شاخص کل بورس', price: idx?.value ?? null, unit: 'point', changePct: idx?.changePct ?? null },
+    { key: 'oilBrent', label: 'نفت برنت', price: tg.oilBrent?.price ?? null, unit: 'usd', changePct: tg.oilBrent?.changePct ?? null },
+    { key: 'dxy', label: 'قدرت دلار (DXY)', price: tg.dxy?.price ?? null, unit: 'point', changePct: tg.dxy?.changePct ?? null },
   ];
 
   // ── rolling history (daily every 10 min at most, TSE symbols every 20 min, intraday every 10 min) ──

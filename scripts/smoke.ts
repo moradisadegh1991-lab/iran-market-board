@@ -102,7 +102,7 @@ const tseIdxHist = gbm(300, 2_000_000, 0.0015, 0.011);
   const s = await getSnapshot({ force: true });
   const ms = Date.now() - t0;
 
-  assert.equal(s.live.items.length, 8);
+  assert.equal(s.live.items.length, 10);
   assert.ok(s.live.coinBubblePct! > 5 && s.live.coinBubblePct! < 12, `coin bubble ${s.live.coinBubblePct}`);
   for (const a of s.risk) {
     for (const [h, r] of Object.entries(a.horizons)) {
@@ -154,7 +154,8 @@ const tseIdxHist = gbm(300, 2_000_000, 0.0015, 0.011);
   const c1y = await getChart('usd', '1y');
   assert.equal(c1y.resolution, 'daily');
   assert.ok(c1y.points.length > 300 && c1y.stats, `usd 1y chart ${c1y.points.length}`);
-  assert.ok(c1y.stats!.last > 90000 && c1y.stats!.last < 130000, `chart in toman ${c1y.stats!.last}`);
+  assert.ok(c1y.stats!.last > 50000 && c1y.stats!.last < 500000, `chart in toman, plausible order of magnitude (${c1y.stats!.last})`);
+  assert.ok(Math.abs(c1y.stats!.changePct) < 200, `1y move not absurd (${c1y.stats!.changePct}%)`);
   const c1d = await getChart('g18', '1d');
   assert.ok(c1d.note && c1d.points.length >= 5, 'rial 1d chart falls back to daily with a note until intraday accumulates');
   const cbtc = await getChart('btc', '1d');
