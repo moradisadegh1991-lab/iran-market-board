@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { fmtInt, fmtNum, fmtPct, isNum } from '@/lib/num';
+import { fmtInt, fmtNum, fmtPct, isNum, tehranDate } from '@/lib/num';
+import { JALALI_MONTHS, gregorianToJalali, jalaliMonthLength, jalaliToIso } from '@/lib/jalali';
 import type { HoldingKind, HoldingsSummary, Instrument } from '@/lib/holdings';
 import { Chips, Empty, Pct, Select } from './ui';
 import { tomanWords } from './TradeEntry';
@@ -13,6 +14,15 @@ type State = HoldingsSummary & {
 };
 
 const KIND_CLASS: Record<HoldingKind, string> = { gold: 'c-gold', coin: 'c-cash', currency: 'c-usd', crypto: 'c-btc' };
+const TODAY_J = gregorianToJalali(
+  Number(tehranDate().slice(0, 4)),
+  Number(tehranDate().slice(5, 7)),
+  Number(tehranDate().slice(8, 10)),
+);
+const J_YEARS = Array.from({ length: 12 }, (_, i) => TODAY_J.jy - i); // this year back ~12 years
+
+const faNum = (n: number) => new Intl.NumberFormat('fa-IR', { useGrouping: false }).format(n);
+
 const faDate = (iso: string) => new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(`${iso}T12:00:00Z`));
 
 export default function HoldingsPanel() {
@@ -23,7 +33,24 @@ export default function HoldingsPanel() {
   const [instrument, setInstrument] = useState('g18');
   const [qty, setQty] = useState('');
   const [paid, setPaid] = useState('');
-  const [boughtOn, setBoughtOn] = useState('');
+  const [jy, setJy] = useState('');
+  const [jm, setJm] = useState('');
+  const [jd, setJd] = useState('');
+
+  // the API stores Gregorian; '' means "not specified", which stays allowed
+  let boughtOn = '';
+  let dateErr: string | null = null;
+  if (jy && jm && jd) {
+    try {
+      boughtOn = jalaliToIso(Number(jy), Number(jm), Number(jd));
+      if (boughtOn > tehranDate()) dateErr = 'تاریخ خرید نمی‌تواند در آینده باشد.';
+    } catch (e) {
+      dateErr = e instanceof Error ? e.message : 'تاریخ شمسی نامعتبر است.';
+    }
+  } else if (jy || jm || jd) {
+    dateErr = 'سال، ماه و روز را کامل کنید یا هر سه را خالی بگذارید.';
+  }
+  const maxDay = jy && jm ? jalaliMonthLength(Number(jy), Number(jm)) : 31;
   const [note, setNote] = useState('');
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState(false);
@@ -74,11 +101,15 @@ export default function HoldingsPanel() {
   }
 
   async function add() {
+    if (dateErr) return;
     const ok = await post({ action: 'add', instrument, qty: qtyNum, paidToman: paidNum, boughtOn, note });
     if (ok) {
       setQty('');
       setPaid('');
       setNote('');
+      setJy('');
+      setJm('');
+      setJd('');
       setOpen(false);
     }
   }
@@ -234,11 +265,32 @@ export default function HoldingsPanel() {
               <input inputMode="numeric" placeholder="مبلغ را وارد کنید" value={paid} onChange={(e) => setPaid(e.target.value.replace(/[^\d]/g, ''))} />
               <small className="muted">{isNum(paidNum) && paidNum > 0 ? tomanWords(paidNum) : 'مبلغی که واقعاً پرداخت کردید'}</small>
             </label>
-            <label className="field cap-field">
+            <div className="field cap-field">
               <span className="field-label">تاریخ خرید (اختیاری)</span>
-              <input type="date" value={boughtOn} onChange={(e) => setBoughtOn(e.target.value)} />
-              <small className="muted">{boughtOn ? faDate(boughtOn) : 'میلادی؛ برای یادآوری خودتان'}</small>
-            </label>
+              <div className="jdate">
+                <select aria-label="سال" value={jy} onChange={(e) => setJy(e.target.value)}>
+                  <option value="">سال</option>
+                  {J_YEARS.map((y) => (
+                    <option key={y} value={y}>{faNum(y)}</option>
+                  ))}
+                </select>
+                <select aria-label="ماه" value={jm} onChange={(e) => setJm(e.target.value)}>
+                  <option value="">ماه</option>
+                  {JALALI_MONTHS.map((label, i) => (
+                    <option key={label} value={i + 1}>{label}</option>
+                  ))}
+                </select>
+                <select aria-label="روز" value={jd} onChange={(e) => setJd(e.target.value)}>
+                  <option value="">روز</option>
+                  {Array.from({ length: maxDay }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>{faNum(d)}</option>
+                  ))}
+                </select>
+              </div>
+              <small className={dateErr ? 'err-text' : 'muted'}>
+                {dateErr ?? (boughtOn ? `معادل میلادی: ${boughtOn}` : 'هجری شمسی؛ برای تحلیل زمان خرید')}
+              </small>
+            </div>
             <label className="field cap-field">
               <span className="field-label">توضیحات (اختیاری)</span>
               <input placeholder="توضیحات" value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
