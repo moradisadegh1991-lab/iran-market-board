@@ -220,22 +220,34 @@ curl -s "https://api.nobitex.ir/market/stats?srcCurrency=usdt,btc,eth&dstCurrenc
 
 تست آفلاین: `npx tsx scripts/learn-live-test.ts` (اجرای یک جلسه کامل ۳۰ روزه، بررسی اجرای سفارش فقط در ساعات بازار، منفی‌نشدن نقد، یادگیری، و کران‌دار بودن حجم جلسه).
 
+## ۶-د) دارایی‌های من: تحلیل خرید و تطابق سبد (`/portfolio`)
+
+- **تاریخ خرید شمسی:** سال/ماه/روز هجری شمسی انتخاب می‌شود؛ تعداد روزهای هر ماه بر اساس کبیسه‌بودن سال تنظیم می‌شود و معادل میلادی زیر فرم نشان داده می‌شود. ذخیره‌سازی میلادی است.
+- **تحلیل زمان خرید:** «شاخص گرانی» همان لحظه با معیار موتور ریسک (RSI + z-score لگاریتم قیمت نسبت به میانگین بازه) محاسبه می‌شود و **فقط با قیمت‌های تا روز خرید** — استفاده از قیمت‌های بعدی داوری با علم غیب می‌شد. اگر کمتر از ۶۰ روز داده پیش از خرید موجود باشد، داوری انجام نمی‌شود (عدد گمراه‌کننده بهتر از نبودن عدد نیست). درصد صدک قیمت هم گزارش می‌شود ولی معیار داوری نیست: در بازار رونددار، هر خریدی گران به نظر می‌رسد.
+- **پرمیوم پرداختی:** اگر قلم دقیقاً همان دارایی مرجع باشد (طلای ۱۸، سکه امامی، دلار، تتر، بیت‌کوین، اتریوم)، اختلاف پرداختی شما با قیمت مرجع همان روز به‌عنوان اجرت/کارمزد/اسپرد نشان داده می‌شود.
+- **ریسک نگهداری و فروش:** برای هر قلم، در شش افق، از همان موتور ریسک تابلو (با احتمال افت، بازده مورد انتظار و درصد اعتماد به داده).
+- **تطابق با سبد پیشنهادی:** وزن هر دسته در سبد شما با سبد پیشنهادی همان پروفایل و افق مقایسه می‌شود. درصد شباهت = ۱ − ½·Σ|اختلاف وزن‌ها| (معیار همپوشانی دو توزیع): ۱۰۰٪ یعنی یکسان. تتر به‌عنوان شبه‌نقد و آلت‌کوین‌ها جدا از بیت‌کوین/اتریوم دسته‌بندی می‌شوند.
+
+توجه: سهام بورس و صندوق درآمد ثابت فعلاً در فهرست دارایی‌ها قابل ثبت نیستند، پس اگر آن‌ها را دارید درصد شباهت واقعی بالاتر از عدد نمایش‌داده‌شده است.
+
+تست آفلاین: `npm run test:holdings` (داوری ورود، نبود نگاه به آینده، و ریاضی درصد شباهت) و `npm run test:jalali` (مقایسه تبدیل تقویم با تقویم فارسی خود مرورگر برای ۱۰٩۵۸ روز).
+
 ## ۷) ساختار
 
 ```
 app/               صفحه‌ها: / · scenarios · simulator · live · swing · charts · risk · stocks · crypto · portfolio · bot
 app/api/           snapshot · diag · ingest · chart · simulate · paper/{,tick} · learning · swing · holdings · cron/* · telegram/{webhook,setup,broadcast}
 lib/sources/       tgju · goldapi · nobitex · brsapi · coingecko · history · news · cache
-lib/engine/        stats · risk · crypto · tse · portfolio · scenario · simulator · live · learning · swing
+lib/engine/        stats · risk · crypto · tse · portfolio · scenario · simulator · live · learning · swing · holdings-analysis
 lib/telegram/      api · format · handler · paper
-lib/               snapshot · series · history · simulate · paper · learning · intraday · store · auth · num · http
+lib/               snapshot · series · history · simulate · paper · learning · intraday · holdings · jalali · store · auth · num · http
 components/        Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart · Sparkline · HoldingsPanel
 components/views/  Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks · Crypto · Portfolio · Bot
-scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · backfill_tse.py
+scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · jalali-test · holdings-test · backfill_tse.py
 .github/workflows/ paper-tick.yml (ضربان‌ساز معامله برخط)
 ```
 
-تست‌ها: `npm run typecheck` · `npm run smoke` · `npm run smoke:sim` · `npx tsx scripts/sim-regression.ts` · `npx tsx scripts/learn-live-test.ts` · `npx tsx scripts/swing-validate.ts`
+تست‌ها: `npm run typecheck` · `npm run smoke` · `npm run smoke:sim` · `npm run test:jalali` · `npm run test:holdings` · `npx tsx scripts/sim-regression.ts` · `npx tsx scripts/learn-live-test.ts` · `npx tsx scripts/swing-validate.ts`
 
 ## محدودیت‌های واقعی
 - endpointهای TGJU، نوبیتکس، BrsApi و TSETMC ممکن است بدون اطلاع تغییر کنند یا IP خارجی را ببندند؛ `/api/diag` را بعد از هر خطا چک کنید.

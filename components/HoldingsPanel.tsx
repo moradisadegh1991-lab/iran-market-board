@@ -1,8 +1,10 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { fmtInt, fmtNum, fmtPct, isNum, tehranDate } from '@/lib/num';
 import { JALALI_MONTHS, gregorianToJalali, jalaliMonthLength, jalaliToIso } from '@/lib/jalali';
 import type { HoldingKind, HoldingsSummary, Instrument } from '@/lib/holdings';
+import type { HoldingsAnalysis } from '@/lib/engine/holdings-analysis';
+import type { HorizonKey, PortfolioHorizon, Profile } from '@/lib/types';
 import { Chips, Empty, Pct, Select } from './ui';
 import { tomanWords } from './TradeEntry';
 
@@ -10,8 +12,18 @@ type State = HoldingsSummary & {
   instruments: Instrument[];
   kindLabel: Record<HoldingKind, string>;
   kindQtyLabel: Record<HoldingKind, string>;
+  analysis?: HoldingsAnalysis;
+  horizonLabel?: Record<HorizonKey, string>;
+  profile?: Profile;
+  horizon?: PortfolioHorizon;
   error?: string;
 };
+
+const GRADE_LABEL: Record<string, string> = { good: 'ورود مناسب', fair: 'ورود متوسط', poor: 'ورود در نقطه گران', unknown: 'قابل داوری نیست' };
+const GRADE_PILL: Record<string, string> = { good: 'ok', fair: 'warn', poor: 'bad', unknown: '' };
+const PROFILE_LABEL: Record<Profile, string> = { conservative: 'محتاط', balanced: 'متعادل', aggressive: 'جسور' };
+const PF_HORIZONS: PortfolioHorizon[] = ['m1', 'm3', 'm6', 'y1'];
+const PF_HORIZON_LABEL: Record<PortfolioHorizon, string> = { m1: '۱ ماهه', m3: '۳ ماهه', m6: '۶ ماهه', y1: 'سالانه' };
 
 const KIND_CLASS: Record<HoldingKind, string> = { gold: 'c-gold', coin: 'c-cash', currency: 'c-usd', crypto: 'c-btc' };
 const TODAY_J = gregorianToJalali(
@@ -55,9 +67,12 @@ export default function HoldingsPanel() {
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);
+  const [pfProfile, setPfProfile] = useState<Profile>('balanced');
+  const [pfHorizon, setPfHorizon] = useState<PortfolioHorizon>('m3');
+  const [openRow, setOpenRow] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    fetch('/api/holdings', { cache: 'no-store' })
+    fetch(`/api/holdings?profile=${pfProfile}&horizon=${pfHorizon}`, { cache: 'no-store' })
       .then((r) => r.json())
       .then((j: State) => {
         if (j.error) throw new Error(j.error);
@@ -65,7 +80,7 @@ export default function HoldingsPanel() {
         setLoadErr(null);
       })
       .catch((e) => setLoadErr(e instanceof Error ? e.message : String(e)));
-  }, []);
+  }, [pfProfile, pfHorizon]);
 
   useEffect(load, [load]);
 
@@ -192,6 +207,55 @@ export default function HoldingsPanel() {
             ) : null}
           </div>
 
+          {state.analysis?.match ? (
+            <div className="pf-match panel pad">
+              <h3>تطابق با سبد پیشنهادی</h3>
+              <div className="pf-match-controls">
+                <Chips
+                  label="پروفایل"
+                  value={pfProfile}
+                  onChange={setPfProfile}
+                  options={(Object.keys(PROFILE_LABEL) as Profile[]).map((k) => ({ key: k, label: PROFILE_LABEL[k] }))}
+                />
+                <Chips
+                  label="افق"
+                  value={pfHorizon}
+                  onChange={setPfHorizon}
+                  options={PF_HORIZONS.map((h) => ({ key: h, label: PF_HORIZON_LABEL[h] }))}
+                />
+              </div>
+              <div className="pf-score">
+                <strong>{fmtInt(Math.round(state.analysis.match.similarityPct))}٪</strong>
+                <span className="muted">درصد شباهت ترکیب سبد شما به سبد پیشنهادی</span>
+              </div>
+              <p className="lede">{state.analysis.match.headline}</p>
+              <div className="table-scroll">
+                <table className="t">
+                  <thead>
+                    <tr>
+                      <th scope="col">دسته</th>
+                      <th scope="col">سبد شما</th>
+                      <th scope="col">پیشنهاد</th>
+                      <th scope="col">اختلاف</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {state.analysis.match.classes.map((c) => (
+                      <tr key={c.cls}>
+                        <th scope="row">{c.label}</th>
+                        <td>{fmtPct(c.mine * 100, 0, false)}</td>
+                        <td className="muted">{fmtPct(c.suggested * 100, 0, false)}</td>
+                        <td className={Math.abs(c.gapPct) < 3 ? 'muted' : c.gapPct > 0 ? 'up' : 'down'}>{c.advice}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {state.analysis.match.topFix ? <p className="notes-1">{state.analysis.match.topFix}</p> : null}
+              <p className="muted small">سهام بورس و صندوق درآمد ثابت در فهرست دارایی‌ها قابل ثبت نیستند، پس اگر آن‌ها را دارید، درصد شباهت واقعی از این عدد بالاتر است.</p>
+            </div>
+          ) : null}
+
           <div className="table-scroll">
             <table className="t">
               <thead>
@@ -204,14 +268,19 @@ export default function HoldingsPanel() {
                   <th scope="col">سود / زیان</th>
                   <th scope="col">بازده</th>
                   <th scope="col">تاریخ خرید</th>
+                  <th scope="col">تحلیل</th>
                   <th scope="col">
                     <span className="sr-only">حذف</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {state.items.map((h) => (
-                  <tr key={h.id}>
+                {state.items.map((h) => {
+                  const an = state.analysis?.perHolding.find((a) => a.id === h.id);
+                  const isOpen = openRow === h.id;
+                  return (
+                  <Fragment key={h.id}>
+                  <tr>
                     <th scope="row" className="sym">
                       <span className={`swatch ${KIND_CLASS[h.kind]}`} aria-hidden="true" />
                       {h.label}
@@ -229,12 +298,78 @@ export default function HoldingsPanel() {
                     </td>
                     <td className="muted">{h.boughtOn ? faDate(h.boughtOn) : '—'}</td>
                     <td>
+                      {an ? (
+                        <button
+                          className="verdict-btn"
+                          onClick={() => setOpenRow(isOpen ? null : h.id)}
+                          aria-expanded={isOpen}
+                          aria-label={`تحلیل ${h.label}`}
+                        >
+                          <span className={`state-pill ${GRADE_PILL[an.entry.grade]}`}>{GRADE_LABEL[an.entry.grade]}</span>
+                          <span aria-hidden="true">{isOpen ? '▴' : '▾'}</span>
+                        </button>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td>
                       <button className="icon-btn" onClick={() => remove(h.id, h.label)} disabled={busy} aria-label={`حذف ${h.label}`}>
                         ✕
                       </button>
                     </td>
                   </tr>
-                ))}
+                  {isOpen && an ? (
+                    <tr className="verdict-row">
+                      <td colSpan={10}>
+                        <p className="verdict-text">{an.entry.text}</p>
+                        {an.horizons ? (
+                          <>
+                            <h4>ریسک نگهداری و فروش در افق‌های مختلف</h4>
+                            <div className="table-scroll">
+                              <table className="t compact">
+                                <thead>
+                                  <tr>
+                                    <th scope="col">افق</th>
+                                    <th scope="col">ریسک نگهداری</th>
+                                    <th scope="col">ریسک فروش</th>
+                                    <th scope="col">احتمال افت</th>
+                                    <th scope="col">بازده مورد انتظار</th>
+                                    <th scope="col">اعتماد</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(Object.keys(state.horizonLabel ?? {}) as HorizonKey[]).map((k) => {
+                                    const hz = an.horizons?.[k];
+                                    return (
+                                      <tr key={k}>
+                                        <th scope="row">{state.horizonLabel?.[k]}</th>
+                                        {hz ? (
+                                          <>
+                                            <td className="num">{fmtInt(hz.hold)}</td>
+                                            <td className="num">{fmtInt(hz.sell)}</td>
+                                            <td className="num">{fmtPct(hz.pDown * 100, 0, false)}</td>
+                                            <td><Pct v={hz.expReturnPct} digits={1} /></td>
+                                            <td className="num muted">{fmtPct(hz.confidence * 100, 0, false)}</td>
+                                          </>
+                                        ) : (
+                                          <td colSpan={5} className="muted">داده کافی نیست</td>
+                                        )}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </>
+                        ) : null}
+                        {an.note ? <p className="muted small">{an.note}</p> : null}
+                        <p className="muted small">عدد صفر کم‌ریسک و صد پرریسک است. این اعداد توصیه خرید یا فروش نیستند.</p>
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

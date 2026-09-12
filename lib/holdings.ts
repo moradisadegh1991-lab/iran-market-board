@@ -157,7 +157,13 @@ export async function valueHoldings(): Promise<HoldingsSummary> {
   const book = gc?.data ? brsPriceBook(gc.data) : {};
   if (!gc?.status.ok && !gc?.data) warnings.push('فید طلا و ارز BrsApi در دسترس نبود؛ قیمت اقلامی که منبع جانشین ندارند محاسبه نشد.');
 
-  const snapToman = (k: string) => snap.live.items.find((i) => i.key === k)?.price ?? null;
+  /** Live-board lookup that respects the item's unit: btc/eth/ons are quoted in USD there,
+   *  so returning them raw would value a holding in dollars while labelling it toman. */
+  const snapItem = (k: string) => snap.live.items.find((i) => i.key === k) ?? null;
+  const snapToman = (k: string) => {
+    const it = snapItem(k);
+    return it && it.unit === 'toman' ? it.price : null;
+  };
   const usdtToman = snapToman('usdt');
   const cgPrice = (id: string) => [...snap.crypto.coins, ...snap.crypto.memes].find((c) => c.id === id)?.price ?? null;
 
@@ -167,7 +173,7 @@ export async function valueHoldings(): Promise<HoldingsSummary> {
       const t = toToman(book[inst.brs]);
       if (isNum(t) && t > 0) return { price: t, source: 'brsapi', note: null };
     }
-    // 2) the dashboard's own live board
+    // 2) the dashboard's own live board — toman-quoted items only
     if (inst.fallback) {
       const p = snapToman(inst.fallback);
       if (isNum(p) && p > 0) return { price: p, source: 'snapshot', note: inst.brs && !book[inst.brs] ? 'از تابلوی خود داشبورد' : null };
@@ -176,6 +182,13 @@ export async function valueHoldings(): Promise<HoldingsSummary> {
     if (inst.cg && isNum(usdtToman)) {
       const usd = cgPrice(inst.cg);
       if (isNum(usd) && usd > 0) return { price: usd * usdtToman, source: 'coingecko', note: 'قیمت دلاری × نرخ تتر' };
+    }
+    // 4) last resort: the board's own USD quote × tether (e.g. CoinGecko screener missed this coin)
+    if (inst.fallback && isNum(usdtToman)) {
+      const it = snapItem(inst.fallback);
+      if (it && it.unit === 'usd' && isNum(it.price) && it.price > 0) {
+        return { price: it.price * usdtToman, source: 'snapshot', note: 'قیمت دلاری تابلو × نرخ تتر' };
+      }
     }
     return { price: null, source: null, note: 'قیمت لحظه‌ای این دارایی در دسترس نبود' };
   };
