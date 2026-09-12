@@ -194,18 +194,53 @@ curl -s "https://api.nobitex.ir/market/stats?srcCurrency=usdt,btc,eth&dstCurrenc
 
 تست آفلاین: `npm run smoke:sim` (بررسی عدم نگاه به آینده، نقد منفی نشدن، اتحاد حسابداری سود و زیان، و کش خبر).
 
+## ۶-ج) معامله برخط (`/live`)
+
+همان موتور و قواعد شبیه‌ساز، این‌بار روی قیمت زنده و تیک‌به‌تیک. معامله کاغذی است: پول واقعی جابه‌جا نمی‌شود.
+
+**شروع:** صفحه `/live` → سرمایه، مدت (۱ هفته تا ۳ ماه)، پروفایل ریسک، دارایی‌های مجاز → `ADMIN_SECRET` → شروع. هر زمان یک معامله فعال بیشتر مجاز نیست.
+
+**تفاوت‌ها با شبیه‌ساز گذشته‌نگر:**
+- سفارش در همان لحظه با قیمت زنده ± اسپرد اجرا می‌شود، ولی فقط وقتی بازار آن دارایی باز است؛ در غیر این صورت در صف می‌ماند تا بازار باز شود (کریپتو ۲۴ ساعته؛ دلار، طلا و سکه شنبه تا چهارشنبه؛ بورس ۹ تا ۱۲:۳۰ به وقت تهران).
+- حد ضرر و سیو سود در هر تیک (هر چند دقیقه) بررسی می‌شود، نه روزی یک‌بار.
+- پارامترهای موتور در لحظه شروع قفل می‌شوند تا کل جلسه یک استراتژی ثابت باشد.
+
+**⚠️ قدم ضروری — ضربان‌ساز:** پلن Hobby ورسل حداکثر روزی یک cron اجرا می‌کند، ولی معامله برخط هر چند دقیقه تیک لازم دارد. فایل `.github/workflows/paper-tick.yml` در پروژه هست و هر ۱۰ دقیقه `/api/paper/tick` را صدا می‌زند؛ فقط این دو Secret را در گیت‌هاب بسازید (`Settings → Secrets and variables → Actions`):
+
+| Secret | مقدار |
+|---|---|
+| `BOARD_URL` | `https://YOUR-APP.vercel.app` |
+| `CRON_SECRET` | همان مقداری که در env ورسل گذاشتید |
+
+جایگزین‌ها: cron-job.org با آدرس `https://YOUR-APP.vercel.app/api/paper/tick?secret=ADMIN_SECRET` هر ۵ تا ۱۰ دقیقه. بازدید داشبورد و پیام به ربات هم فرصتی برای تیک می‌سازند، ولی به‌تنهایی قابل اتکا نیستند.
+
+**تلگرام:** `/live_on ADMIN_SECRET` نزد ربات (ربات همان پیام را برای پاک‌کردن رمز حذف می‌کند) → از آن پس هر خرید و فروش با دلیل، قیمت اجرا، سود/زیان تحقق‌یافته و ارزش سبد اطلاع داده می‌شود. `/live` وضعیت، `/live_off` لغو اعلان، `/live_stop` پایان.
+
+**یادگیری:** پایان هر جلسه (برخط یا شبیه‌سازی) وزن‌ها و ضریب اعتماد هر دارایی کمی تنظیم می‌شود و نسخه موتور یک عدد بالا می‌رود؛ `/api/learning` وضعیت فعلی را نشان می‌دهد و `POST {"action":"reset"}` با `ADMIN_SECRET` به قواعد پایه برمی‌گرداند. آموزش دوباره روی همان بازه بلوکه می‌شود تا بیش‌برازش نشود.
+
+تست آفلاین: `npx tsx scripts/learn-live-test.ts` (اجرای یک جلسه کامل ۳۰ روزه، بررسی اجرای سفارش فقط در ساعات بازار، منفی‌نشدن نقد، یادگیری، و کران‌دار بودن حجم جلسه).
+
 ## ۷) ساختار
 
 ```
-app/api/        snapshot · diag · ingest · cron/* · telegram/{webhook,setup,broadcast}
-lib/sources/    tgju · goldapi · nobitex · brsapi · coingecko · cache
-lib/engine/     stats · risk · crypto · tse · portfolio
-lib/telegram/   api · format · handler
-components/     Dashboard · RatesBoard · RiskMatrix · CryptoScreener · StockScreener · PortfolioPanel · TelegramPanel
-scripts/        smoke.ts (تست آفلاین) · backfill_tse.py
+app/               صفحه‌ها: / · scenarios · simulator · live · swing · charts · risk · stocks · crypto · portfolio · bot
+app/api/           snapshot · diag · ingest · chart · simulate · paper/{,tick} · learning · swing · holdings · cron/* · telegram/{webhook,setup,broadcast}
+lib/sources/       tgju · goldapi · nobitex · brsapi · coingecko · history · news · cache
+lib/engine/        stats · risk · crypto · tse · portfolio · scenario · simulator · live · learning · swing
+lib/telegram/      api · format · handler · paper
+lib/               snapshot · series · history · simulate · paper · learning · intraday · store · auth · num · http
+components/        Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart · Sparkline · HoldingsPanel
+components/views/  Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks · Crypto · Portfolio · Bot
+scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · backfill_tse.py
+.github/workflows/ paper-tick.yml (ضربان‌ساز معامله برخط)
 ```
+
+تست‌ها: `npm run typecheck` · `npm run smoke` · `npm run smoke:sim` · `npx tsx scripts/sim-regression.ts` · `npx tsx scripts/learn-live-test.ts` · `npx tsx scripts/swing-validate.ts`
 
 ## محدودیت‌های واقعی
 - endpointهای TGJU، نوبیتکس، BrsApi و TSETMC ممکن است بدون اطلاع تغییر کنند یا IP خارجی را ببندند؛ `/api/diag` را بعد از هر خطا چک کنید.
 - غربال‌ها رتبه‌بندی مومنتوم‌اند؛ دقت پیش‌بینی آن‌ها به‌ویژه برای میم‌کوین‌ها و سهام با صف پایین است.
 - همبستگی‌ها و وزن‌های پایه سبد فرض‌اند، نه برآورد آماری.
+- معامله برخط کاغذی است و روی قیمت‌های مرجع (نه دفتر سفارش واقعی) اجرا می‌شود؛ اسپرد و کارمزد تقریبی‌اند و لغزش قیمت در حجم بالا لحاظ نمی‌شود.
+- ضربان‌ساز گیت‌هاب اجرای زمان‌بندی‌شده را زیر بار چند دقیقه عقب می‌اندازد و بعد از ۶۰ روز بی‌فعالیتی در ریپو غیرفعال می‌شود؛ فاصله تیک‌ها تضمین‌شده نیست.
+- یادگیری روی تعداد کم جلسه انجام می‌شود، پس تغییر پارامترها شاهد آماری قوی ندارد؛ در تست walk-forward نسخه آموخته همیشه بهتر از پایه نبود.

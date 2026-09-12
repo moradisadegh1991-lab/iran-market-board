@@ -6,7 +6,7 @@ import { errMsg, fetchJson } from '@/lib/http';
 import { fetchTgju, parseTgju } from '@/lib/sources/tgju';
 import { fetchGoldApi, parseGoldApi } from '@/lib/sources/goldapi';
 import { fetchNobitexDaily, fetchNobitexStats, parseNobitex } from '@/lib/sources/nobitex';
-import { fetchBrsIndex, fetchBrsSymbols, fetchBrsGoldCurrency, parseBrsIndex, parseBrsSymbols, parseBrsTetherRial } from '@/lib/sources/brsapi';
+import { fetchBrsIndex, fetchBrsSymbols, fetchBrsGoldCurrency, parseBrsIndex, parseBrsMarketBook, parseBrsSymbols, parseBrsTetherRial } from '@/lib/sources/brsapi';
 import { fetchCgMarkets } from '@/lib/sources/coingecko';
 import { fetchGdeltNews, fetchGoogleNews } from '@/lib/sources/news';
 import { TGJU_SLUGS, fetchTgjuHistory, fetchTseIndexHistory } from '@/lib/sources/history';
@@ -66,6 +66,11 @@ export async function GET(req: Request) {
     }),
     // sanity check skipped here (no usdRial in scope) — shows the raw match so you can eyeball the unit/field names
     probe('brsGoldCurrency', fetchBrsGoldCurrency, (j) => parseBrsTetherRial(j, null)),
+    // symbols + units behind مدیریت دارایی واقعی — confirm the IR_GOLD_* / IR_COIN_* / currency keys here
+    probe('brsMarketBook', fetchBrsGoldCurrency, (j) => {
+      const items = parseBrsMarketBook(j);
+      return items.length ? { count: items.length, symbols: items.map((i) => i.symbol).slice(0, 40), units: [...new Set(items.map((i) => i.unit))], sample: items.slice(0, 3) } : null;
+    }),
     // long daily history used when Nobitex is blocked: dollar/coin/18k from TGJU, TEDPIX from TSETMC or BrsApi
     probe('tgjuHistUsd', () => fetchTgjuHistory(TGJU_SLUGS.usd), (p: any) => (Array.isArray(p) && p.length ? { days: p.length, first: p[0], last: p[p.length - 1] } : null)),
     probe('tgjuHistCoin', () => fetchTgjuHistory(TGJU_SLUGS.coin), (p: any) => (Array.isArray(p) && p.length ? { days: p.length, last: p[p.length - 1] } : null)),

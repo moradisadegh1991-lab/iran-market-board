@@ -109,7 +109,18 @@ for (let now = t0; session.status === 'running'; now += STEP) {
 assert.equal(session.endReason, 'expired');
 const lr = session.result!;
 assert.ok(lr.metrics && Number.isFinite(lr.metrics.finalEquity));
-assert.ok(session.equity.length >= 30 * 20, `hourly equity samples (${session.equity.length})`);
+// equity keeps intraday detail for recent days but is bounded: older days collapse to one sample each
+assert.ok(session.equity.length <= 600, `equity bounded (${session.equity.length})`);
+{
+  const byDate = new Map<string, number>();
+  for (const p of session.equity) byDate.set(p.date, (byDate.get(p.date) ?? 0) + 1);
+  const days = [...byDate.keys()].sort();
+  assert.ok(days.length >= 28, `one sample per day kept (${days.length} days)`);
+  const intradayDays = days.filter((d) => (byDate.get(d) ?? 0) > 1);
+  assert.ok(intradayDays.length >= 1, `recent days keep intraday samples (${intradayDays.length})`);
+  const ats = session.equity.map((p) => p.at);
+  assert.deepEqual(ats, [...ats].sort((a, b) => a - b), 'equity stays chronological after thinning');
+}
 assert.ok(trades > 0, 'live session traded');
 const kinds = [...new Set(session.trades.map((t) => t.kind))];
 console.log(`live: ${ticks} ticks, ${trades} trades (${kinds.join(',')}), equity points ${session.equity.length}, return ${lr.metrics.returnPct.toFixed(2)}%, stops ${lr.metrics.stops}, events ${session.events.length}`);

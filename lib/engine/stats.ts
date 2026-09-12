@@ -42,6 +42,43 @@ export function rsi(p: number[], period = 14): number | null {
 
 export const sma = (p: number[], n: number) => (p.length >= n ? mean(p.slice(-n)) : null);
 
+/** EMA at every index; null until `n` samples exist. Seeded with the SMA of the first n. */
+export function emaSeries(p: number[], n: number): (number | null)[] {
+  const out: (number | null)[] = p.map(() => null);
+  if (p.length < n || n < 1) return out;
+  const k = 2 / (n + 1);
+  let e = mean(p.slice(0, n));
+  out[n - 1] = e;
+  for (let i = n; i < p.length; i++) {
+    e = p[i] * k + e * (1 - k);
+    out[i] = e;
+  }
+  return out;
+}
+
+/** Wilder RSI at every index; null until `period + 1` samples exist. */
+export function rsiSeries(p: number[], period = 14): (number | null)[] {
+  const out: (number | null)[] = p.map(() => null);
+  if (p.length < period + 1) return out;
+  let gain = 0, loss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = p[i] - p[i - 1];
+    if (d >= 0) gain += d;
+    else loss -= d;
+  }
+  gain /= period;
+  loss /= period;
+  const val = () => (loss === 0 ? 100 : 100 - 100 / (1 + gain / loss));
+  out[period] = val();
+  for (let i = period + 1; i < p.length; i++) {
+    const d = p[i] - p[i - 1];
+    gain = (gain * (period - 1) + Math.max(d, 0)) / period;
+    loss = (loss * (period - 1) + Math.max(-d, 0)) / period;
+    out[i] = val();
+  }
+  return out;
+}
+
 export function maxDrawdown(p: number[]): number {
   let peak = -Infinity, mdd = 0;
   for (const x of p) {

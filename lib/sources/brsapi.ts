@@ -21,7 +21,51 @@ export const fetchBrsSymbols = () =>
  *  Used only as a fallback for USDT/IRT when Nobitex is unreachable (e.g. blocked from Vercel's IP). */
 export const fetchBrsGoldCurrency = () => fetchJson(`${base()}/Market/Gold_Currency.php?key=${key()}`, { timeoutMs: 15_000 });
 
-/** Recursively collect every array found anywhere in the payload (shape/grouping is unconfirmed — see /api/diag). */
+export interface BrsMarketItem {
+  symbol: string;
+  name: string;
+  price: number;
+  unit: string | null; // as reported by the feed ("تومان", "دلار", …) — carried through, not guessed
+  changePct: number | null;
+  group: 'gold' | 'currency' | 'crypto' | 'other';
+}
+
+/**
+ * Flattens the free Gold_Currency (Market_CGCC) feed into a price book keyed by symbol,
+ * e.g. IR_GOLD_18K, IR_COIN_EMAMI, USD, USDT. The group comes from the containing array.
+ * Field names are read defensively and the feed's own `unit` is preserved rather than assumed —
+ * inspect /api/diag → brsMarketBook once after deploying to confirm symbols and units.
+ */
+export function parseBrsMarketBook(json: any): BrsMarketItem[] {
+  const groupOf = (k: string): BrsMarketItem['group'] => (/gold/i.test(k) ? 'gold' : /crypto/i.test(k) ? 'crypto' : /currency/i.test(k) ? 'currency' : 'other');
+  const out: BrsMarketItem[] = [];
+  const seen = new Set<string>();
+  const take = (o: any, group: BrsMarketItem['group']) => {
+    if (!o || typeof o !== 'object') return;
+    const symbol = String(pick(o, ['symbol', 'symbol_en', 'en_symbol', 'code']) ?? '').trim().toUpperCase();
+    const price = num(pick(o, ['price', 'value', 'p', 'last_price', 'close_price']));
+    if (!symbol || !isNum(price) || price <= 0 || seen.has(symbol)) return;
+    seen.add(symbol);
+    const unit = pick(o, ['unit']);
+    out.push({
+      symbol,
+      name: String(pick(o, ['name', 'name_fa', 'title', 'name_en']) ?? symbol),
+      price,
+      unit: typeof unit === 'string' && unit.trim() ? unit.trim() : null,
+      changePct: num(pick(o, ['change_percent', 'percent', 'dp'])),
+      group,
+    });
+  };
+  if (Array.isArray(json)) json.forEach((o) => take(o, 'other'));
+  else if (json && typeof json === 'object') {
+    for (const [k, v] of Object.entries(json)) if (Array.isArray(v)) v.forEach((o) => take(o, groupOf(k)));
+  }
+  return out;
+}
+
+export const brsPriceBook = (json: any): Record<string, BrsMarketItem> => Object.fromEntries(parseBrsMarketBook(json).map((i) => [i.symbol, i]));
+
+/** Recursively collect every array found anywhere in the payload (grouping is unconfirmed — see /api/diag). */
 function allArrays(json: any, depth = 0): any[][] {
   if (depth > 3 || !json || typeof json !== 'object') return [];
   if (Array.isArray(json)) return [json];

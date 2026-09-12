@@ -13,6 +13,12 @@ import {
 const DAY = 86400000;
 const META = Object.fromEntries(SIM_ASSETS.map((a) => [a.key, a])) as Record<SimAsset, (typeof SIM_ASSETS)[number]>;
 const MAX_EVENTS = 150;
+/** The whole session JSON is re-read and rewritten to Redis on every tick (every few minutes),
+ *  so the hourly equity samples can't grow without bound: a 90-day session would otherwise reach
+ *  ~2000 points (~350 KB). Older days are collapsed to one closing sample each, which is the usual
+ *  convention for drawdown anyway; the last two days keep full intraday detail for the live chart. */
+const MAX_EQUITY_POINTS = 600;
+const FULL_DETAIL_DAYS = 2;
 /** used only so a stop can still fire if the asset's history became unavailable mid-session */
 const NEUTRAL_SIGNAL: Signal = { score: 0, newsScore: 0, components: { trend: 0, momentum: 0, stretch: 0, bubble: 0, news: 0 }, annVol: 0.2, rsi: null, reasonsUp: [], reasonsDown: [], news: [], ppy: 300 };
 
@@ -307,6 +313,21 @@ function pushEquity(s: LiveSession, now: number, today: string, eqRial: number) 
     equityUsd: isNum(usdNow) ? r((eqRial / usdNow) * 100) / 100 : null,
   });
   s.exposures.push(eqRial > 0 ? r(((eqRial - s.acct.cash) / eqRial) * 1000) / 1000 : 0);
+  thinEquity(s, now);
+}
+
+/** Keep the last FULL_DETAIL_DAYS at full resolution; collapse each earlier day to its final sample. */
+function thinEquity(s: LiveSession, now: number) {
+  if (s.equity.length <= MAX_EQUITY_POINTS) return;
+  const cutoff = now - FULL_DETAIL_DAYS * DAY;
+  const kept: LiveEquityPoint[] = [];
+  for (let i = 0; i < s.equity.length; i++) {
+    const p = s.equity[i];
+    const next = s.equity[i + 1];
+    // recent points: keep all. older points: keep only the last one of each date.
+    if (p.at >= cutoff || !next || next.date !== p.date || next.at >= cutoff) kept.push(p);
+  }
+  s.equity = kept;
 }
 
 /** Close the session (positions are marked to market, not sold) and build the same report as a backtest. */

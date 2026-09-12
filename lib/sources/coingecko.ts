@@ -43,3 +43,15 @@ export async function fetchCgRange(id: string, days: 1 | 7): Promise<[number, nu
   if (!Array.isArray(json?.prices)) throw new Error(`market_chart ${id} ${days}d: bad response`);
   return json.prices as [number, number][];
 }
+
+/**
+ * Hourly prices for the swing simulator. CoinGecko returns hourly granularity for 2–90 days
+ * on the public/demo tier; asking for more silently downgrades to daily, so `days` is capped at 90.
+ */
+export async function fetchCgHourly(id: string, days: number): Promise<[number, number][]> {
+  const d = Math.max(2, Math.min(90, Math.round(days)));
+  const json = await fetchJson(`${BASE}/coins/${id}/market_chart?vs_currency=usd&days=${d}`, { headers: headers(), timeoutMs: 25_000 });
+  if (!Array.isArray(json?.prices)) throw new Error(`market_chart ${id} ${d}d: bad response`);
+  return json.prices as [number, number][];
+}
+

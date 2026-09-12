@@ -5,6 +5,7 @@ import { fmtInt, fmtPct, num } from '@/lib/num';
 import type { PortfolioHorizon, Profile } from '@/lib/types';
 import { WithSnapshot } from '../SnapshotProvider';
 import { Chips, FilterBar, PageHead } from '../ui';
+import HoldingsPanel from '../HoldingsPanel';
 
 const CLS_CLASS = { cash: 'c-cash', usd: 'c-usd', gold: 'c-gold', equity: 'c-equity', btc: 'c-btc', spec: 'c-spec' } as const;
 
@@ -96,6 +97,7 @@ export default function PortfolioView() {
           );
         }}
       </WithSnapshot>
+      <HoldingsPanel />
     </div>
   );
 }

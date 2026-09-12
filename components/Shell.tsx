@@ -10,6 +10,7 @@ export const PAGES = [
   { href: '/scenarios', label: 'سناریوها' },
   { href: '/simulator', label: 'معامله‌گر' },
   { href: '/live', label: 'معامله برخط' },
+  { href: '/swing', label: 'نوسان‌گیری' },
   { href: '/charts', label: 'نمودار' },
   { href: '/risk', label: 'ریسک' },
   { href: '/stocks', label: 'بورس' },
