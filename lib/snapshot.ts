@@ -41,6 +41,22 @@ export async function getSnapshot(opts: { force?: boolean } = {}): Promise<Snaps
   }
 }
 
+/** Attach a short trend line to each board row from the history already loaded for the risk engine. */
+function withSpark(items: BoardItem[], seriesByKey: Map<RiskAssetKey, { prices: number[] }>): BoardItem[] {
+  const POINTS = 30;
+  return items.map((it) => {
+    const s = seriesByKey.get(it.key as RiskAssetKey);
+    if (!s || s.prices.length < 8) return it;
+    const tail = s.prices.slice(-90);
+    // even downsample so every row draws a similar number of points regardless of history length
+    const step = Math.max(1, Math.floor(tail.length / POINTS));
+    const spark: number[] = [];
+    for (let i = 0; i < tail.length; i += step) spark.push(it.unit === 'toman' ? rialToToman(tail[i]) : tail[i]);
+    if (spark.length < 2) return it;
+    return { ...it, spark };
+  });
+}
+
 async function buildSnapshot(): Promise<Snapshot> {
   const now = new Date();
   // BrsApi free tier (TSETMC_AllSymbols / TSETMC_Index) caps at 100 req/day each:
@@ -162,7 +178,7 @@ async function buildSnapshot(): Promise<Snapshot> {
     generatedAt: now.toISOString(),
     storeMode,
     sources,
-    live: { items, coinBubblePct, g18BubblePct, usdtPremiumPct },
+    live: { items: withSpark(items, seriesByKey), coinBubblePct, g18BubblePct, usdtPremiumPct },
     risk,
     crypto: {
       ...crypto,

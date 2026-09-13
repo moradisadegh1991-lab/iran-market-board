@@ -240,19 +240,54 @@ h2 { font-size: 18px; line-height: 1.4; font-weight: 800; margin: 0; color: var(
 @keyframes shimmer { to { background-position: -200% 0; } }
 
 /* ── Overview: rate board + digest ── */
-.board { background: var(--lapis); color: #f3f5fa; padding: 18px 0 22px; }
-.board-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 28px; }
-.rate { display: grid; gap: 2px; padding: 14px 0; border-bottom: 1px solid var(--lapis-line); color: inherit; text-decoration: none; min-width: 0; }
-.rate:hover .rate-label { color: #fff; }
+/* ── The rate board ───────────────────────────────────────────────────────────
+   Treated as a physical board in a صرافی window: a lit panel, ruled rows, and
+   digits that roll when a rate moves. Two tiers — the three rates people open
+   this page for are set large; the rest form a quieter secondary block. */
+.board {
+  background:
+    radial-gradient(120% 90% at 78% -10%, #263a68 0%, rgba(38, 58, 104, 0) 62%),
+    var(--lapis);
+  color: #f3f5fa;
+  padding: 18px 0 24px;
+  box-shadow: inset 0 14px 26px -18px rgba(0, 0, 0, 0.75);
+}
+.board-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 30px; }
+.rate {
+  display: grid; gap: 3px; padding: 13px 0 12px; min-width: 0;
+  border-bottom: 1px solid var(--lapis-line); color: inherit; text-decoration: none;
+}
+.rate:hover .rate-label, .rate:focus-visible .rate-label { color: #fff; }
+/* the lead trio spans wider and sets its price larger */
+.rate.lead { grid-column: span 1; padding-block: 16px 14px; }
 .rate-label { font-size: 14px; color: #c7d0e2; }
-.rate-price { font-size: clamp(22px, 2.3vw, 29px); font-weight: 800; direction: ltr; text-align: right; line-height: 1.35; transition: background-color 0.9s ease; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rate-price {
+  font-size: clamp(21px, 2.1vw, 27px); font-weight: 800; direction: ltr; text-align: right;
+  line-height: 1.3; border-radius: 4px; white-space: nowrap; min-width: 0;
+  transition: background-color 0.9s ease;
+}
+.rate.lead .rate-price { font-size: clamp(26px, 3vw, 38px); }
 .rate-price small { font-size: 12.5px; color: #9fabc6; font-weight: 400; margin-left: 6px; }
-.rate-price.flash-up { background: rgba(23, 128, 79, 0.45); transition: none; }
-.rate-price.flash-down { background: rgba(190, 58, 49, 0.45); transition: none; }
-.rate-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: #aab5cc; }
+.rate-price.flash-up { background: rgba(23, 128, 79, 0.4); transition: none; }
+.rate-price.flash-down { background: rgba(190, 58, 49, 0.4); transition: none; }
+.rate-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 12.5px; color: #aab5cc; min-width: 0; }
 .rate-chg { direction: ltr; font-weight: 700; white-space: nowrap; }
 .rate-chg.up { color: #7fdcab; }
 .rate-chg.down { color: #ffa398; }
+.rate-spark { display: inline-flex; align-items: center; opacity: 0.85; flex: 0 0 auto; }
+.rate-note { margin-inline-start: auto; text-align: left; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a row with no price yet reads as pending, not broken */
+.rate.dead { opacity: 0.5; }
+.rate-wait { font-size: 14px; font-weight: 400; color: #9fabc6; }
+
+/* digits roll only where the number changed */
+.rn-digit, .rn-sep { display: inline-block; }
+.rn-digit.rolling { animation: rollDigit 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes rollDigit {
+  0% { transform: translateY(-0.62em); opacity: 0; }
+  55% { opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
 
 .digest { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
 .digest-scn { grid-column: 1 / -1; }
@@ -358,6 +393,7 @@ ol.list { counter-reset: n; }
   .status .when { font-size: 12px; }
   .page-head h1 { font-size: 22px; }
   .board-grid { column-gap: 16px; }
+  .rate-note { flex: 1 1 100%; margin-inline-start: 0; text-align: right; white-space: normal; }
   .rate-price { font-size: 20px; }
   .digest { grid-template-columns: 1fr; }
   .filterbar { gap: 8px; }
@@ -475,5 +511,6 @@ ol.list { counter-reset: n; }
   .spin, .skeleton { animation: none; }
   .rate-price { transition: none; }
   .rate-price.flash-up, .rate-price.flash-down { background: transparent; }
+  .rn-digit.rolling { animation: none; }
   .toggle .track, .toggle .track::after { transition: none; }
 }

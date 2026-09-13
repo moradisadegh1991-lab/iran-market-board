@@ -240,6 +240,15 @@ curl -s "https://api.nobitex.ir/market/stats?srcCurrency=usdt,btc,eth&dstCurrenc
 
 تست آفلاین: `npm run test:holdings` (داوری ورود، نبود نگاه به آینده، و ریاضی درصد شباهت) و `npm run test:jalali` (مقایسه تبدیل تقویم با تقویم فارسی خود مرورگر برای ۱۰٩۵۸ روز).
 
+## ۶-ه) طراحی تابلو
+
+تابلوی بالای صفحه مثل تابلوی نرخ یک صرافی رفتار می‌کند، نه یک فهرست متنی:
+
+- **سلسله‌مراتب:** دلار آزاد، سکه امامی و طلای ۱۸ در ردیف اول و با اندازه بزرگ‌تر — همان سه نرخی که بیشتر مردم این صفحه را برایشان باز می‌کنند. بقیه در بلوک آرام‌تر پایین.
+- **نمودار کوچک هر ردیف:** شکل روند سه ماه اخیر کنار هر نرخ، از همان تاریخچه‌ای که موتور ریسک استفاده می‌کند (بدون درخواست شبکه‌ای اضافه). رنگ این خط عمداً خنثی است: درصد تغییر کنارش ۲۴ ساعته است و اگر خط هم رنگی می‌شد، دو بازه زمانی متفاوت متناقض به نظر می‌رسیدند.
+- **چرخش رقم‌ها:** وقتی نرخی عوض می‌شود، فقط رقم‌هایی که واقعاً تغییر کرده‌اند می‌چرخند — مثل تابلوهای مکانیکی صرافی. با `prefers-reduced-motion` این حرکت خاموش می‌شود.
+- **ردیف بدون داده:** به‌جای خط تیره گمراه‌کننده، «در انتظار داده» و کم‌رنگ نمایش داده می‌شود و به انتهای تابلو منتقل می‌شود.
+
 ## ۷) ساختار
 
 ```
@@ -249,7 +258,7 @@ lib/sources/       tgju · goldapi · nobitex · brsapi · coingecko · history 
 lib/engine/        stats · risk · crypto · tse · portfolio · scenario · simulator · live · learning · swing · holdings-analysis
 lib/telegram/      api · format · handler · paper
 lib/               snapshot · series · history · simulate · paper · learning · intraday · holdings · jalali · store · auth · num · http
-components/        Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart · Sparkline · HoldingsPanel
+components/        Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart · Sparkline · RollingNumber · HoldingsPanel
 components/views/  Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks · Crypto · Portfolio · Bot
 scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · jalali-test · holdings-test · backfill_tse.py
 .github/workflows/ paper-tick.yml (ضربان‌ساز معامله برخط)

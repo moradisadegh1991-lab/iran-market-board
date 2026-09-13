@@ -5,9 +5,24 @@ import { HORIZONS, riskLevel } from '@/lib/engine/risk';
 import { fmtInt, fmtPct, fmtPrice, isNum } from '@/lib/num';
 import type { Snapshot } from '@/lib/types';
 import { WithSnapshot } from '../SnapshotProvider';
+import RollingNumber from '../RollingNumber';
+import Sparkline from '../Sparkline';
 import { Pct } from '../ui';
 
 const UNIT: Record<string, string> = { toman: 'تومان', usd: 'دلار', point: 'واحد' };
+/** The three rates people actually open this page for — given the large treatment, first row. */
+const LEAD = new Set(['usd', 'coin', 'g18']);
+/** Board reading order: the lead trio, then the rest as listed, with not-yet-priced rows last
+ *  so a missing feed leaves a gap at the end instead of a hole in the middle. */
+const ORDER = ['usd', 'coin', 'g18', 'usdt', 'ons', 'tse', 'btc', 'eth', 'oilBrent', 'dxy'];
+function boardOrder(items: Snapshot['live']['items']) {
+  const rank = (k: string) => (ORDER.indexOf(k) < 0 ? ORDER.length : ORDER.indexOf(k));
+  return [...items].sort((a, b) => {
+    const aDead = !isNum(a.price) ? 1 : 0;
+    const bDead = !isNum(b.price) ? 1 : 0;
+    return aDead - bDead || rank(a.key) - rank(b.key);
+  });
+}
 
 function Board({ snap }: { snap: Snapshot }) {
   const prev = useRef<Record<string, number | null>>({});
@@ -29,21 +44,40 @@ function Board({ snap }: { snap: Snapshot }) {
     <section className="board" aria-label="قیمت‌های لحظه‌ای">
       <div className="wrap">
         <div className="board-grid">
-          {snap.live.items.map((it) => (
-            <Link href={`/charts?asset=${it.key}`} className="rate" key={it.key}>
+          {boardOrder(snap.live.items).map((it) => {
+            const dir = !isNum(it.changePct) || it.changePct === 0 ? '' : it.changePct > 0 ? 'up' : 'down';
+            const dead = !isNum(it.price);
+            return (
+            <Link
+              href={`/charts?asset=${it.key}`}
+              className={`rate${LEAD.has(it.key) ? ' lead' : ''}${dead ? ' dead' : ''}`}
+              key={it.key}
+            >
               <span className="rate-label">{it.label}</span>
               <span className={`rate-price num ${flash[it.key] ?? ''}`}>
-                {fmtPrice(it.price)}
-                <small>{UNIT[it.unit]}</small>
+                {dead ? <span className="rate-wait">در انتظار داده</span> : <RollingNumber text={fmtPrice(it.price)} />}
+                {dead ? null : <small>{UNIT[it.unit]}</small>}
               </span>
               <span className="rate-meta">
-                <span className="rate-note">{it.note ?? ''}</span>
-                <span className={`rate-chg num ${!isNum(it.changePct) || it.changePct === 0 ? '' : it.changePct > 0 ? 'up' : 'down'}`}>
-                  {isNum(it.changePct) ? `${it.changePct > 0 ? '▲' : it.changePct < 0 ? '▼' : ''} ${fmtPct(it.changePct)}` : '—'}
+                <span className={`rate-chg num ${dir}`}>
+                  {isNum(it.changePct) ? `${it.changePct > 0 ? '▲' : it.changePct < 0 ? '▼' : ''} ${fmtPct(it.changePct)}` : ''}
                 </span>
+                {it.spark?.length ? (
+                  <span className="rate-spark">
+                    <Sparkline
+                      data={it.spark}
+                      width={LEAD.has(it.key) ? 110 : 76}
+                      height={22}
+                      label="روند سه ماه اخیر"
+                      color="rgba(190, 208, 240, 0.75)"
+                    />
+                  </span>
+                ) : null}
+                <span className="rate-note">{it.note ?? ''}</span>
               </span>
             </Link>
-          ))}
+            );
+          })}
         </div>
       </div>
     </section>

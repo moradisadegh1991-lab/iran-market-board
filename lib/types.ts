@@ -21,6 +21,8 @@ export interface BoardItem {
   unit: 'toman' | 'usd' | 'point';
   changePct: number | null;
   note?: string;
+  /** ~30 downsampled closes for the row's inline trend line (display unit) */
+  spark?: number[];
 }
 
 export interface LiveBoard {
