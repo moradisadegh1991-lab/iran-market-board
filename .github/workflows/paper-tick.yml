@@ -1,24 +1,66 @@
 # Heartbeat for live paper trading (معامله برخط).
-# Vercel Hobby crons run at most once a day, so this workflow pings the tick endpoint every 10 minutes.
+#
+# Vercel Hobby crons run at most once a day, so the tick endpoint is pinged from here.
+#
+# IMPORTANT — GitHub does NOT honour a */10 schedule reliably. Under load it silently drops
+# runs, and in practice the gap between runs is often 50–90 minutes (and can exceed 4 hours).
+# Long gaps mean stops and targets are only checked once an hour, so the session logs
+# "قیمت‌ها پایش نشدند" and reacts late.
+#
+# The fix: schedule HOURLY (which GitHub honours far more reliably) and have each run loop,
+# pinging every LOOP_EVERY_SEC until the hour is up. One scheduled run then produces ~12 ticks.
+#
+# COST: the loop keeps a runner busy ~55 min/hour ≈ 40,000 min/month.
+#   - public repository  → Actions minutes are free, no problem.
+#   - private repository → far beyond the 2,000 free min/month. Either make the repo public,
+#     lower LOOP_MINUTES, or use an external pinger instead (cron-job.org, every 5–10 min,
+#     hitting  https://YOUR-APP.vercel.app/api/paper/tick?secret=ADMIN_SECRET ).
+#
 # Repository → Settings → Secrets and variables → Actions:
 #   BOARD_URL    = https://your-app.vercel.app
 #   CRON_SECRET  = same value as the Vercel env var
-# Note: GitHub may delay scheduled runs by several minutes under load, and disables schedules
-# after 60 days without repository activity.
+# GitHub disables schedules after 60 days without repository activity.
 name: paper-tick
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '0 * * * *'
   workflow_dispatch: {}
+
+# never let two heartbeat runs overlap
+concurrency:
+  group: paper-tick
+  cancel-in-progress: false
+
+env:
+  LOOP_MINUTES: 55
+  LOOP_EVERY_SEC: 300
+
 jobs:
   tick:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 60
     steps:
-      - name: Tick
+      - name: Tick repeatedly for the hour
         env:
           BOARD_URL: ${{ secrets.BOARD_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          if [ -z "$BOARD_URL" ] || [ -z "$CRON_SECRET" ]; then echo "BOARD_URL / CRON_SECRET secrets are not set"; exit 1; fi
-          curl -sS --fail-with-body --max-time 90 -H "Authorization: Bearer ${CRON_SECRET}" "${BOARD_URL%/}/api/paper/tick"
+          if [ -z "$BOARD_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "BOARD_URL / CRON_SECRET secrets are not set"; exit 1
+          fi
+          end=$(( $(date +%s) + LOOP_MINUTES * 60 ))
+          fails=0
+          while [ "$(date +%s)" -lt "$end" ]; do
+            if curl -sS --fail-with-body --max-time 90 \
+                 -H "Authorization: Bearer ${CRON_SECRET}" \
+                 "${BOARD_URL%/}/api/paper/tick"; then
+              echo " ok $(date -u +%H:%M:%S)"
+              fails=0
+            else
+              fails=$(( fails + 1 ))
+              echo " FAILED ($fails) $(date -u +%H:%M:%S)"
+              # give up only if the endpoint is persistently unreachable
+              if [ "$fails" -ge 5 ]; then echo "endpoint failing repeatedly, stopping"; exit 1; fi
+            fi
+            sleep "$LOOP_EVERY_SEC"
+          done

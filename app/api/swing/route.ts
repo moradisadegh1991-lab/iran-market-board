@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { errMsg } from '@/lib/http';
 import { isNum } from '@/lib/num';
 import { cachedSource } from '@/lib/sources/cache';
-import { fetchCgHourly } from '@/lib/sources/coingecko';
+import { fetchCgHourly, fetchCgMarkets, type CgCoin } from '@/lib/sources/coingecko';
 import { getSnapshot } from '@/lib/snapshot';
 import { SWING_PRESETS, runSwing, type SwingPreset } from '@/lib/engine/swing';
 
@@ -21,12 +21,37 @@ export async function GET() {
       { id: 'solana', symbol: 'SOL', name: 'سولانا' },
     ];
     const seen = new Set(majors.map((m) => m.id));
-    const screened = [...snap.crypto.coins, ...snap.crypto.memes]
-      .filter((c) => !seen.has(c.id) && (seen.add(c.id), true))
-      .slice(0, 16)
-      .map((c) => ({ id: c.id, symbol: c.symbol.toUpperCase(), name: c.name }));
+    const seenSymbols = new Set(majors.map((m) => m.symbol.toLowerCase()));
+    // The whole tradable universe, not just this week's top picks: the backtest endpoint
+    // already accepts any CoinGecko id, so the menu was the only thing limiting it.
+    // Both lists come from the same cache the dashboard already fills — no extra network calls.
+    const [marketsR, memesR] = await Promise.all([
+      cachedSource<CgCoin[]>('cgMarkets', 300, () => fetchCgMarkets(undefined, 250), 6 * 3600),
+      cachedSource<CgCoin[]>('cgMemes', 300, () => fetchCgMarkets('meme-token', 120), 6 * 3600),
+    ]);
+    const memeIds = new Set((memesR.data ?? []).map((c) => c.id));
+    // Keep one entry per ticker: CoinGecko lists bridged/wrapped copies of the same coin under
+    // separate ids, which would otherwise show up as duplicate "DOGE" rows in the menu.
+    const bySymbol = new Map<string, CgCoin>();
+    for (const c of [...(marketsR.data ?? []), ...(memesR.data ?? [])]) {
+      if (!c?.id || seen.has(c.id)) continue;
+      if (!isNum(c.current_price) || c.current_price <= 0) continue;
+      const k = String(c.symbol ?? '').toLowerCase();
+      if (!k || seenSymbols.has(k)) continue; // majors are already listed at the top
+      const cur = bySymbol.get(k);
+      if (!cur || (c.market_cap ?? 0) > (cur.market_cap ?? 0)) bySymbol.set(k, c);
+    }
+    const universe = [...bySymbol.values()]
+      .sort((a, b) => (b.market_cap ?? 0) - (a.market_cap ?? 0))
+      .map((c) => ({ id: c.id, symbol: c.symbol.toUpperCase(), name: c.name, meme: memeIds.has(c.id) }));
+    // this week's screener picks stay at the top of the list as a shortcut
+    const picks = new Set([...snap.crypto.coins, ...snap.crypto.memes].map((c) => c.id));
+    const ranked = [
+      ...universe.filter((c) => picks.has(c.id)).map((c) => ({ ...c, picked: true })),
+      ...universe.filter((c) => !picks.has(c.id)).map((c) => ({ ...c, picked: false })),
+    ];
     return NextResponse.json({
-      coins: [...majors, ...screened],
+      coins: [...majors.map((m) => ({ ...m, meme: false, picked: false })), ...ranked],
       maxDays: MAX_DAYS,
       presets: Object.entries(SWING_PRESETS).map(([key, p]) => ({ key, label: p.label, note: p.note })),
       usdtRial: snap.live.items.find((i) => i.key === 'usdt')?.price ? snap.live.items.find((i) => i.key === 'usdt')!.price! * 10 : null,

@@ -10,7 +10,7 @@ import type { EquityLine } from '../EquityChart';
 const EquityChart = dynamic(() => import('../EquityChart'), { ssr: false, loading: () => <div className="chart-host equity-host skeleton" /> });
 
 interface Menu {
-  coins: { id: string; symbol: string; name: string }[];
+  coins: { id: string; symbol: string; name: string; meme?: boolean; picked?: boolean }[];
   maxDays: number;
   presets: { key: string; label: string; note: string }[];
   error?: string;
@@ -26,6 +26,7 @@ const CAPITALS = [100_000_000, 500_000_000, 1_000_000_000];
 export default function SwingView() {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [coinId, setCoinId] = useState('bitcoin');
+  const [coinQuery, setCoinQuery] = useState('');
   const [preset, setPreset] = useState<'calm' | 'normal' | 'aggressive'>('normal');
   const [days, setDays] = useState<'30' | '60' | '90'>('60');
   const [capital, setCapital] = useState('500000000');
@@ -44,6 +45,16 @@ export default function SwingView() {
       })
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
   }, []);
+
+  const shownCoins = useMemo(() => {
+    const all = menu?.coins ?? [];
+    const q = coinQuery.trim().toLowerCase();
+    if (!q) return all.slice(0, 120);
+    const hit = all.filter((c) => c.name.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q) || c.id.includes(q));
+    // the selected coin must stay in the list, otherwise the select would silently show nothing
+    const sel = all.find((c) => c.id === coinId);
+    return sel && !hit.some((c) => c.id === coinId) ? [sel, ...hit] : hit;
+  }, [menu, coinQuery, coinId]);
 
   const coin = menu?.coins.find((c) => c.id === coinId);
 
@@ -97,7 +108,32 @@ export default function SwingView() {
           <div>
             <span className="field-label">ارز</span>
             {menu ? (
-              <Select label="ارز" value={coinId} onChange={setCoinId} options={menu.coins.map((c) => ({ key: c.id, label: `${c.name} (${c.symbol})` }))} />
+              <>
+                {/* a plain <select> is unusable at ~300 coins, so filter by name or symbol first */}
+                <input
+                  className="coin-search"
+                  type="search"
+                  inputMode="search"
+                  placeholder="جست‌وجوی نام یا نماد…"
+                  value={coinQuery}
+                  onChange={(e) => setCoinQuery(e.target.value)}
+                  aria-label="جست‌وجوی ارز"
+                />
+                <Select
+                  label="ارز"
+                  value={coinId}
+                  onChange={setCoinId}
+                  options={shownCoins.map((c) => ({
+                    key: c.id,
+                    label: `${c.picked ? '★ ' : ''}${c.name} (${c.symbol})${c.meme ? ' · میم‌کوین' : ''}`,
+                  }))}
+                />
+                <small className="muted">
+                  {shownCoins.length === menu.coins.length
+                    ? `${fmtInt(menu.coins.length)} ارز · ★ یعنی این هفته در فهرست غربال بوده`
+                    : `${fmtInt(shownCoins.length)} از ${fmtInt(menu.coins.length)} ارز`}
+                </small>
+              </>
             ) : (
               <p className="muted">در حال دریافت فهرست…</p>
             )}

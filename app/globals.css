@@ -323,6 +323,9 @@ ol.list { counter-reset: n; }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-inline-end: 8px; }
 .notes { margin: 12px 0 0; padding-inline-start: 1.2em; color: var(--muted); font-size: 14px; }
 
+/* ── Swing coin picker ── */
+.coin-search { width: 100%; min-width: 0; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); padding: 7px 10px; margin-bottom: 8px; }
+
 /* ── Holdings analysis ── */
 .pf-match { margin-top: 16px; }
 .pf-match-controls { display: flex; flex-wrap: wrap; gap: 14px 22px; margin: 12px 0 14px; }
