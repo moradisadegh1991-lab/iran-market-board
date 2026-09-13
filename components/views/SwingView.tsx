@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { fmtDateTimeFa, fmtInt, fmtNum, fmtPct, isNum } from '@/lib/num';
 import { SWING_EXIT_LABEL, type SwingResult } from '@/lib/engine/swing';
+import type { SwingPortfolio } from '@/lib/engine/swing-portfolio';
+import type { SwingScan } from '@/lib/engine/swing-scan';
 import { Chips, Empty, PageHead, Pct, Select } from '../ui';
 import { tomanWords } from '../TradeEntry';
 import type { EquityLine } from '../EquityChart';
@@ -35,6 +37,19 @@ export default function SwingView() {
   const [err, setErr] = useState<string | null>(null);
   const [res, setRes] = useState<(SwingResult & { dataVia?: string }) | null>(null);
   const [exitFilter, setExitFilter] = useState<'all' | 'win' | 'loss'>('all');
+  type Mode = 'single' | 'multi' | 'auto';
+  const [mode, setMode] = useState<Mode>('single');
+  const multi = mode === 'multi';
+  const auto = mode === 'auto';
+  const [basket, setBasket] = useState<string[]>([]);
+  const [pf, setPf] = useState<SwingPortfolio | null>(null);
+  const [scan, setScan] = useState<SwingScan | null>(null);
+  const [autoCount, setAutoCount] = useState<'3' | '4' | '6'>('4');
+  const MAX_BASKET = 8;
+
+  function toggleCoin(id: string) {
+    setBasket((b) => (b.includes(id) ? b.filter((x) => x !== id) : b.length >= MAX_BASKET ? b : [...b, id]));
+  }
 
   useEffect(() => {
     fetch('/api/swing')
@@ -62,14 +77,22 @@ export default function SwingView() {
     setBusy(true);
     setErr(null);
     try {
+      const common = { days: Number(days), capitalToman: Number(capital), preset, feePct: Number(feePct) };
+      const payload = auto
+        ? { ...common, auto: true, count: Number(autoCount) }
+        : multi
+          ? { ...common, coins: basket.map((id) => { const c = menu?.coins.find((x) => x.id === id); return { id, symbol: c?.symbol, name: c?.name }; }) }
+          : { ...common, coinId, symbol: coin?.symbol, name: coin?.name };
       const r = await fetch('/api/swing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ coinId, symbol: coin?.symbol, name: coin?.name, days: Number(days), capitalToman: Number(capital), preset, feePct: Number(feePct) }),
+        body: JSON.stringify(payload),
       });
       const j = await r.json();
       if (!r.ok || j.error) throw new Error(j.error || `خطای ${r.status}`);
-      setRes(j);
+      if (auto) { setScan(j.scan); setPf(j.portfolio); setRes(null); }
+      else if (multi) { setPf(j.portfolio); setScan(null); setRes(null); }
+      else { setRes(j); setPf(null); setScan(null); }
       setExitFilter('all');
       requestAnimationFrame(() => document.getElementById('swing-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     } catch (e) {
@@ -106,8 +129,24 @@ export default function SwingView() {
         <h2 id="ticket-h">شرایط نوسان‌گیری</h2>
         <div className="ticket-grid">
           <div>
-            <span className="field-label">ارز</span>
-            {menu ? (
+            <span className="field-label">حالت</span>
+            <Chips
+              label="حالت"
+              value={mode}
+              onChange={(v) => { setMode(v as Mode); setErr(null); }}
+              options={[{ key: 'single', label: 'یک ارز' }, { key: 'multi', label: 'چند ارز همزمان' }, { key: 'auto', label: 'انتخاب خودکار' }]}
+            />
+            <span className="field-label" style={{ marginTop: 12 }}>
+              {auto ? 'تعداد ارز انتخابی' : multi ? `سبد ارزها (${fmtInt(basket.length)} از ${fmtInt(MAX_BASKET)})` : 'ارز'}
+            </span>
+            {auto ? (
+              <>
+                <Chips label="تعداد" value={autoCount} onChange={setAutoCount} options={[{ key: '3', label: '۳ ارز' }, { key: '4', label: '۴ ارز' }, { key: '6', label: '۶ ارز' }]} />
+                <small className="muted">
+                  پرمعامله‌ترین ارزها و میم‌کوین‌ها بررسی می‌شوند. انتخاب فقط با نیمه اولِ تاریخچه انجام می‌شود و نتیجه روی نیمه دومِ دیده‌نشده گزارش می‌شود.
+                </small>
+              </>
+            ) : menu ? (
               <>
                 {/* a plain <select> is unusable at ~300 coins, so filter by name or symbol first */}
                 <input
@@ -119,15 +158,46 @@ export default function SwingView() {
                   onChange={(e) => setCoinQuery(e.target.value)}
                   aria-label="جست‌وجوی ارز"
                 />
-                <Select
-                  label="ارز"
-                  value={coinId}
-                  onChange={setCoinId}
-                  options={shownCoins.map((c) => ({
-                    key: c.id,
-                    label: `${c.picked ? '★ ' : ''}${c.name} (${c.symbol})${c.meme ? ' · میم‌کوین' : ''}`,
-                  }))}
-                />
+                {multi ? (
+                  <>
+                    <div className="chips basket-list" role="group" aria-label="انتخاب ارزها">
+                      {shownCoins.slice(0, 60).map((c) => {
+                        const on = basket.includes(c.id);
+                        const full = !on && basket.length >= MAX_BASKET;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            
+                            aria-pressed={on}
+                            disabled={full}
+                            title={full ? `حداکثر ${MAX_BASKET} ارز` : undefined}
+                            onClick={() => toggleCoin(c.id)}
+                          >
+                            {c.picked ? '★ ' : ''}{c.symbol}{c.meme ? ' ·م' : ''}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {basket.length ? (
+                      <small className="muted">
+                        سرمایه به‌طور مساوی بین {fmtInt(basket.length)} ارز تقسیم می‌شود؛ هر ارز جدا معامله می‌شود و از نقد بقیه قرض نمی‌گیرد.
+                      </small>
+                    ) : (
+                      <small className="muted">دست‌کم یک ارز انتخاب کنید.</small>
+                    )}
+                  </>
+                ) : (
+                  <Select
+                    label="ارز"
+                    value={coinId}
+                    onChange={setCoinId}
+                    options={shownCoins.map((c) => ({
+                      key: c.id,
+                      label: `${c.picked ? '★ ' : ''}${c.name} (${c.symbol})${c.meme ? ' · میم‌کوین' : ''}`,
+                    }))}
+                  />
+                )}
                 <small className="muted">
                   {shownCoins.length === menu.coins.length
                     ? `${fmtInt(menu.coins.length)} ارز · ★ یعنی این هفته در فهرست غربال بوده`
@@ -168,12 +238,164 @@ export default function SwingView() {
           </label>
         </div>
         <div className="ticket-foot">
-          <button className="btn run" disabled={busy || !menu} onClick={run}>
+          <button className="btn run" disabled={busy || !menu || (multi && basket.length === 0)} onClick={run}>
             {busy ? 'در حال اجرا…' : 'اجرای نوسان‌گیری'}
           </button>
         </div>
         {err ? <Empty>{err}</Empty> : null}
       </div>
+
+      {scan ? (
+        <div id="swing-result" className="sim-result">
+          <section className="panel pad">
+            <h2>غربال خودکار</h2>
+            <p className="lede">
+              انتخاب فقط با نیمه اول تاریخچه انجام شد؛ ستون «نیمه دوم» داده‌ای است که غربال هرگز ندیده. مقایسه این دو نشان می‌دهد انتخاب واقعاً کار کرده یا فقط به گذشته برازش شده.
+            </p>
+            <dl className="metrics">
+              <div>
+                <dt>ارزهای انتخاب‌شده (نیمه دوم)</dt>
+                <dd><Pct v={scan.outSampleReturnPct} digits={1} /></dd>
+              </div>
+              <div>
+                <dt>اگر همه نامزدها را می‌گرفتید</dt>
+                <dd><Pct v={scan.allCandidatesReturnPct} digits={1} /></dd>
+              </div>
+              <div>
+                <dt>خرید و نگه‌داری همان‌ها</dt>
+                <dd><Pct v={scan.outSampleBuyHoldPct} digits={1} /></dd>
+              </div>
+            </dl>
+            <p className="notes-1">{scan.verdict}</p>
+            {scan.warnings.map((w, i) => (
+              <p key={i} className="muted small">{w}</p>
+            ))}
+          </section>
+
+          <section className="panel pad">
+            <h2>نامزدها</h2>
+            <div className="table-scroll">
+              <table className="t">
+                <thead>
+                  <tr>
+                    <th scope="col">ارز</th>
+                    <th scope="col">نیمه اول (انتخاب)</th>
+                    <th scope="col">نیمه دوم (دیده‌نشده)</th>
+                    <th scope="col">معاملات</th>
+                    <th scope="col">وضعیت</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scan.candidates.map((c) => (
+                    <tr key={c.coin.id} className={c.selected ? 'picked-row' : undefined}>
+                      <th scope="row">
+                        {c.coin.symbol}
+                        {c.coin.meme ? <span className="muted small"> · میم‌کوین</span> : null}
+                      </th>
+                      {c.inSample && c.outSample ? (
+                        <>
+                          <td><Pct v={c.inSample.returnPct} digits={1} /></td>
+                          <td><Pct v={c.outSample.returnPct} digits={1} /></td>
+                          <td className="num">{fmtInt(c.inSample.trades)}</td>
+                          <td>{c.selected ? <span className="state-pill ok">انتخاب شد</span> : <span className="muted">—</span>}</td>
+                        </>
+                      ) : (
+                        <td colSpan={4} className="muted">{c.reason}</td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button
+              className="btn"
+              onClick={() => { setBasket(scan.selected.map((c) => c.coin.id).slice(0, MAX_BASKET)); setMode('multi'); setScan(null); }}
+            >
+              این ارزها را در حالت چند ارزی بگذار
+            </button>
+          </section>
+        </div>
+      ) : null}
+
+      {pf ? (
+        <div id="swing-result" className={scan ? 'sim-result' : 'sim-result'}>
+          <section className="panel pad">
+            <h2>نتیجه سبد {fmtInt(pf.used)} ارزی</h2>
+            <dl className="metrics">
+              <div>
+                <dt>ارزش نهایی سبد</dt>
+                <dd className="num">{tomanWords(pf.combined.finalEquity)}</dd>
+              </div>
+              <div>
+                <dt>بازده سبد</dt>
+                <dd><Pct v={pf.combined.returnPct} digits={1} /></dd>
+              </div>
+              <div>
+                <dt>خرید و نگه‌داری همین سبد</dt>
+                <dd><Pct v={pf.combined.buyHoldPct} digits={1} /></dd>
+              </div>
+              <div>
+                <dt>بیشینه افت سبد</dt>
+                <dd><Pct v={pf.combined.maxDrawdownPct} digits={1} /></dd>
+              </div>
+              <div>
+                <dt>معاملات</dt>
+                <dd className="num">{fmtInt(pf.combined.trades)}{pf.combined.winRatePct !== null ? ` · ${fmtPct(pf.combined.winRatePct, 0, false)} برد` : ''}</dd>
+              </div>
+              <div>
+                <dt>کارمزد پرداختی</dt>
+                <dd className="num">{tomanWords(pf.combined.feesToman)}</dd>
+              </div>
+            </dl>
+            <p className="muted small">سهم هر ارز {tomanWords(pf.sleeveCapitalToman)} است. هر ارز مستقل معامله می‌شود، پس ضرر یکی با نقد دیگری پوشانده نمی‌شود.</p>
+            {pf.warnings.map((w, i) => (
+              <p key={i} className="notes-1">{w}</p>
+            ))}
+          </section>
+
+          <section className="panel pad">
+            <h2>سهم هر ارز</h2>
+            <div className="table-scroll">
+              <table className="t">
+                <thead>
+                  <tr>
+                    <th scope="col">ارز</th>
+                    <th scope="col">بازده</th>
+                    <th scope="col">خرید و نگه‌داری</th>
+                    <th scope="col">معاملات</th>
+                    <th scope="col">برد</th>
+                    <th scope="col">بیشینه افت</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pf.sleeves.map((sl) => (
+                    <tr key={sl.coin.id}>
+                      <th scope="row">{sl.coin.symbol}</th>
+                      {sl.ok && sl.result ? (
+                        <>
+                          <td><Pct v={sl.result.metrics.returnPct} digits={1} /></td>
+                          <td className="muted"><Pct v={sl.result.metrics.buyHoldPct} digits={1} /></td>
+                          <td className="num">{fmtInt(sl.result.metrics.trades)}</td>
+                          <td className="num">{sl.result.metrics.winRatePct === null ? '—' : fmtPct(sl.result.metrics.winRatePct, 0, false)}</td>
+                          <td><Pct v={sl.result.metrics.maxDrawdownPct} digits={1} /></td>
+                        </>
+                      ) : (
+                        <td colSpan={5} className="muted">{sl.error}</td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {pf.best ? (
+              <p className="muted small">
+                بهترین: {pf.best.symbol} ({fmtPct(pf.best.returnPct, 1)}){pf.worst ? ` · ضعیف‌ترین: ${pf.worst.symbol} (${fmtPct(pf.worst.returnPct, 1)})` : ''}
+              </p>
+            ) : null}
+            <p className="muted small">این آزمون روی گذشته است و تضمینی برای آینده نیست.</p>
+          </section>
+        </div>
+      ) : null}
 
       {res && m ? (
         <div id="swing-result" className="sim-result">

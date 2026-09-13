@@ -220,6 +220,20 @@ curl -s "https://api.nobitex.ir/market/stats?srcCurrency=usdt,btc,eth&dstCurrenc
 
 **یادگیری:** پایان هر جلسه (برخط یا شبیه‌سازی) وزن‌ها و ضریب اعتماد هر دارایی کمی تنظیم می‌شود و نسخه موتور یک عدد بالا می‌رود؛ `/api/learning` وضعیت فعلی را نشان می‌دهد و `POST {"action":"reset"}` با `ADMIN_SECRET` به قواعد پایه برمی‌گرداند. آموزش دوباره روی همان بازه بلوکه می‌شود تا بیش‌برازش نشود.
 
+**انتخاب خودکار ارز (`حالت: انتخاب خودکار`):** موتور خودش از داده واقعی بازار تصمیم می‌گیرد کدام آلت‌کوین‌ها و میم‌کوین‌ها برای نوسان‌گیری مناسب‌ترند.
+
+روش کار عمداً دو تکه است، چون ساده‌ترین راه (بک‌تست همه روی کل بازه و برداشتن بهترین‌ها) عملاً خودفریبی است — برنده‌های یک بازه معمولاً همان‌هایی‌اند که در همان بازه رونددار بوده‌اند و این رتبه‌بندی به بازه بعد منتقل نمی‌شود:
+
+1. ‏**نامزدها فقط بر اساس نقدشوندگی** (حجم معاملات) انتخاب می‌شوند، نه بازدهی اخیر — وگرنه غربال روی فهرستی کار می‌کرد که از قبل برای برنده‌بودن فیلتر شده.
+2. ‏**انتخاب فقط با نیمه اول تاریخچه.** امتیاز هر ارز بازده تقسیم بر بیشینه افت است و ارزی که کمتر از ۴ معامله داشته اصلاً امتیاز نمی‌گیرد (تا یک معامله شانسی صدرنشین نشود).
+3. ‏**سنجش روی نیمه دوم**، داده‌ای که غربال هرگز ندیده.
+
+هر دو عدد در جدول کنار هم نشان داده می‌شوند، به‌علاوه دو معیار قضاوت: «اگر همه نامزدها را می‌گرفتید» و «خرید و نگه‌داری همان‌ها». اگر انتخاب خودکار از این‌ها بهتر نباشد، خود صفحه صریح می‌گوید که غربال ارزش افزوده‌ای نساخته، و اگر فاصله نیمه اول و دوم بزرگ باشد آن را به‌عنوان نشانه بیش‌برازش اعلام می‌کند. `npm run test:swingscan` تضمین می‌کند رتبه‌بندی هیچ‌وقت از نیمه دوم استفاده نکند.
+
+با دکمه پایین جدول، ارزهای انتخاب‌شده مستقیم به حالت چند ارزی منتقل می‌شوند.
+
+**نوسان‌گیری چند ارز همزمان:** در صفحه نوسان‌گیری با حالت «چند ارز همزمان» می‌توانید تا ۸ ارز (آلت‌کوین یا میم‌کوین) را انتخاب کنید. سرمایه به‌طور **مساوی** بین آن‌ها تقسیم می‌شود و هر ارز در سهم خودش مستقل معامله می‌شود — سهم‌ها به هم قرض نمی‌دهند، پس ضرر یک ارز با نقد ارز دیگر پوشانده نمی‌شود. نتیجه هر سهم دقیقاً برابر اجرای همان ارز به‌تنهایی با «سرمایه ÷ تعداد» است و تست `npm run test:swingpf` همین را تضمین می‌کند؛ در غیر این صورت جمع‌کردن چند بک‌تست با سرمایه کامل، بازده را چند برابر واقعیت نشان می‌داد. اگر تاریخچه ارزی دریافت نشود، سهم آن نقد می‌ماند و در هشدارها نامش می‌آید، نه اینکه بی‌صدا حذف شود.
+
 در صفحه نوسان‌گیری، فهرست ارز دیگر محدود به غربال هفتگی نیست: کل ارزهای بازار به‌علاوه میم‌کوین‌ها در دسترس‌اند (هر نماد یک بار؛ نسخه‌های bridged حذف می‌شوند) و با کادر جست‌وجو فیلتر می‌شوند. ★ یعنی آن ارز همین هفته در فهرست غربال بوده.
 
 تست آفلاین: `npx tsx scripts/learn-live-test.ts` (اجرای یک جلسه کامل ۳۰ روزه، بررسی اجرای سفارش فقط در ساعات بازار، منفی‌نشدن نقد، یادگیری، و کران‌دار بودن حجم جلسه).
@@ -281,16 +295,16 @@ curl -s "https://api.nobitex.ir/market/stats?srcCurrency=usdt,btc,eth&dstCurrenc
 app/               صفحه‌ها: / · scenarios · simulator · live · swing · charts · risk · stocks · crypto · portfolio · bot
 app/api/           snapshot · diag · ingest · chart · simulate · paper/{,tick} · learning · swing · holdings · cron/* · telegram/{webhook,setup,broadcast}
 lib/sources/       tgju · goldapi · nobitex · brsapi · coingecko · history · news · cache
-lib/engine/        stats · risk · crypto · tse · portfolio · scenario · simulator · live · learning · swing · holdings-analysis
+lib/engine/        stats · risk · crypto · tse · portfolio · scenario · simulator · live · learning · swing · swing-portfolio · swing-scan · holdings-analysis
 lib/telegram/      api · format · handler · paper
 lib/               snapshot · series · history · simulate · paper · learning · intraday · holdings · jalali · store · auth · num · http
 components/        Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart · Sparkline · RollingNumber · HoldingsPanel
 components/views/  Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks · Crypto · Portfolio · Bot
-scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · jalali-test · holdings-test · backfill_tse.py
+scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · swing-portfolio-test · swing-scan-test · jalali-test · holdings-test · backfill_tse.py
 .github/workflows/ paper-tick.yml (ضربان‌ساز معامله برخط)
 ```
 
-تست‌ها: `npm run typecheck` · `npm run smoke` · `npm run smoke:sim` · `npm run test:jalali` · `npm run test:holdings` · `npx tsx scripts/sim-regression.ts` · `npx tsx scripts/learn-live-test.ts` · `npx tsx scripts/swing-validate.ts`
+تست‌ها: `npm run typecheck` · `npm run smoke` · `npm run smoke:sim` · `npm run test:jalali` · `npm run test:holdings` · `npm run test:swingpf` · `npm run test:swingscan` · `npx tsx scripts/sim-regression.ts` · `npx tsx scripts/learn-live-test.ts` · `npx tsx scripts/swing-validate.ts`
 
 ## محدودیت‌های واقعی
 - endpointهای TGJU، نوبیتکس، BrsApi و TSETMC ممکن است بدون اطلاع تغییر کنند یا IP خارجی را ببندند؛ `/api/diag` را بعد از هر خطا چک کنید.
