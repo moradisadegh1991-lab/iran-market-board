@@ -1,10 +1,12 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { fmtDateTimeFa, fmtInt, fmtNum, fmtPct, isNum } from '@/lib/num';
 import { SWING_EXIT_LABEL, type SwingResult } from '@/lib/engine/swing';
 import type { SwingPortfolio } from '@/lib/engine/swing-portfolio';
 import type { SwingScan } from '@/lib/engine/swing-scan';
+import type { SwingLiveSession } from '@/lib/engine/swing-live';
+import { fmtDateTimeFa as fdt } from '@/lib/num';
 import { Chips, Empty, PageHead, Pct, Select } from '../ui';
 import { tomanWords } from '../TradeEntry';
 import type { EquityLine } from '../EquityChart';
@@ -45,6 +47,42 @@ export default function SwingView() {
   const [pf, setPf] = useState<SwingPortfolio | null>(null);
   const [scan, setScan] = useState<SwingScan | null>(null);
   const [autoCount, setAutoCount] = useState<'3' | '4' | '6'>('4');
+  const [live, setLive] = useState<SwingLiveSession | null>(null);
+  const [liveHours, setLiveHours] = useState('24');
+  const [secret, setSecret] = useState('');
+  const [liveBusy, setLiveBusy] = useState(false);
+  const [liveErr, setLiveErr] = useState<string | null>(null);
+
+  const loadLive = useCallback(() => {
+    fetch('/api/swing-live', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((j) => setLive(j.active ?? null))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    loadLive();
+    const id = setInterval(loadLive, 30_000);
+    return () => clearInterval(id);
+  }, [loadLive]);
+
+  async function liveAction(action: 'start' | 'stop') {
+    setLiveBusy(true);
+    setLiveErr(null);
+    try {
+      const body: any = { action, ...(action === 'start' ? {
+        coins: basket.map((id) => { const c = menu?.coins.find((x) => x.id === id); return { id, symbol: c?.symbol, name: c?.name }; }),
+        capitalToman: Number(capital), hours: Number(liveHours), preset, feePct: Number(feePct),
+      } : {}) };
+      const r = await fetch('/api/swing-live', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || `خطای ${r.status}`);
+      loadLive();
+    } catch (e) {
+      setLiveErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLiveBusy(false);
+    }
+  }
   const MAX_BASKET = 8;
 
   function toggleCoin(id: string) {
@@ -124,6 +162,144 @@ export default function SwingView() {
         روی کندل‌های ساعتی یک ارز، استراتژی نوسان‌گیری را آزمایش می‌کند: خرید در اصلاح یا شکست سقف کوتاه‌مدت، فروش با رسیدن به هدف، حد ضرر، شکستن روند یا پایان مهلت. هر معامله
         کارمزد و اسپرد دو طرف را می‌پردازد و نتیجه با «خرید و نگه‌داری» همان ارز مقایسه می‌شود.
       </PageHead>
+
+      {live && live.status === 'running' ? (
+        <section className="panel pad live-swing">
+          <div className="live-status-top">
+            <span className="state-pill ok">نوسان‌گیری برخط در حال اجرا</span>
+            <span className="muted">{live.config.coins.map((c) => c.symbol).join('، ')} · کندل {fmtInt(live.barMinutes)} دقیقه‌ای</span>
+          </div>
+          <dl className="metrics">
+            <div>
+              <dt>ارزش کنونی</dt>
+              <dd className="num">{tomanWords(live.equity[live.equity.length - 1]?.equity ?? live.config.capitalToman)}</dd>
+            </div>
+            <div>
+              <dt>بازده</dt>
+              <dd><Pct v={((live.equity[live.equity.length - 1]?.equity ?? live.config.capitalToman) / live.config.capitalToman - 1) * 100} digits={2} /></dd>
+            </div>
+            <div>
+              <dt>معاملات بسته‌شده</dt>
+              <dd className="num">{fmtInt(live.fills.length)}</dd>
+            </div>
+            <div>
+              <dt>موقعیت باز</dt>
+              <dd className="num">{fmtInt(live.open.length)}</dd>
+            </div>
+            <div>
+              <dt>پایان</dt>
+              <dd>{fdt(live.endsAt)}</dd>
+            </div>
+            <div>
+              <dt>آخرین بررسی</dt>
+              <dd>{fdt(live.lastTickAt)}</dd>
+            </div>
+          </dl>
+
+          {live.open.length ? (
+            <div className="table-scroll">
+              <table className="t compact">
+                <thead>
+                  <tr>
+                    <th scope="col">ارز</th>
+                    <th scope="col">ورود</th>
+                    <th scope="col">قیمت لحظه‌ای</th>
+                    <th scope="col">سود/زیان باز</th>
+                    <th scope="col">هدف / حد ضرر</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {live.open.map((o) => (
+                    <tr key={o.coinId}>
+                      <th scope="row">{o.symbol}</th>
+                      <td className="num">{fmtNum(o.entryPrice, 4)}</td>
+                      <td className="num">{fmtNum(o.markPrice, 4)}</td>
+                      <td><Pct v={o.unrealisedPct} digits={2} /></td>
+                      <td className="num muted">{fmtNum(o.targetPrice, 4)} / {fmtNum(o.stopPrice, 4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {live.fills.length ? (
+            <div className="table-scroll">
+              <table className="t compact">
+                <thead>
+                  <tr>
+                    <th scope="col">ارز</th>
+                    <th scope="col">خروج</th>
+                    <th scope="col">بازده</th>
+                    <th scope="col">سود/زیان</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...live.fills].reverse().slice(0, 12).map((f, i) => (
+                    <tr key={`${f.coinId}-${f.exitAt}-${i}`}>
+                      <th scope="row">{f.symbol}</th>
+                      <td>{SWING_EXIT_LABEL[f.exit]}</td>
+                      <td><Pct v={f.netPct} digits={2} /></td>
+                      <td className="num">{tomanWords(f.pnlToman)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="muted small">هنوز معامله‌ای بسته نشده است.</p>
+          )}
+
+          <ul className="event-list">
+            {live.events.slice(0, 5).map((e, i) => (
+              <li className="event-row" key={i}>
+                <span className="event-when">{fdt(e.at)}</span>
+                <span className="event-text">{e.text}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="admin">
+            <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
+            <button className="btn run danger" disabled={liveBusy || !secret} onClick={() => liveAction('stop')}>
+              {liveBusy ? 'در حال بستن…' : 'پایان نوسان‌گیری برخط'}
+            </button>
+          </div>
+          {liveErr ? <p className="empty">{liveErr}</p> : null}
+        </section>
+      ) : (
+        <section className="panel pad live-swing">
+          <h2>نوسان‌گیری برخط</h2>
+          <p className="lede">
+            همین موتور را روی قیمت واقعی اجرا می‌کند: خودش می‌خرد و می‌فروشد، هر معامله را ثبت می‌کند و به تلگرام خبر می‌دهد. پول واقعی جابه‌جا نمی‌شود.
+            ارزها از همان «سبد ارزها» در حالت چند ارزی برداشته می‌شوند.
+          </p>
+          <div className="ticket-grid">
+            <div>
+              <span className="field-label">مدت</span>
+              <Chips
+                label="مدت"
+                value={liveHours}
+                onChange={setLiveHours}
+                options={[{ key: '1', label: '۱ ساعت' }, { key: '6', label: '۶ ساعت' }, { key: '24', label: '۱ روز' }, { key: '72', label: '۳ روز' }, { key: '168', label: '۱ هفته' }]}
+              />
+              <small className="muted">تا ۳۶ ساعت با کندل ۵ دقیقه‌ای، بیشتر از آن با کندل ساعتی.</small>
+            </div>
+            <div>
+              <span className="field-label">ارزهای انتخاب‌شده</span>
+              <p className="muted">{basket.length ? basket.map((id) => menu?.coins.find((c) => c.id === id)?.symbol ?? id).join('، ') : 'در حالت «چند ارز همزمان» ارز انتخاب کنید.'}</p>
+            </div>
+          </div>
+          <div className="admin">
+            <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
+            <button className="btn run" disabled={liveBusy || !secret || basket.length === 0} onClick={() => liveAction('start')}>
+              {liveBusy ? 'در حال شروع…' : 'شروع نوسان‌گیری برخط'}
+            </button>
+          </div>
+          <p className="muted small">برای دریافت اعلان هر معامله، در ربات تلگرام دستور <code>/live_on ADMIN_SECRET</code> را بفرستید.</p>
+          {liveErr ? <p className="empty">{liveErr}</p> : null}
+        </section>
+      )}
 
       <div className="ticket panel pad">
         <h2 id="ticket-h">شرایط نوسان‌گیری</h2>

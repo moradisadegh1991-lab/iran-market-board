@@ -48,6 +48,18 @@ export async function fetchCgRange(id: string, days: 1 | 7): Promise<[number, nu
  * Hourly prices for the swing simulator. CoinGecko returns hourly granularity for 2–90 days
  * on the public/demo tier; asking for more silently downgrades to daily, so `days` is capped at 90.
  */
+/**
+ * 5-minute candles. CoinGecko only serves this granularity for a 1-day window, which
+ * `fetchCgHourly` cannot request (it clamps to 2 days and therefore always returns hourly).
+ * Short live sessions need this: two days of hourly data is only ~48 candles, far fewer
+ * than the swing presets require.
+ */
+export async function fetchCgMinutely(id: string): Promise<[number, number][]> {
+  const json = await fetchJson(`${BASE}/coins/${id}/market_chart?vs_currency=usd&days=1`, { headers: headers(), timeoutMs: 25_000 });
+  if (!Array.isArray(json?.prices)) throw new Error(`market_chart ${id} 1d: bad response`);
+  return json.prices as [number, number][];
+}
+
 export async function fetchCgHourly(id: string, days: number): Promise<[number, number][]> {
   const d = Math.max(2, Math.min(90, Math.round(days)));
   const json = await fetchJson(`${BASE}/coins/${id}/market_chart?vs_currency=usd&days=${d}`, { headers: headers(), timeoutMs: 25_000 });

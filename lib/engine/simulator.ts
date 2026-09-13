@@ -4,16 +4,22 @@
 import { clamp, fmtInt, fmtPct, isNum } from '@/lib/num';
 import { ewmaVol, logReturns, mean, rsi, sma, std } from './stats';
 
-export type SimAsset = 'usd' | 'g18' | 'coin' | 'tse' | 'btc' | 'eth';
+export type SimAsset = 'usd' | 'g18' | 'coin' | 'tse' | 'btc' | 'eth' | 'sol' | 'xrp' | 'ton' | 'doge';
 export type SimProfile = 'conservative' | 'balanced' | 'aggressive';
 
-export const SIM_ASSETS: { key: SimAsset; label: string; unit: string; crypto: boolean; cost: number; costNote: string }[] = [
+export const SIM_ASSETS: { key: SimAsset; label: string; unit: string; crypto: boolean; cost: number; costNote: string; cg?: string }[] = [
   { key: 'usd', label: 'دلار', unit: 'دلار', crypto: false, cost: 0.006, costNote: 'اختلاف خرید و فروش صرافی حدود ۱٫۲٪ رفت‌وبرگشت' },
   { key: 'g18', label: 'طلای ۱۸ عیار', unit: 'گرم', crypto: false, cost: 0.008, costNote: 'طلای آب‌شده؛ اختلاف خرید و فروش حدود ۱٫۶٪، بدون اجرت' },
   { key: 'coin', label: 'سکه امامی', unit: 'سکه', crypto: false, cost: 0.006, costNote: 'اختلاف خرید و فروش حدود ۱٫۲٪؛ مقدار کسری یعنی معادل گواهی سپرده سکه' },
   { key: 'tse', label: 'صندوق شاخصی بورس', unit: 'واحد', crypto: false, cost: 0.005, costNote: 'کارمزد صندوق ETF به‌علاوه خطای ردیابی شاخص، حدود ۰٫۵٪ هر طرف' },
-  { key: 'btc', label: 'بیت‌کوین', unit: 'BTC', crypto: true, cost: 0.004, costNote: 'کارمزد صرافی داخلی و اسپرد تتر، حدود ۰٫۴٪ هر طرف' },
-  { key: 'eth', label: 'اتریوم', unit: 'ETH', crypto: true, cost: 0.004, costNote: 'کارمزد صرافی داخلی و اسپرد تتر، حدود ۰٫۴٪ هر طرف' },
+  { key: 'btc', label: 'بیت‌کوین', unit: 'BTC', crypto: true, cost: 0.004, costNote: 'کارمزد صرافی داخلی و اسپرد تتر، حدود ۰٫۴٪ هر طرف', cg: 'bitcoin' },
+  { key: 'eth', label: 'اتریوم', unit: 'ETH', crypto: true, cost: 0.004, costNote: 'کارمزد صرافی داخلی و اسپرد تتر، حدود ۰٫۴٪ هر طرف', cg: 'ethereum' },
+  // Altcoins tradable on Iranian exchanges. Spreads there are wider than on BTC/ETH, and wider
+  // still for the meme name, so each carries its own cost rather than a shared default.
+  { key: 'sol', label: 'سولانا', unit: 'SOL', crypto: true, cost: 0.005, costNote: 'کارمزد و اسپرد صرافی داخلی، حدود ۰٫۵٪ هر طرف', cg: 'solana' },
+  { key: 'xrp', label: 'ریپل', unit: 'XRP', crypto: true, cost: 0.005, costNote: 'کارمزد و اسپرد صرافی داخلی، حدود ۰٫۵٪ هر طرف', cg: 'ripple' },
+  { key: 'ton', label: 'تون‌کوین', unit: 'TON', crypto: true, cost: 0.006, costNote: 'نقدشوندگی کمتر؛ اسپرد حدود ۰٫۶٪ هر طرف', cg: 'the-open-network' },
+  { key: 'doge', label: 'دوج‌کوین', unit: 'DOGE', crypto: true, cost: 0.007, costNote: 'میم‌کوین با اسپرد بالاتر، حدود ۰٫۷٪ هر طرف', cg: 'dogecoin' },
 ];
 const META = Object.fromEntries(SIM_ASSETS.map((a) => [a.key, a])) as Record<SimAsset, (typeof SIM_ASSETS)[number]>;
 
@@ -57,7 +63,7 @@ export const DEFAULT_PARAMS: SimParams = {
   bandMult: 1,
   minHoldDays: 5,
   cooldownDays: 10,
-  assetTrust: { usd: 1, g18: 1, coin: 1, tse: 1, btc: 1, eth: 1 },
+  assetTrust: { usd: 1, g18: 1, coin: 1, tse: 1, btc: 1, eth: 1, sol: 1, xrp: 1, ton: 1, doge: 1 },
 };
 
 export const PARAM_BOUNDS = {

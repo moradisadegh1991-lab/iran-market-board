@@ -6,6 +6,7 @@ import { errMsg } from '@/lib/http';
 import { isNum, tehranDate } from '@/lib/num';
 import { getSnapshot } from '@/lib/snapshot';
 import { cachedSource } from '@/lib/sources/cache';
+import { fetchCgMarkets } from '@/lib/sources/coingecko';
 import { loadNews } from '@/lib/news';
 import { loadAllSeries } from '@/lib/simulate';
 import { applyLearning, getLearnedParams, lookupFromSeries } from '@/lib/learning';
@@ -79,6 +80,25 @@ async function buildContext(now: number, assets: SimAsset[], useNews: boolean): 
   q('tse', item('tse'));
   q('btc', isNum(item('btc')) && isNum(usdRial) ? item('btc')! * usdRial : null);
   q('eth', isNum(item('eth')) && isNum(usdRial) ? item('eth')! * usdRial : null);
+  // Altcoins aren't on the rate board. Their live dollar price comes from the full cached
+  // CoinGecko market list — NOT from snap.crypto (that is only this week's top-10 picks, so a
+  // coin outside the picks would silently have no quote and could never trade).
+  // Matched by CoinGecko id, not ticker, so a same-symbol clone can't be picked up by mistake.
+  if (isNum(usdRial)) {
+    const [mk, mm] = await Promise.all([
+      cachedSource<{ id: string; current_price: number }[]>('cgMarkets', 300, () => fetchCgMarkets(undefined, 250), 6 * 3600).catch(() => null),
+      cachedSource<{ id: string; current_price: number }[]>('cgMemes', 300, () => fetchCgMarkets('meme-token', 120), 6 * 3600).catch(() => null),
+    ]);
+    const cg = new Map<string, number>();
+    for (const c of [...(mk?.data ?? []), ...(mm?.data ?? [])]) if (c?.id && isNum(c.current_price)) cg.set(c.id, c.current_price);
+    // last resort: the screener rows, which carry a price too
+    for (const c of [...snap.crypto.coins, ...snap.crypto.memes]) if (!cg.has(c.id) && isNum(c.price)) cg.set(c.id, c.price);
+    for (const a of SIM_ASSETS) {
+      if (!a.crypto || !a.cg || a.key === 'btc' || a.key === 'eth') continue;
+      const usd = cg.get(a.cg);
+      q(a.key, isNum(usd) ? usd! * usdRial : null);
+    }
+  }
 
   let news: ScoredNews[] = [];
   let dataNote: string | null = null;

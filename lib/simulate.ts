@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { kv } from '@/lib/store';
 import { errMsg } from '@/lib/http';
 import { isNum, tehranDate } from '@/lib/num';
-import { buildSeries, loadSeriesInputs, type AssetSeries } from '@/lib/series';
+import { buildSeries, coinSeries, loadSeriesInputs, type AssetSeries } from '@/lib/series';
 import { loadNews, type NewsLoad } from '@/lib/news';
 import { DEFAULT_PARAMS, PROFILES, SIM_ASSETS, simulate, type SimAsset, type SimParams, type SimProfile, type SimResult, type SimSeries } from '@/lib/engine/simulator';
 import type { LearnOutcome } from '@/lib/engine/learning';
@@ -75,6 +75,25 @@ export async function loadAllSeries() {
     const r = toRial(s, usd);
     series[key] = { key, dates: r.dates, prices: r.prices, basis: `${s.basis} × دلار ${usd.basis}`, reconstructed: true };
   }
+  // Altcoins have no locally recorded history, so their daily closes come straight from
+  // CoinGecko and are converted with the same dollar series the other crypto uses.
+  // A coin whose history fails to load is simply absent from `series`; getCoverage then
+  // reports zero points for it and the request validator refuses to trade it, rather than
+  // the engine silently pricing it at zero.
+  const alts = SIM_ASSETS.filter((a) => a.crypto && a.cg && a.key !== 'btc' && a.key !== 'eth');
+  await Promise.all(
+    alts.map(async (a) => {
+      try {
+        const s = await coinSeries(a.cg!);
+        if (s.dates.length < 70) return;
+        const r = toRial({ dates: s.dates, prices: s.prices } as AssetSeries, usd);
+        if (r.dates.length < 70) return;
+        series[a.key] = { key: a.key, dates: r.dates, prices: r.prices, basis: `CoinGecko × دلار ${usd.basis}`, reconstructed: true };
+      } catch {
+        /* leave it out of `series` — coverage will show it as unavailable */
+      }
+    }),
+  );
   return { series, usd, ons };
 }
 

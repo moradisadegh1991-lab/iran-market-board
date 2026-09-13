@@ -51,6 +51,8 @@ jobs:
           end=$(( $(date +%s) + LOOP_MINUTES * 60 ))
           fails=0
           while [ "$(date +%s)" -lt "$end" ]; do
+            # both live engines share this heartbeat
+            curl -sS --max-time 90 -H "Authorization: Bearer ${CRON_SECRET}" "${BOARD_URL%/}/api/swing-live/tick" || true
             if curl -sS --fail-with-body --max-time 90 \
                  -H "Authorization: Bearer ${CRON_SECRET}" \
                  "${BOARD_URL%/}/api/paper/tick"; then
