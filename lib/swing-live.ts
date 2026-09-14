@@ -2,6 +2,7 @@
 // and pushes closed trades to Telegram. Ticks come from the same external scheduler as the
 // live paper trader (/api/swing-live/tick), plus opportunistically from page visits.
 import { kv } from '@/lib/store';
+import { recordSwingRuns, type SwingRunRecord } from '@/lib/swing-history';
 import { errMsg } from '@/lib/http';
 import { isNum } from '@/lib/num';
 import { cachedSource } from '@/lib/sources/cache';
@@ -160,6 +161,44 @@ async function archive(s: SwingLiveSession) {
   };
   const hist = await swingHistory();
   await kv.set(HISTORY_KEY, [item, ...hist].slice(0, 20));
+
+  // Feed the finished session into the same per-coin memory the auto-scan reads. Live results
+  // are the strongest evidence available — they are what the strategy actually did on real
+  // prices — so a session that ends without them being recorded teaches the engine nothing.
+  try {
+    const perCoin = new Map<string, { symbol: string; net: number; trades: number; wins: number }>();
+    for (const c of s.config.coins) perCoin.set(c.id, { symbol: c.symbol, net: 0, trades: 0, wins: 0 });
+    for (const f of s.fills) {
+      const e = perCoin.get(f.coinId);
+      if (!e) continue;
+      // only closed round trips carry a realised P&L
+      if (isNum(f.pnlToman)) {
+        e.net += f.pnlToman!;
+        e.trades++;
+        if (f.pnlToman! > 0) e.wins++;
+      }
+    }
+    const records: SwingRunRecord[] = [];
+    for (const [coinId, e] of perCoin) {
+      if (e.trades === 0) continue; // a coin that never traded says nothing about its swing behaviour
+      const sleeve = s.sleeveCapitalToman || s.config.capitalToman / Math.max(1, s.config.coins.length);
+      const returnPct = (e.net / sleeve) * 100;
+      // live sessions don't track a per-coin buy & hold, so the edge equals the raw return
+      // here. That is a weaker signal than the backtest records, which is fine: the prior
+      // averages across runs and shrinks toward "no opinion" anyway.
+      const bh = 0;
+      records.push({
+        at: Date.now(), source: 'live', coinId, symbol: e.symbol,
+        preset: s.config.preset, days: Math.round(s.config.hours / 24), feePct: s.config.feePct,
+        returnPct, buyHoldPct: bh, trades: e.trades,
+        winRatePct: (e.wins / e.trades) * 100, maxDrawdownPct: 0,
+        from: s.startedAt, to: s.finishedAt ?? Date.now(),
+      });
+    }
+    await recordSwingRuns(records);
+  } catch {
+    /* recording history must never block finishing a session */
+  }
   await kv.del(ACTIVE_KEY);
   notifySwingFinish(s).catch(() => undefined);
 }

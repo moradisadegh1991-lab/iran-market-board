@@ -7,6 +7,7 @@ import { getSnapshot } from '@/lib/snapshot';
 import { SWING_PRESETS, runSwing, type SwingPreset } from '@/lib/engine/swing';
 import { runSwingPortfolio } from '@/lib/engine/swing-portfolio';
 import { scanSwing } from '@/lib/engine/swing-scan';
+import { buildPriors, getSwingRuns, recordSwingRuns, type SwingRunRecord } from '@/lib/swing-history';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -54,7 +55,10 @@ export async function GET() {
       ...universe.filter((c) => picks.has(c.id)).map((c) => ({ ...c, picked: true })),
       ...universe.filter((c) => !picks.has(c.id)).map((c) => ({ ...c, picked: false })),
     ];
+    const runs = await getSwingRuns();
+    const priors = [...buildPriors(runs).values()].sort((a, b) => b.score - a.score);
     return NextResponse.json({
+      history: { runs: runs.length, priors: priors.slice(0, 40), recent: runs.slice(0, 20) },
       coins: [...majors.map((m) => ({ ...m, meme: false, picked: false })), ...ranked],
       maxDays: MAX_DAYS,
       presets: Object.entries(SWING_PRESETS).map(([key, p]) => ({ key, label: p.label, note: p.note })),
@@ -63,6 +67,16 @@ export async function GET() {
   } catch (e) {
     return NextResponse.json({ error: errMsg(e) }, { status: 500 });
   }
+}
+
+function toRecord(source: SwingRunRecord['source'], coin: { id: string; symbol: string }, preset: string, days: number, feePct: number, r: { metrics: any }): SwingRunRecord {
+  const m = r.metrics;
+  return {
+    at: Date.now(), source, coinId: coin.id, symbol: coin.symbol, preset, days, feePct,
+    returnPct: m.returnPct, buyHoldPct: m.buyHoldPct, trades: m.trades,
+    winRatePct: m.winRatePct ?? null, maxDrawdownPct: m.maxDrawdownPct,
+    from: m.from ?? null, to: m.to ?? null,
+  };
 }
 
 const isCoinId = (v: string) => /^[a-z0-9][a-z0-9-]{1,60}$/.test(v);
@@ -129,7 +143,8 @@ export async function POST(req: Request) {
           }
         }),
       );
-      const scan = scanSwing(inputs, { capitalToman, preset, feePct, usdtRial }, pick);
+      const priors = buildPriors(await getSwingRuns());
+      const scan = scanSwing(inputs, { capitalToman, preset, feePct, usdtRial }, pick, priors);
 
       // and run the selected basket over the whole window, as a normal portfolio
       const selIds = new Set(scan.selected.map((c) => c.coin.id));
@@ -137,7 +152,13 @@ export async function POST(req: Request) {
         inputs.filter((i) => selIds.has(i.coin.id)),
         { capitalToman, preset, feePct, usdtRial },
       );
-      return NextResponse.json({ scan, portfolio, days, preset: SWING_PRESETS[preset] }, { headers: { 'Cache-Control': 'no-store' } });
+      // remember what happened, so later scans have evidence to work from
+      await recordSwingRuns(
+        portfolio.sleeves
+          .filter((sl) => sl.ok && sl.result)
+          .map((sl) => toRecord('scan', sl.coin, preset, days, feePct, sl.result!)),
+      );
+      return NextResponse.json({ scan, portfolio, days, preset: SWING_PRESETS[preset], priorsUsed: priors.size }, { headers: { 'Cache-Control': 'no-store' } });
     }
 
     if (Array.isArray(body?.coins) && body.coins.length) {
@@ -170,6 +191,9 @@ export async function POST(req: Request) {
       );
       const portfolio = runSwingPortfolio(inputs, { capitalToman, preset, feePct, usdtRial });
       if (!isNum(usdtRial)) portfolio.warnings.push('قیمت تتر در دسترس نبود؛ محاسبه‌ها بر پایه دلار انجام شد.');
+      await recordSwingRuns(
+        portfolio.sleeves.filter((sl) => sl.ok && sl.result).map((sl) => toRecord('basket', sl.coin, preset, days, feePct, sl.result!)),
+      );
       return NextResponse.json({ portfolio, preset: SWING_PRESETS[preset], days }, { headers: { 'Cache-Control': 'no-store' } });
     }
 
@@ -195,6 +219,7 @@ export async function POST(req: Request) {
     if (!isNum(usdtRial)) result.warnings.push('قیمت تتر در دسترس نبود؛ محاسبه‌ها بر پایه دلار انجام شد و تغییر نرخ تتر در بازده لحاظ نشده است.');
     if (cached.status.stale) result.warnings.push('تاریخچه از کش خوانده شد و ممکن است چند ساعت قدیمی باشد.');
 
+    await recordSwingRuns([toRecord('single', { id: coinId, symbol: String(body?.symbol ?? coinId).toUpperCase() }, preset, days, feePct, result)]);
     return NextResponse.json({ ...result, dataVia: cached.status.via, dataAgeSec: cached.status.ageSec }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e) {
     return NextResponse.json({ error: errMsg(e) }, { status: 400 });

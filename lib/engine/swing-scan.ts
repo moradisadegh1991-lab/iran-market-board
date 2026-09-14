@@ -15,6 +15,7 @@
  * flattering half.
  */
 import { runSwing, type SwingBar, type SwingConfig, type SwingResult } from './swing';
+import { PRIOR_WEIGHT, type CoinPrior } from '@/lib/swing-history';
 
 export interface ScanCandidate {
   coin: { id: string; symbol: string; name: string; meme?: boolean };
@@ -22,6 +23,8 @@ export interface ScanCandidate {
   reason?: string;
   /** chosen on the older half */
   inSample?: { returnPct: number; trades: number; winRatePct: number | null; maxDrawdownPct: number; score: number };
+  /** what past recorded runs of this coin say, and how much it moved the score */
+  prior?: { runs: number; meanEdgePct: number; adjustment: number };
   /** measured on the newer half, unseen by the ranking */
   outSample?: { returnPct: number; buyHoldPct: number; trades: number; winRatePct: number | null; maxDrawdownPct: number };
   selected: boolean;
@@ -66,6 +69,7 @@ export function scanSwing(
   inputs: { coin: ScanCandidate['coin']; bars: SwingBar[] | null; error?: string }[],
   config: Omit<SwingConfig, 'capitalToman'> & { capitalToman: number },
   pick: number,
+  priors?: Map<string, CoinPrior>,
 ): SwingScan {
   const warnings: string[] = [];
   const candidates: ScanCandidate[] = [];
@@ -79,12 +83,21 @@ export function scanSwing(
     try {
       const tr = runSwing(train, coin, { ...config, capitalToman: config.capitalToman });
       const te = runSwing(test, coin, { ...config, capitalToman: config.capitalToman });
-      const sc = score(tr);
+      let sc = score(tr);
+      const pr = priors?.get(coin.id);
+      let priorInfo: ScanCandidate['prior'];
+      if (Number.isFinite(sc) && pr && pr.runs > 0) {
+        // history nudges the ranking; it never replaces what this window's data says
+        const adj = pr.score * PRIOR_WEIGHT;
+        sc += adj;
+        priorInfo = { runs: pr.runs, meanEdgePct: pr.meanEdgePct, adjustment: adj };
+      }
       candidates.push({
         coin,
         ok: Number.isFinite(sc),
         reason: Number.isFinite(sc) ? undefined : `در نیمه اول فقط ${tr.metrics.trades.toLocaleString('fa-IR')} معامله داشت؛ برای قضاوت کافی نیست`,
         inSample: { returnPct: tr.metrics.returnPct, trades: tr.metrics.trades, winRatePct: tr.metrics.winRatePct, maxDrawdownPct: tr.metrics.maxDrawdownPct, score: sc },
+        prior: priorInfo,
         outSample: { returnPct: te.metrics.returnPct, buyHoldPct: te.metrics.buyHoldPct, trades: te.metrics.trades, winRatePct: te.metrics.winRatePct, maxDrawdownPct: te.metrics.maxDrawdownPct },
         selected: false,
         // splitAt captured below

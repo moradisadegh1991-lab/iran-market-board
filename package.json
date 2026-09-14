@@ -12,7 +12,9 @@
     "test:jalali": "tsx scripts/jalali-test.ts",
     "test:holdings": "tsx scripts/holdings-test.ts",
     "test:swingpf": "tsx scripts/swing-portfolio-test.ts",
-    "test:swingscan": "tsx scripts/swing-scan-test.ts"
+    "test:swingscan": "tsx scripts/swing-scan-test.ts",
+    "test:walkfwd": "tsx scripts/walk-forward-test.ts",
+    "test:swinghist": "tsx scripts/swing-history-test.ts"
   },
   "dependencies": {
     "@fontsource-variable/vazirmatn": "^5.3.0",

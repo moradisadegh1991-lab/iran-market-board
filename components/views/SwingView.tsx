@@ -15,6 +15,7 @@ const EquityChart = dynamic(() => import('../EquityChart'), { ssr: false, loadin
 
 interface Menu {
   coins: { id: string; symbol: string; name: string; meme?: boolean; picked?: boolean }[];
+  history?: { runs: number; priors: { coinId: string; symbol: string; runs: number; meanEdgePct: number; meanReturnPct: number; score: number }[] };
   maxDays: number;
   presets: { key: string; label: string; note: string }[];
   error?: string;
@@ -443,6 +444,13 @@ export default function SwingView() {
               </div>
             </dl>
             <p className="notes-1">{scan.verdict}</p>
+            {menu?.history?.runs ? (
+              <p className="muted small">
+                {fmtInt(menu.history.runs)} اجرای گذشته در حافظه است و در رتبه‌بندی لحاظ شد. سابقه فقط می‌تواند رتبه‌های نزدیک را جابه‌جا کند، نه نتیجه داده فعلی را وارونه.
+              </p>
+            ) : (
+              <p className="muted small">هنوز سابقه‌ای ذخیره نشده؛ هر اجرا ثبت می‌شود و اجراهای بعدی از آن استفاده می‌کنند.</p>
+            )}
             {scan.warnings.map((w, i) => (
               <p key={i} className="muted small">{w}</p>
             ))}
@@ -458,6 +466,7 @@ export default function SwingView() {
                     <th scope="col">نیمه اول (انتخاب)</th>
                     <th scope="col">نیمه دوم (دیده‌نشده)</th>
                     <th scope="col">معاملات</th>
+                    <th scope="col">سابقه</th>
                     <th scope="col">وضعیت</th>
                   </tr>
                 </thead>
@@ -473,10 +482,15 @@ export default function SwingView() {
                           <td><Pct v={c.inSample.returnPct} digits={1} /></td>
                           <td><Pct v={c.outSample.returnPct} digits={1} /></td>
                           <td className="num">{fmtInt(c.inSample.trades)}</td>
+                          <td className="muted small">
+                            {c.prior
+                              ? `${fmtInt(c.prior.runs)} اجرا · ${fmtPct(c.prior.meanEdgePct, 0)} نسبت به نگه‌داری`
+                              : 'بدون سابقه'}
+                          </td>
                           <td>{c.selected ? <span className="state-pill ok">انتخاب شد</span> : <span className="muted">—</span>}</td>
                         </>
                       ) : (
-                        <td colSpan={4} className="muted">{c.reason}</td>
+                        <td colSpan={5} className="muted">{c.reason}</td>
                       )}
                     </tr>
                   ))}
