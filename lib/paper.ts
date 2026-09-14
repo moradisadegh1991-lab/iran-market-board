@@ -10,7 +10,7 @@ import { fetchCgMarkets } from '@/lib/sources/coingecko';
 import { loadNews } from '@/lib/news';
 import { loadAllSeries } from '@/lib/simulate';
 import { applyLearning, getLearnedParams, lookupFromSeries } from '@/lib/learning';
-import { SIM_ASSETS, PROFILES, type ScoredNews, type SimAsset, type SimResult } from '@/lib/engine/simulator';
+import { SIM_ASSETS, PROFILES, type ScoredNews, type SimAsset, type SimParams, type SimResult } from '@/lib/engine/simulator';
 import type { LearnOutcome } from '@/lib/engine/learning';
 import { createSession, finishSession, liveTick, type LiveConfig, type LiveSession, type LiveTrade, type TickContext } from '@/lib/engine/live';
 import { notifyFinish, notifyStart, notifyTrades } from '@/lib/telegram/paper';
@@ -196,8 +196,29 @@ export function validateConfig(body: any): LiveConfig {
   const days = Math.round(Number(body?.days ?? 30));
   if (!isNum(days) || days < 1 || days > 90) throw new Error('مدت معامله باید بین ۱ و ۹۰ روز باشد.');
   const profile = (Object.keys(PROFILES).includes(body?.profile) ? body.profile : 'balanced') as LiveConfig['profile'];
-  const reviewEveryDays = Number(body?.reviewEveryDays) === 1 ? 1 : 7;
+  // The weekly rhythm is inherited from the backtest, where a run spans months. On a live
+  // session it meant a one-week session got exactly ONE decision point — at the start — and
+  // then sat still until it expired. Default it to the session length instead, aiming for
+  // roughly six decision points, and still allow an explicit choice.
+  const asked = Number(body?.reviewEveryDays);
+  const reviewEveryDays = [1, 2, 3, 7].includes(asked) ? asked : Math.max(1, Math.min(7, Math.floor(days / 6) || 1));
   return { capitalToman, profile, assets, days, reviewEveryDays, fixedIncomeYield: Number(process.env.FIXED_INCOME_YIELD || 0.3), useNews: body?.useNews !== false };
+}
+
+/**
+ * The engine's hold and cooldown rules are written for multi-month backtests. Left as-is on a
+ * short live session they silently forbid any second trade: a 7-day session with a 10-day
+ * cooldown can never re-enter after a sell, and a 5-day minimum hold consumes most of it.
+ * Scale them to the session, with floors so a short session doesn't become hair-triggered.
+ */
+export function scaleParamsForSession(params: SimParams, days: number): SimParams {
+  const scale = Math.max(0.2, Math.min(1, days / 45));
+  if (scale >= 1) return params;
+  return {
+    ...params,
+    minHoldDays: Math.max(1, params.minHoldDays * scale),
+    cooldownDays: Math.max(1, params.cooldownDays * scale),
+  };
 }
 
 export async function startSession(config: LiveConfig): Promise<StoredSession> {
@@ -205,11 +226,14 @@ export async function startSession(config: LiveConfig): Promise<StoredSession> {
     const existing = await loadActive();
     if (existing?.status === 'running') throw new Error('یک معامله برخط در حال اجراست؛ ابتدا آن را پایان دهید.');
     const now = Date.now();
-    const params = await getLearnedParams();
+    const params = scaleParamsForSession(await getLearnedParams(), config.days);
     const s: StoredSession = { ...createSession(now.toString(36), config, params, now), learning: null };
     s.events.unshift({
       at: now, kind: 'start',
-      text: `شروع با ${config.capitalToman.toLocaleString('fa-IR')} تومان، پروفایل ${PROFILES[config.profile].label}، موتور نسخه ${params.version.toLocaleString('fa-IR')}، بازبینی ${config.reviewEveryDays === 1 ? 'روزانه' : 'هفتگی'}.`,
+      text:
+        `شروع با ${config.capitalToman.toLocaleString('fa-IR')} تومان، پروفایل ${PROFILES[config.profile].label}، ` +
+        `موتور نسخه ${params.version.toLocaleString('fa-IR')}، بازبینی هر ${config.reviewEveryDays.toLocaleString('fa-IR')} روز، ` +
+        `حداقل نگه‌داری ${Math.round(params.minHoldDays).toLocaleString('fa-IR')} و فاصله ورود مجدد ${Math.round(params.cooldownDays).toLocaleString('fa-IR')} روز.`,
     });
     await save(s);
     await kv.set(ACTIVE_KEY, s.id);
