@@ -3,6 +3,7 @@
 // Differences from the backtest, by design:
 //  • orders fill immediately at the live quote ± spread when that market is open; otherwise they wait for it to open
 //  • stops / take-profit are checked on every tick (every few minutes), not once a day
+import type { Activity } from '@/lib/engine/simulator';
 import { isNum, tehranClock, tehranDate } from '@/lib/num';
 import { mean } from './stats';
 import {
@@ -28,6 +29,7 @@ export interface LiveConfig {
   assets: SimAsset[];
   days: number;
   reviewEveryDays: number; // 7 = same rhythm as the backtest, 1 = daily
+  activity?: Activity; // how eager the engine is to act
   fixedIncomeYield: number;
   useNews: boolean;
 }

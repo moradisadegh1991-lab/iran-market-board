@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { fmtDateTimeFa, fmtInt, isNum } from '@/lib/num';
-import { PROFILES, SIM_ASSETS, type SimAsset, type SimProfile } from '@/lib/engine/simulator';
+import { ACTIVITY_LABEL, PROFILES, SIM_ASSETS, type Activity, type SimAsset, type SimProfile } from '@/lib/engine/simulator';
 import type { LiveSession, LiveTrade } from '@/lib/engine/live';
 import { Chips, MultiChips, PageHead, Pct } from '../ui';
 import TradeEntry, { tomanWords } from '../TradeEntry';
@@ -43,6 +43,7 @@ export default function LiveView() {
   const [profile, setProfile] = useState<SimProfile>('balanced');
   const [assets, setAssets] = useState<SimAsset[]>(['usd', 'g18', 'coin', 'btc']);
   const [days, setDays] = useState<'7' | '30' | '90'>('30');
+  const [activity, setActivity] = useState<Activity>('normal');
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
@@ -75,7 +76,7 @@ export default function LiveView() {
       const r = await fetch('/api/paper', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
-        body: JSON.stringify({ action: 'start', capitalToman, profile, assets, days: Number(days), useNews: true }),
+        body: JSON.stringify({ action: 'start', capitalToman, profile, assets, days: Number(days), activity, useNews: true }),
       });
       const j = await r.json();
       if (!r.ok || j.error) throw new Error(j.error || `خطای ${r.status}`);
@@ -240,6 +241,18 @@ export default function LiveView() {
               <div>
                 <span className="field-label">پروفایل ریسک</span>
                 <Chips label="پروفایل" value={profile} onChange={setProfile} options={Object.entries(PROFILES).map(([k, v]) => ({ key: k as SimProfile, label: v.label }))} />
+              </div>
+              <div>
+                <span className="field-label">سبک معامله</span>
+                <Chips
+                  label="سبک معامله"
+                  value={activity}
+                  onChange={setActivity}
+                  options={(Object.keys(ACTIVITY_LABEL) as Activity[]).map((k) => ({ key: k, label: ACTIVITY_LABEL[k] }))}
+                />
+                <small className="muted">
+                  «پرمعامله» آستانه ورود را پایین و بازه تحمل وزن را باریک می‌کند، پس بیشتر معامله می‌کند. در سنجش ما تعداد معامله‌ها حدود ۴۰٪ بالا رفت ولی بازده کمی پایین‌تر آمد، چون هر رفت‌وبرگشت دو بار اسپرد می‌دهد.
+                </small>
               </div>
               <div>
                 <span className="field-label">دارایی‌ها</span>

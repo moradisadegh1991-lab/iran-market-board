@@ -10,7 +10,7 @@ import { fetchCgMarkets } from '@/lib/sources/coingecko';
 import { loadNews } from '@/lib/news';
 import { loadAllSeries } from '@/lib/simulate';
 import { applyLearning, getLearnedParams, lookupFromSeries } from '@/lib/learning';
-import { SIM_ASSETS, PROFILES, type ScoredNews, type SimAsset, type SimParams, type SimResult } from '@/lib/engine/simulator';
+import { ACTIVITY_LABEL, SIM_ASSETS, PROFILES, applyActivity, type ScoredNews, type SimAsset, type SimParams, type SimResult } from '@/lib/engine/simulator';
 import type { LearnOutcome } from '@/lib/engine/learning';
 import { createSession, finishSession, liveTick, type LiveConfig, type LiveSession, type LiveTrade, type TickContext } from '@/lib/engine/live';
 import { notifyFinish, notifyStart, notifyTrades } from '@/lib/telegram/paper';
@@ -202,7 +202,8 @@ export function validateConfig(body: any): LiveConfig {
   // roughly six decision points, and still allow an explicit choice.
   const asked = Number(body?.reviewEveryDays);
   const reviewEveryDays = [1, 2, 3, 7].includes(asked) ? asked : Math.max(1, Math.min(7, Math.floor(days / 6) || 1));
-  return { capitalToman, profile, assets, days, reviewEveryDays, fixedIncomeYield: Number(process.env.FIXED_INCOME_YIELD || 0.3), useNews: body?.useNews !== false };
+  const activity = (['calm', 'normal', 'active'] as const).includes(body?.activity) ? body.activity : 'normal';
+  return { capitalToman, profile, assets, days, reviewEveryDays, activity, fixedIncomeYield: Number(process.env.FIXED_INCOME_YIELD || 0.3), useNews: body?.useNews !== false };
 }
 
 /**
@@ -226,14 +227,14 @@ export async function startSession(config: LiveConfig): Promise<StoredSession> {
     const existing = await loadActive();
     if (existing?.status === 'running') throw new Error('یک معامله برخط در حال اجراست؛ ابتدا آن را پایان دهید.');
     const now = Date.now();
-    const params = scaleParamsForSession(await getLearnedParams(), config.days);
+    const params = applyActivity(scaleParamsForSession(await getLearnedParams(), config.days), config.activity ?? 'normal');
     const s: StoredSession = { ...createSession(now.toString(36), config, params, now), learning: null };
     s.events.unshift({
       at: now, kind: 'start',
       text:
         `شروع با ${config.capitalToman.toLocaleString('fa-IR')} تومان، پروفایل ${PROFILES[config.profile].label}، ` +
         `موتور نسخه ${params.version.toLocaleString('fa-IR')}، بازبینی هر ${config.reviewEveryDays.toLocaleString('fa-IR')} روز، ` +
-        `حداقل نگه‌داری ${Math.round(params.minHoldDays).toLocaleString('fa-IR')} و فاصله ورود مجدد ${Math.round(params.cooldownDays).toLocaleString('fa-IR')} روز.`,
+        `سبک ${ACTIVITY_LABEL[config.activity ?? 'normal']}، حداقل نگه‌داری ${Math.round(params.minHoldDays).toLocaleString('fa-IR')} و فاصله ورود مجدد ${Math.round(params.cooldownDays).toLocaleString('fa-IR')} روز.`,
     });
     await save(s);
     await kv.set(ACTIVE_KEY, s.id);

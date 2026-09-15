@@ -202,6 +202,18 @@ curl -s "https://api.nobitex.ir/market/stats?srcCurrency=usdt,btc,eth&dstCurrenc
 
 **ریتم تصمیم‌گیری:** فاصله بازبینی‌ها خودکار از روی مدت جلسه تعیین می‌شود تا هر جلسه حدود ۶ نقطه تصمیم داشته باشد (۷ روزه → روزانه، ۳۰ روزه → هر ۵ روز، ۹۰ روزه → هفتگی). پیش‌تر همیشه هفتگی بود؛ یعنی یک جلسه یک‌هفته‌ای **فقط یک نقطه تصمیم داشت، همان ابتدای کار**. حداقل مدت نگه‌داری و فاصله ورود مجدد هم با مدت جلسه کوچک می‌شوند: مقادیر پیش‌فرض (۵ و ۱۰ روز) برای بک‌تست چندماهه نوشته شده‌اند و روی یک جلسه ۷ روزه عملاً ورود دوباره را غیرممکن می‌کردند.
 
+**سبک معامله (کم‌معامله / متعادل / پرمعامله):** در فرم شروع معامله برخط انتخاب می‌شود. «پرمعامله» آستانه ورود را پایین می‌آورد، باند تحمل وزن را باریک می‌کند و حداقل نگه‌داری و فاصله ورود مجدد را کوتاه می‌کند.
+
+سنجش این سه حالت روی یک بازه ۶۳۰ روزه با سه پروفایل (`npm run test:activity`):
+
+| پروفایل | کم‌معامله | متعادل | پرمعامله |
+|---|---|---|---|
+| محتاط | ۵۴٫۵٪ / ۳۱ معامله | ۵۴٫۳٪ / ۳۸ | ۵۳٫۵٪ / ۵۳ |
+| متعادل | ۵۶٫۰٪ / ۴۲ معامله | ۵۴٫۶٪ / ۵۲ | ۵۲٫۸٪ / ۷۷ |
+| جسور | ۷۱٫۶٪ / ۵۲ معامله | ۷۲٫۷٪ / ۶۳ | ۷۱٫۴٪ / ۸۶ |
+
+تعداد معامله‌ها حدود ۴۰٪ بالا می‌رود و کارمزد پرداختی تا ۶۵٪ بیشتر می‌شود، ولی بازده در هر سه پروفایل کمی **پایین‌تر** می‌آید. این گزینه در اختیار شماست، اما داده می‌گوید معامله بیشتر به‌خودی‌خود سود بیشتر نمی‌سازد.
+
 **دارایی‌های قابل معامله:** دلار، طلای ۱۸، سکه امامی، صندوق شاخصی بورس، بیت‌کوین، اتریوم، و آلت‌کوین‌ها: سولانا، ریپل، تون‌کوین و دوج‌کوین. هر کدام هزینه معامله خودش را دارد (آلت‌کوین‌ها ۰٫۵٪، تون ۰٫۶٪، دوج‌کوین ۰٫۷٪ هر طرف) چون اسپرد صرافی‌های داخلی روی آن‌ها از بیت‌کوین بیشتر است.
 
 - تاریخچه روزانه آلت‌کوین‌ها از CoinGecko گرفته و با همان سری دلاری بقیه کریپتو به ریال تبدیل می‌شود.
@@ -329,7 +341,7 @@ scripts/           smoke · sim-smoke · sim-regression · learn-live-test · sw
 .github/workflows/ paper-tick.yml (ضربان‌ساز معامله برخط)
 ```
 
-تست‌ها: `npm run typecheck` · `npm run smoke` · `npm run smoke:sim` · `npm run test:jalali` · `npm run test:holdings` · `npm run test:swingpf` · `npm run test:swingscan` · `npm run test:swinghist` · `npm run test:walkfwd` · `npx tsx scripts/sim-regression.ts` · `npx tsx scripts/learn-live-test.ts` · `npx tsx scripts/swing-validate.ts`
+تست‌ها: `npm run typecheck` · `npm run smoke` · `npm run smoke:sim` · `npm run test:jalali` · `npm run test:holdings` · `npm run test:swingpf` · `npm run test:swingscan` · `npm run test:swinghist` · `npm run test:walkfwd` · `npm run test:activity` · `npx tsx scripts/sim-regression.ts` · `npx tsx scripts/learn-live-test.ts` · `npx tsx scripts/swing-validate.ts`
 
 ## محدودیت‌های واقعی
 - endpointهای TGJU، نوبیتکس، BrsApi و TSETMC ممکن است بدون اطلاع تغییر کنند یا IP خارجی را ببندند؛ `/api/diag` را بعد از هر خطا چک کنید.

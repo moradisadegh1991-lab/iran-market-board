@@ -97,6 +97,33 @@ export function normalizeParams(p: Partial<SimParams> | null | undefined): SimPa
 export type EffectiveProfile = (typeof PROFILES)[SimProfile] & { minHoldDays: number; cooldownDays: number };
 
 /** Profile thresholds after applying the learned shifts/multipliers. With defaults every value is unchanged. */
+export type Activity = 'calm' | 'normal' | 'active';
+export const ACTIVITY_LABEL: Record<Activity, string> = { calm: 'کم‌معامله', normal: 'متعادل', active: 'پرمعامله' };
+
+/**
+ * How eager the engine is to act, expressed through the parameters it already has:
+ * a lower entry threshold and a narrower rebalance band mean more decisions, and shorter
+ * hold/cooldown windows let it come back sooner.
+ *
+ * More trades is not the same as more profit — every extra round trip pays the spread twice.
+ * scripts/activity-test.ts measures return, fees and trade count side by side so the choice
+ * can be made on evidence rather than on the feeling that a busy engine is a smart one.
+ */
+export function applyActivity(params: SimParams, level: Activity): SimParams {
+  if (level === 'normal') return params;
+  const k = level === 'active'
+    ? { entryShift: -7, exitShift: +4, bandMult: 0.45, hold: 0.35, cool: 0.3 }
+    : { entryShift: +5, exitShift: -3, bandMult: 1.35, hold: 1.4, cool: 1.4 };
+  return {
+    ...params,
+    entryShift: params.entryShift + k.entryShift,
+    exitShift: params.exitShift + k.exitShift,
+    bandMult: params.bandMult * k.bandMult,
+    minHoldDays: Math.max(1, params.minHoldDays * k.hold),
+    cooldownDays: Math.max(1, params.cooldownDays * k.cool),
+  };
+}
+
 export function effectiveProfile(profile: SimProfile, params: SimParams): EffectiveProfile {
   const p = PROFILES[profile];
   return {
