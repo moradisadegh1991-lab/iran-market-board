@@ -1,0 +1,21 @@
+{
+  "appId": "ir.moradisadegh.marketboard",
+  "appName": "تابلوی بازار",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#1C2C52"
+  },
+  "server": {
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#1C2C52",
+      "launchAutoHide": true,
+      "launchShowDuration": 600
+    }
+  }
+}

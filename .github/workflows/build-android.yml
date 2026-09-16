@@ -1,0 +1,128 @@
+# Builds the Android APK from android-app/.
+#
+# Secrets (repo → Settings → Secrets and variables → Actions):
+#   BOARD_URL            required — https://your-app.vercel.app  (baked into the bundle)
+#   ANDROID_KEYSTORE_B64 optional — base64 of your .keystore/.jks
+#   KEYSTORE_PASSWORD    optional
+#   KEY_ALIAS            optional
+#   KEY_PASSWORD         optional
+#
+# With the four keystore secrets present it produces a SIGNED release APK ready for
+# Myket / Cafe Bazaar. Without them it still produces a debug APK you can install and
+# test — so a missing keystore never turns into a failed build with no output.
+name: build-android
+
+on:
+  workflow_dispatch:
+    inputs:
+      board_url:
+        description: 'Override BOARD_URL for this build (optional)'
+        required: false
+        type: string
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android-app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Point the bundle at the deployment
+        env:
+          BOARD_URL: ${{ github.event.inputs.board_url || secrets.BOARD_URL }}
+        run: |
+          if [ -z "$BOARD_URL" ]; then
+            echo "::error::BOARD_URL secret is not set — the app would ship with a placeholder server address."
+            exit 1
+          fi
+          node set-url.mjs "$BOARD_URL"
+
+      - name: Add the Android platform
+        run: |
+          npx cap add android || echo "android/ already present"
+          npx cap sync android
+
+      - name: Decode keystore
+        id: keystore
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > android/app/release.keystore
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No keystore secret — building an unsigned debug APK instead."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure release signing
+        if: steps.keystore.outputs.signed == 'true'
+        run: |
+          cat >> android/app/build.gradle <<'GRADLE'
+
+          // appended by CI
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file('release.keystore')
+                      storePassword System.getenv('KEYSTORE_PASSWORD')
+                      keyAlias System.getenv('KEY_ALIAS')
+                      keyPassword System.getenv('KEY_PASSWORD')
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                      minifyEnabled false
+                  }
+              }
+          }
+          GRADLE
+
+      - name: Build release APK
+        if: steps.keystore.outputs.signed == 'true'
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon
+
+      - name: Build debug APK
+        if: steps.keystore.outputs.signed != 'true'
+        run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+
+      - name: Collect APKs
+        run: |
+          mkdir -p out
+          find android -name '*.apk' -exec cp {} out/ \;
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: market-board-apk
+          path: android-app/out/*.apk
+          if-no-files-found: error
+          retention-days: 30

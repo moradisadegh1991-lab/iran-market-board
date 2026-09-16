@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light" />
+<title>تابلوی بازار</title>
+<!--
+  Offline shell for the Android app.
+
+  Everything here (markup, styles, logic, fonts) ships inside the APK, so the app opens and
+  draws its interface with no network at all. The only thing it asks the network for is the
+  data itself, from the Vercel deployment.
+
+  Two deliberate choices:
+  1. The last successful snapshot is kept in localStorage. With no connection the app shows
+     that, clearly stamped with its age, instead of an empty screen — which is what an app
+     used on a spotty Iranian mobile connection actually needs.
+  2. No framework and no CDN. A CDN would make the app fail exactly when the network is bad,
+     which is the case this shell exists for.
+-->
+<style>
+  /* Variable font, bundled in the APK — one file covers every weight and needs no network.
+     The Arabic subset carries Persian; the Latin one is for digits and English tickers. */
+  @font-face {
+    font-family: 'Vazirmatn'; font-weight: 100 900; font-display: swap;
+    src: url('fonts/vazirmatn-arabic-wght-normal.woff2') format('woff2-variations');
+    unicode-range: U+0600-06FF, U+200C-200E, U+FB50-FDFF, U+FE70-FEFF;
+  }
+  @font-face {
+    font-family: 'Vazirmatn'; font-weight: 100 900; font-display: swap;
+    src: url('fonts/vazirmatn-latin-wght-normal.woff2') format('woff2-variations');
+  }
+  :root {
+    --lapis: #1c2c52; --lapis-2: #24375f; --lapis-line: #33456e;
+    --paper: #f2f5f8; --surface: #fff; --ink: #16202e; --muted: #61708a;
+    --line: #dfe5ec; --teal: #0d7377; --saffron: #f4a300;
+    --up: #17804f; --down: #b83a2f;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; overflow-x: hidden; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: Vazirmatn, system-ui, 'Segoe UI', Tahoma, sans-serif;
+    font-size: 15px; line-height: 1.8; -webkit-font-smoothing: antialiased;
+  }
+  .num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+
+  /* ── top bar ── */
+  header {
+    position: sticky; top: 0; z-index: 30;
+    padding: calc(var(--safe-top) + 10px) 14px 10px;
+    background: var(--lapis); color: #fff;
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 18px; margin: 0; flex: 1; color: var(--saffron); }
+  .iconbtn {
+    background: none; border: 0; color: #fff; font-size: 22px; line-height: 1;
+    padding: 6px 8px; border-radius: 8px; cursor: pointer;
+  }
+  .iconbtn:active { background: rgba(255,255,255,.14); }
+  .stamp { font-size: 11.5px; color: #b9c6dd; }
+  .stamp.stale { color: #ffcf8a; }
+
+  /* ── drawer (the TGJU-style menu) ── */
+  .scrim {
+    position: fixed; inset: 0; background: rgba(10,16,28,.45); z-index: 40;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  nav#drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(82vw, 320px); z-index: 50;
+    background: var(--surface); transform: translateX(100%); transition: transform .24s ease;
+    display: flex; flex-direction: column; box-shadow: -12px 0 30px rgba(0,0,0,.18);
+  }
+  nav#drawer.open { transform: translateX(0); }
+  .drawer-head {
+    background: var(--lapis); color: #fff; padding: calc(var(--safe-top) + 18px) 16px 16px;
+  }
+  .drawer-head b { color: var(--saffron); font-size: 19px; display: block; }
+  .drawer-head span { font-size: 12.5px; color: #b9c6dd; }
+  .drawer-list { overflow-y: auto; padding: 6px 0 calc(var(--safe-bottom) + 12px); flex: 1; }
+  .drawer-list button {
+    display: flex; align-items: center; gap: 12px; width: 100%; text-align: right;
+    background: none; border: 0; border-bottom: 1px solid var(--line);
+    padding: 14px 16px; font: inherit; color: var(--ink); cursor: pointer;
+  }
+  .drawer-list button .ic { width: 26px; font-size: 18px; text-align: center; }
+  .drawer-list button[aria-current='true'] { background: #eef6f6; color: var(--teal); font-weight: 700; }
+
+  /* ── content ── */
+  main { padding: 14px 14px calc(var(--safe-bottom) + 28px); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }
+  .card h2 { font-size: 15.5px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .row { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row .label { flex: 1; min-width: 0; }
+  .row .label small { display: block; color: var(--muted); font-size: 12px; }
+  .row .val { font-weight: 700; font-size: 17px; }
+  .row .unit { font-size: 11.5px; color: var(--muted); font-weight: 400; margin-inline-start: 4px; }
+  .chg { font-size: 12.5px; font-weight: 700; min-width: 62px; text-align: left; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .muted { color: var(--muted); }
+  .pill { display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 999px; background: #eef1f6; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); text-align: right; }
+  th { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .scroll { overflow-x: auto; }
+  .banner { padding: 11px 14px; border-radius: 12px; margin-bottom: 12px; font-size: 13.5px; }
+  .banner.warn { background: #fff4d9; border: 1px solid #f0d79a; }
+  .banner.err { background: #fde8e5; border: 1px solid #f0bdb5; }
+  select, input { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; min-width: 0; }
+  input { text-align: right; }
+  .addbtn { font: inherit; font-weight: 700; color: #fff; background: var(--teal); border: 0; border-radius: 10px; padding: 11px; cursor: pointer; }
+  .addbtn:active { background: #0a5f62; }
+  .center { text-align: center; padding: 40px 16px; color: var(--muted); }
+  .spin { display: inline-block; width: 22px; height: 22px; border: 2px solid var(--line); border-top-color: var(--teal); border-radius: 50%; animation: sp .8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .refresh.busy { animation: sp .8s linear infinite; }
+  @media (prefers-reduced-motion: reduce) { .spin, .refresh.busy { animation: none; } nav#drawer, .scrim { transition: none; } }
+</style>
+<script>window.BOARD_URL="https://iran-market-board.vercel.app";</script>
+</head>
+<body>
+<header>
+  <button class="iconbtn" id="menuBtn" aria-label="منو" aria-expanded="false">☰</button>
+  <h1 id="title">تابلوی بازار</h1>
+  <span class="stamp" id="stamp"></span>
+  <button class="iconbtn refresh" id="refreshBtn" aria-label="به‌روزرسانی">⟳</button>
+</header>
+
+<div class="scrim" id="scrim"></div>
+<nav id="drawer" aria-label="منوی اصلی">
+  <div class="drawer-head">
+    <b>تابلوی بازار</b>
+    <span>طلا، ارز، کریپتو و بورس</span>
+  </div>
+  <div class="drawer-list" id="menu"></div>
+</nav>
+
+<main id="view"><div class="center"><span class="spin"></span></div></main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Set by the build script from BOARD_URL so the same bundle can point at any deployment.
+  var API = (window.BOARD_URL || 'https://iran-market-board.vercel.app').replace(/\/$/, '');
+  var CACHE_KEY = 'imb.snapshot.v1';
+
+  var PAGES = [
+    { id: 'board',     icon: '🏷', title: 'نمای کلی',      render: renderBoard },
+    { id: 'risk',      icon: '⚖', title: 'ریسک بازارها',   render: renderRisk },
+    { id: 'crypto',    icon: '₿', title: 'کریپتو',         render: renderCrypto },
+    { id: 'meme',      icon: '🐸', title: 'میم‌کوین‌ها',    render: renderMeme },
+    { id: 'stocks',    icon: '📈', title: 'بورس',           render: renderStocks },
+    { id: 'portfolio', icon: '🧺', title: 'سبد پیشنهادی',   render: renderPortfolio },
+    { id: 'mine',      icon: '💼', title: 'دارایی‌های من',   render: renderMine, offline: true },
+    { id: 'sources',   icon: '🔌', title: 'وضعیت منابع',    render: renderSources },
+    { id: 'about',     icon: 'ℹ', title: 'درباره',         render: renderAbout, offline: true }
+  ];
+
+  var snap = null, cachedAt = 0, page = 'board', busy = false, lastError = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var fa = function (n, d) {
+    if (n === null || n === undefined || !isFinite(n)) return '—';
+    return new Intl.NumberFormat('fa-IR', { maximumFractionDigits: d === undefined ? 0 : d }).format(n);
+  };
+  var pct = function (n) {
+    if (n === null || n === undefined || !isFinite(n)) return '—';
+    return new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 1, signDisplay: 'exceptZero' }).format(n) + '٪';
+  };
+  var esc = function (s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var UNIT = { toman: 'تومان', usd: 'دلار', point: 'واحد' };
+
+  // ── drawer ──
+  function buildMenu() {
+    $('menu').innerHTML = PAGES.map(function (p) {
+      return '<button data-page="' + p.id + '" aria-current="' + (p.id === page) + '"><span class="ic">' + p.icon + '</span>' + esc(p.title) + '</button>';
+    }).join('');
+  }
+  function setDrawer(open) {
+    $('drawer').classList.toggle('open', open);
+    $('scrim').classList.toggle('open', open);
+    $('menuBtn').setAttribute('aria-expanded', String(open));
+  }
+  $('menuBtn').addEventListener('click', function () { setDrawer(!$('drawer').classList.contains('open')); });
+  $('scrim').addEventListener('click', function () { setDrawer(false); });
+  $('menu').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-page]');
+    if (!b) return;
+    go(b.getAttribute('data-page'));
+    setDrawer(false);
+  });
+  // Android back button closes the drawer before leaving the app
+  document.addEventListener('backbutton', function (e) {
+    if ($('drawer').classList.contains('open')) { e.preventDefault(); setDrawer(false); }
+  });
+
+  function go(id) {
+    page = id;
+    buildMenu();
+    var p = PAGES.filter(function (x) { return x.id === id; })[0] || PAGES[0];
+    $('title').textContent = p.title;
+    draw();
+    window.scrollTo(0, 0);
+  }
+
+  // ── data ──
+  function loadCache() {
+    try {
+      var raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return;
+      var o = JSON.parse(raw);
+      if (o && o.snap) { snap = o.snap; cachedAt = o.at || 0; }
+    } catch (e) { /* a corrupt cache must never stop the app from opening */ }
+  }
+  function saveCache() {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), snap: snap })); } catch (e) {}
+  }
+
+  function refresh() {
+    if (busy) return;
+    busy = true; lastError = null;
+    $('refreshBtn').classList.add('busy');
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, 20000);
+    fetch(API + '/api/snapshot', { signal: ctl.signal, cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('کد ' + r.status); return r.json(); })
+      .then(function (j) {
+        if (j && j.error) throw new Error(j.error);
+        snap = j; cachedAt = Date.now(); saveCache();
+      })
+      .catch(function (e) {
+        lastError = (e && e.name === 'AbortError') ? 'زمان انتظار تمام شد' : (e && e.message) || 'خطای نامشخص';
+      })
+      .then(function () {
+        clearTimeout(timer);
+        busy = false;
+        $('refreshBtn').classList.remove('busy');
+        draw();
+      });
+    draw();
+  }
+  $('refreshBtn').addEventListener('click', refresh);
+
+  function ageText() {
+    if (!cachedAt) return '';
+    var min = Math.round((Date.now() - cachedAt) / 60000);
+    if (min < 1) return 'هم‌اکنون';
+    if (min < 60) return fa(min) + ' دقیقه پیش';
+    var h = Math.round(min / 60);
+    if (h < 24) return fa(h) + ' ساعت پیش';
+    return fa(Math.round(h / 24)) + ' روز پیش';
+  }
+
+  function draw() {
+    var st = $('stamp');
+    st.textContent = busy ? 'در حال به‌روزرسانی…' : ageText();
+    st.className = 'stamp' + (!busy && cachedAt && Date.now() - cachedAt > 30 * 60000 ? ' stale' : '');
+
+    var head = '';
+    if (lastError) {
+      head += '<div class="banner err">به‌روزرسانی نشد: ' + esc(lastError) +
+        (snap ? '. داده‌های نمایش‌داده‌شده مربوط به ' + esc(ageText()) + ' است.' : '') + '</div>';
+    } else if (snap && Date.now() - cachedAt > 30 * 60000) {
+      head += '<div class="banner warn">این اعداد ' + esc(ageText()) + ' دریافت شده‌اند. برای داده تازه، دکمه به‌روزرسانی را بزنید.</div>';
+    }
+
+    var cur = PAGES.filter(function (x) { return x.id === page; })[0] || PAGES[0];
+    // Holdings live on this phone, so that page must work with no snapshot at all — only the
+    // valuation needs prices. Blocking it behind the data check made the user's own records
+    // unreachable exactly when the network was down.
+    if (!snap && !cur.offline) {
+      $('view').innerHTML = head + (busy
+        ? '<div class="center"><span class="spin"></span><p>در حال دریافت…</p></div>'
+        : '<div class="center"><p>هنوز داده‌ای ذخیره نشده.</p><p class="muted">برای اولین بار به اینترنت نیاز است. بعد از آن، آخرین داده‌ها آفلاین هم نشان داده می‌شوند.</p></div>');
+      return;
+    }
+    var p = PAGES.filter(function (x) { return x.id === page; })[0] || PAGES[0];
+    $('view').innerHTML = head + p.render();
+    if (page === 'mine') syncDays();
+  }
+
+  // ── pages ──
+  var LEAD = { usd: 1, coin: 1, g18: 1 };
+  function renderBoard() {
+    var items = (snap.live && snap.live.items) || [];
+    var order = ['usd', 'coin', 'g18', 'usdt', 'ons', 'tse', 'btc', 'eth', 'oilBrent', 'dxy'];
+    items = items.slice().sort(function (a, b) {
+      var ad = (a.price === null) ? 1 : 0, bd = (b.price === null) ? 1 : 0;
+      if (ad !== bd) return ad - bd;
+      var ai = order.indexOf(a.key), bi = order.indexOf(b.key);
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+    });
+    return '<div class="card">' + items.map(function (it) {
+      var dir = (it.changePct > 0) ? 'up' : (it.changePct < 0 ? 'down' : '');
+      var arrow = it.changePct > 0 ? '▲' : it.changePct < 0 ? '▼' : '';
+      return '<div class="row">' +
+        '<span class="label">' + esc(it.label) + (it.note ? '<small>' + esc(it.note) + '</small>' : '') + '</span>' +
+        (it.price === null
+          ? '<span class="muted">در انتظار داده</span>'
+          : '<span class="val num">' + fa(it.price, it.unit === 'usd' ? 2 : 0) + '<span class="unit">' + (UNIT[it.unit] || '') + '</span></span>' +
+            '<span class="chg num ' + dir + '">' + arrow + ' ' + pct(it.changePct) + '</span>') +
+        '</div>';
+    }).join('') + '</div>';
+  }
+
+  function renderRisk() {
+    var risk = (snap.risk || []).filter(function (r) { return !r.hidden; });
+    if (!risk.length) return empty('داده ریسک موجود نیست.');
+    var hk = ['d1', 'w1', 'm1', 'm3', 'm6', 'y1'];
+    var hl = { d1: 'روزانه', w1: 'هفتگی', m1: 'ماهانه', m3: '۳ماهه', m6: '۶ماهه', y1: 'سالانه' };
+    return '<div class="card"><h2>ریسک خرید در شش افق</h2><div class="scroll"><table><thead><tr><th>دارایی</th>' +
+      hk.map(function (k) { return '<th>' + hl[k] + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      risk.map(function (r) {
+        return '<tr><th>' + esc(r.label) + '</th>' + hk.map(function (k) {
+          var h = r.horizons && r.horizons[k];
+          if (!h) return '<td class="muted">—</td>';
+          var c = h.buy >= 65 ? 'down' : h.buy <= 40 ? 'up' : '';
+          return '<td class="num ' + c + '">' + fa(h.buy) + '</td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<div class="row"><span class="muted" style="font-size:12.5px">صفر کم‌ریسک، صد پرریسک. این اعداد توصیه خرید یا فروش نیستند.</span></div></div>';
+  }
+
+  function coinTable(rows, title) {
+    if (!rows || !rows.length) return empty('فهرستی موجود نیست.');
+    return '<div class="card"><h2>' + esc(title) + '</h2><div class="scroll"><table><thead><tr>' +
+      '<th>#</th><th>ارز</th><th>قیمت ($)</th><th>۷ روز</th><th>امتیاز</th></tr></thead><tbody>' +
+      rows.map(function (c, i) {
+        return '<tr><td class="num">' + fa(i + 1) + '</td>' +
+          '<td><b>' + esc((c.symbol || '').toUpperCase()) + '</b><br><span class="muted" style="font-size:11.5px">' + esc(c.name) + '</span></td>' +
+          '<td class="num">' + fa(c.price, c.price < 1 ? 4 : 2) + '</td>' +
+          '<td class="num ' + (c.m7 > 0 ? 'up' : c.m7 < 0 ? 'down' : '') + '">' + pct(c.m7) + '</td>' +
+          '<td class="num">' + fa(c.score) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+  function renderCrypto() { return coinTable(snap.crypto && snap.crypto.coins, 'کوین‌های مستعد هفته'); }
+  function renderMeme() { return coinTable(snap.crypto && snap.crypto.memes, 'میم‌کوین‌های مستعد هفته'); }
+
+  function renderStocks() {
+    var s = snap.stocks || {};
+    var rows = s.rows || [];
+    if (!rows.length) return empty('داده بورس موجود نیست.');
+    var note = s.mode === 'warmup'
+      ? '<div class="banner warn">تاریخچه بورس هنوز کامل نشده؛ این رتبه‌بندی فقط با داده امروز ساخته شده و اعتبار پایینی دارد.</div>' : '';
+    return note + '<div class="card"><h2>سهم‌های مستعد یک‌ماهه</h2><div class="scroll"><table><thead><tr>' +
+      '<th>#</th><th>نماد</th><th>قیمت</th><th>امروز</th><th>امتیاز</th></tr></thead><tbody>' +
+      rows.map(function (r, i) {
+        return '<tr><td class="num">' + fa(i + 1) + '</td>' +
+          '<td><b>' + esc(r.symbol) + '</b><br><span class="muted" style="font-size:11.5px">' + esc(r.name) + '</span></td>' +
+          '<td class="num">' + fa(r.price) + '</td>' +
+          '<td class="num ' + (r.chgPct > 0 ? 'up' : r.chgPct < 0 ? 'down' : '') + '">' + pct(r.chgPct) + '</td>' +
+          '<td class="num">' + fa(r.score) + '</td></tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+
+  function renderPortfolio() {
+    var ps = snap.portfolios || {};
+    var prof = snap.defaultProfile || 'balanced';
+    var pf = ps[prof] && ps[prof].m3;
+    if (!pf) return empty('سبد پیشنهادی موجود نیست.');
+    return '<div class="card"><h2>سبد پیشنهادی · افق ۳ ماهه</h2>' +
+      pf.lines.map(function (l) {
+        return '<div class="row"><span class="label">' + esc(l.label) + '<small>' + esc(l.instrument || '') + '</small></span>' +
+          '<span class="val num">' + pct(l.weight * 100) + '</span></div>';
+      }).join('') +
+      '<div class="row"><span class="label muted">نوسان سالانه تخمینی</span><span class="num">' + pct(pf.annualVolPct) + '</span></div>' +
+      '</div>';
+  }
+
+  function renderSources() {
+    var src = snap.sources || [];
+    return '<div class="card"><h2>وضعیت منابع داده</h2>' + src.map(function (s) {
+      return '<div class="row"><span class="label">' + esc(s.label || s.name) + '</span>' +
+        '<span class="pill" style="' + (s.ok ? 'background:#e4f3ea;color:#17804f' : 'background:#fde8e5;color:#b83a2f') + '">' +
+        (s.ok ? 'سالم' : 'خطا') + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  function renderAbout() {
+    return '<div class="card"><h2>درباره این اپ</h2>' +
+      '<div class="row"><span class="label">این برنامه رابط کاربری را به‌صورت آفلاین در خود دارد و فقط داده‌ها را از سرور می‌گیرد. آخرین داده دریافتی ذخیره می‌شود تا در نبود اینترنت هم چیزی برای دیدن باشد — با ذکر زمان دریافت.</span></div>' +
+      '<div class="row"><span class="label">سرور</span><span class="num" style="font-size:12px;direction:ltr">' + esc(API) + '</span></div>' +
+      '<div class="row"><span class="label">آخرین دریافت</span><span>' + esc(ageText() || '—') + '</span></div>' +
+      '<div class="row"><span class="label muted" style="font-size:12.5px">تحلیل‌ها الگوریتمی‌اند و توصیه خرید یا فروش نیستند.</span></div>' +
+      '</div>';
+  }
+
+  function empty(msg) { return '<div class="card"><div class="row"><span class="muted">' + esc(msg) + '</span></div></div>'; }
+
+
+  // ── Jalali calendar (ported from the project's tested implementation) ──
+/**
+ * Jalali (هجری شمسی) ⇄ Gregorian conversion — no dependencies.
+ * Uses the 33-year cycle breakdown of the Birashk/Khayyam algorithm, which matches
+ * the official Iranian calendar for 1178–1633 Jalali (covers every date this app needs).
+ * Ported from lib/jalali.ts, which is cross-checked against Intl's Persian calendar
+ * for ~11k days; this copy is re-checked the same way before shipping.
+ */
+
+
+const BREAKS = [-61, 9, 38, 199, 426, 686, 756, 818, 1111, 1181, 1210, 1635, 2060, 2097, 2192, 2262, 2324, 2394, 2456];
+
+/** NOTE: this algorithm requires division and modulo that truncate toward zero
+ *  (the reference implementation uses `~~`). Using Math.floor here silently shifts
+ *  g2d by a year for January dates. */
+function div(a, b) {
+  return Math.trunc(a / b);
+}
+
+function mod(a, b) {
+  return a - Math.trunc(a / b) * b;
+}
+
+/** Leap-year and March-equinox offset data for a Jalali year. */
+function jalCal(jy) {
+  const bl = BREAKS.length;
+  const gy = jy + 621;
+  let leapJ = -14;
+  let jp = BREAKS[0];
+  if (jy < jp || jy >= BREAKS[bl - 1]) throw new Error(`سال جلالی خارج از بازه پشتیبانی‌شده: ${jy}`);
+  let jump = 0;
+  for (let i = 1; i < bl; i++) {
+    const jm = BREAKS[i];
+    jump = jm - jp;
+    if (jy < jm) break;
+    leapJ = leapJ + div(jump, 33) * 8 + div(jump % 33, 4);
+    jp = jm;
+  }
+  let n = jy - jp;
+  leapJ = leapJ + div(n, 33) * 8 + div((n % 33) + 3, 4);
+  if (jump % 33 === 4 && jump - n === 4) leapJ += 1;
+  const leapG = div(gy, 4) - div((div(gy, 100) + 1) * 3, 4) - 150;
+  const march = 20 + leapJ - leapG;
+  if (jump - n < 6) n = n - jump + div(jump + 4, 33) * 33;
+  let leap = mod(mod(n + 1, 33) - 1, 4);
+  if (leap === -1) leap = 4; // truncated modulo can go negative
+  return { leap, gy, march };
+}
+
+/** Days in a Jalali month (1-12). */
+function jalaliMonthLength(jy, jm) {
+  if (jm <= 6) return 31;
+  if (jm <= 11) return 30;
+  return isLeapJalali(jy) ? 30 : 29;
+}
+
+function isLeapJalali(jy) {
+  return jalCal(jy).leap === 0;
+}
+
+function g2d(gy, gm, gd) {
+  let d = div((gy + div(gm - 8, 6) + 100100) * 1461, 4) + div(153 * ((gm + 9) % 12) + 2, 5) + gd - 34840408;
+  d = d - div(div(gy + 100100 + div(gm - 8, 6), 100) * 3, 4) + 752;
+  return d;
+}
+
+function d2g(jdn) {
+  let j = 4 * jdn + 139361631;
+  j = j + div(div(4 * jdn + 183187720, 146097) * 3, 4) * 4 - 3908;
+  const i = div(mod(j, 1461), 4) * 5 + 308;
+  const gd = div(mod(i, 153), 5) + 1;
+  const gm = mod(div(i, 153), 12) + 1;
+  const gy = div(j, 1461) - 100100 + div(8 - gm, 6);
+  return { gy, gm, gd };
+}
+
+/** Jalali → Gregorian. Throws if the Jalali date does not exist (e.g. 30 Esfand in a common year). */
+function jalaliToGregorian(jy, jm, jd) {
+  if (!Number.isInteger(jy) || !Number.isInteger(jm) || !Number.isInteger(jd)) throw new Error('تاریخ شمسی نامعتبر است.');
+  if (jm < 1 || jm > 12) throw new Error('ماه شمسی باید بین ۱ و ۱۲ باشد.');
+  if (jd < 1 || jd > jalaliMonthLength(jy, jm)) throw new Error(`روز ${jd} در این ماه شمسی وجود ندارد.`);
+  const r = jalCal(jy);
+  return d2g(g2d(r.gy, 3, r.march) + (jm - 1) * 31 - div(jm, 7) * (jm - 7) + jd - 1);
+}
+
+/** Gregorian → Jalali. */
+function gregorianToJalali(gy, gm, gd) {
+  const jdn = g2d(gy, gm, gd);
+  let jy = gy - 621;
+  const r = jalCal(jy);
+  const jdn1f = g2d(r.gy, 3, r.march);
+  let k = jdn - jdn1f;
+  if (k >= 0) {
+    if (k <= 185) return { jy, jm: 1 + div(k, 31), jd: mod(k, 31) + 1 };
+    k -= 186;
+  } else {
+    // a Gregorian Jan/Feb date still belongs to the previous Jalali year;
+    // the leap flag that matters is the one for that year's own calendar (r, computed above)
+    jy -= 1;
+    k += 179;
+    if (r.leap === 1) k += 1;
+  }
+  return { jy, jm: 7 + div(k, 30), jd: mod(k, 30) + 1 };
+}
+
+const JALALI_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+
+const pad = (n) => String(n).padStart(2, '0');
+
+/** 'YYYY-MM-DD' (Gregorian) → Jalali parts. */
+function isoToJalali(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return gregorianToJalali(y, m, d);
+}
+
+/** Jalali parts → 'YYYY-MM-DD' (Gregorian), the format holdings are stored in. */
+function jalaliToIso(jy, jm, jd) {
+  const g = jalaliToGregorian(jy, jm, jd);
+  return `${g.gy}-${pad(g.gm)}-${pad(g.gd)}`;
+}
+
+/** 'YYYY-MM-DD' (Gregorian) → '۲۰ شهریور ۱۴۰۵' for display. */
+function isoToJalaliLabel(iso) {
+  const { jy, jm, jd } = isoToJalali(iso);
+  return `${fa(jd)} ${JALALI_MONTHS[jm - 1]} ${fa(jy)}`;
+}
+
+function fa(n) {
+  return new Intl.NumberFormat('fa-IR', { useGrouping: false }).format(n);
+}
+
+  var J_MONTHS = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+
+  // ── My holdings ────────────────────────────────────────────────────────────
+  // Stored ONLY on this phone, in localStorage. Nothing is sent to the server: the
+  // server's own holdings API needs the admin secret, and shipping that secret inside a
+  // published APK would hand control of the account to anyone who unzipped it.
+  var HOLD_KEY = 'imb.holdings.v1';
+
+  // Each instrument says how to price it from the snapshot. Board items quoted in dollars
+  // (btc, eth) must be multiplied by the tether rate — using them raw would value a holding
+  // in dollars while labelling it toman.
+  var INSTRUMENTS = [
+    { id: 'g18',  label: 'طلای ۱۸ عیار', unit: 'گرم',  from: 'board', key: 'g18' },
+    { id: 'coin', label: 'سکه امامی',    unit: 'عدد',  from: 'board', key: 'coin' },
+    { id: 'usd',  label: 'دلار',          unit: 'دلار', from: 'board', key: 'usd' },
+    { id: 'usdt', label: 'تتر',           unit: 'تتر',  from: 'board', key: 'usdt' },
+    { id: 'btc',  label: 'بیت‌کوین',      unit: 'BTC',  from: 'usd',   key: 'btc' },
+    { id: 'eth',  label: 'اتریوم',        unit: 'ETH',  from: 'usd',   key: 'eth' }
+  ];
+  function instrument(id) { return INSTRUMENTS.filter(function (x) { return x.id === id; })[0] || null; }
+
+  function loadHoldings() {
+    try { var v = JSON.parse(localStorage.getItem(HOLD_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+    catch (e) { return []; }
+  }
+  function saveHoldings(list) {
+    try { localStorage.setItem(HOLD_KEY, JSON.stringify(list)); return true; }
+    catch (e) { return false; }
+  }
+
+  function boardPrice(key) {
+    var it = ((snap && snap.live && snap.live.items) || []).filter(function (x) { return x.key === key; })[0];
+    return it && it.price !== null && isFinite(it.price) ? { price: it.price, unit: it.unit } : null;
+  }
+  /** Unit price in toman, or null when the snapshot can't price it. */
+  function unitPrice(inst) {
+    var b = boardPrice(inst.key);
+    if (!b) return null;
+    if (b.unit === 'toman') return b.price;
+    if (b.unit === 'usd') {
+      var t = boardPrice('usdt');
+      if (!t || t.unit !== 'toman') return null;   // no tether rate ⇒ no honest toman value
+      return b.price * t.price;
+    }
+    return null;
+  }
+
+  function renderMine() {
+    var list = loadHoldings();
+    var totalNow = 0, totalPaid = 0, unpriced = 0;
+    var rows = list.map(function (h, i) {
+      var inst = instrument(h.instrument);
+      if (!inst) return '';
+      var up = unitPrice(inst);
+      var val = (up === null) ? null : up * h.qty;
+      if (val === null) unpriced++; else { totalNow += val; totalPaid += h.paid || 0; }
+      var pnl = (val === null || !h.paid) ? null : val - h.paid;
+      var pnlPct = (pnl === null || !h.paid) ? null : (pnl / h.paid) * 100;
+      var when = h.boughtOn ? jalLabel(h.boughtOn) : '';
+      return '<div class="row">' +
+        '<span class="label"><b>' + esc(inst.label) + '</b>' +
+          '<small>' + fa(h.qty, 4) + ' ' + esc(inst.unit) + (when ? ' · ' + esc(when) : '') + '</small></span>' +
+        (val === null
+          ? '<span class="muted">قیمت در دسترس نیست</span>'
+          : '<span class="val num">' + fa(val) + '<span class="unit">تومان</span></span>' +
+            (pnlPct === null ? '' : '<span class="chg num ' + (pnl > 0 ? 'up' : pnl < 0 ? 'down' : '') + '">' + pct(pnlPct) + '</span>')) +
+        '<button class="iconbtn" style="color:#b83a2f" data-del="' + i + '" aria-label="حذف">✕</button>' +
+        '</div>';
+    }).join('');
+
+    var totalPnl = totalPaid ? totalNow - totalPaid : null;
+    var head = '<div class="card"><h2>خلاصه</h2>' +
+      '<div class="row"><span class="label">ارزش روز</span><span class="val num">' + fa(totalNow) + '<span class="unit">تومان</span></span></div>' +
+      (totalPaid ? '<div class="row"><span class="label">مبلغ پرداختی</span><span class="val num">' + fa(totalPaid) + '<span class="unit">تومان</span></span></div>' +
+        '<div class="row"><span class="label">سود / زیان</span><span class="val num ' + (totalPnl > 0 ? 'up' : totalPnl < 0 ? 'down' : '') + '">' +
+        fa(totalPnl) + '<span class="unit">تومان</span></span><span class="chg num ' + (totalPnl > 0 ? 'up' : 'down') + '">' + pct((totalPnl / totalPaid) * 100) + '</span></div>' : '') +
+      (unpriced ? '<div class="row"><span class="muted" style="font-size:12.5px">' + fa(unpriced) + ' قلم قیمت‌گذاری نشد چون نرخ لازم در آخرین داده نبود؛ در مجموع بالا حساب نشده‌اند.</span></div>' : '') +
+      '</div>';
+
+    var jt = todayJalali();
+    var years = [];
+    for (var y = jt.jy; y > jt.jy - 12; y--) years.push(y);
+
+    var form = '<div class="card"><h2>افزودن دارایی</h2>' +
+      '<div class="row" style="flex-wrap:wrap;gap:8px">' +
+        '<select id="hInst" aria-label="نوع دارایی" style="flex:1 1 40%">' +
+          INSTRUMENTS.map(function (x) { return '<option value="' + x.id + '">' + esc(x.label) + '</option>'; }).join('') +
+        '</select>' +
+        '<input id="hQty" inputmode="decimal" placeholder="مقدار" aria-label="مقدار" style="flex:1 1 25%" />' +
+        '<input id="hPaid" inputmode="numeric" placeholder="مبلغ پرداختی (تومان)" aria-label="مبلغ پرداختی" style="flex:1 1 100%" />' +
+        '<div style="display:flex;gap:6px;flex:1 1 100%">' +
+          '<select id="hY" aria-label="سال">' + years.map(function (y) { return '<option value="' + y + '"' + (y === jt.jy ? ' selected' : '') + '>' + faPlain(y) + '</option>'; }).join('') + '</select>' +
+          '<select id="hM" aria-label="ماه"><option value="">ماه</option>' + J_MONTHS.map(function (m, i) { return '<option value="' + (i + 1) + '">' + m + '</option>'; }).join('') + '</select>' +
+          '<select id="hD" aria-label="روز"><option value="">روز</option></select>' +
+        '</div>' +
+        '<small class="muted" id="hHint" style="flex:1 1 100%">تاریخ خرید اختیاری است. همه اطلاعات فقط روی همین گوشی ذخیره می‌شود.</small>' +
+        '<button class="addbtn" id="hAdd" style="flex:1 1 100%">افزودن</button>' +
+      '</div></div>';
+
+    return head + (rows ? '<div class="card"><h2>اقلام</h2>' + rows + '</div>' : '<div class="card"><div class="row"><span class="muted">هنوز دارایی‌ای ثبت نشده.</span></div></div>') + form;
+  }
+
+  function todayJalali() {
+    var p = new Intl.DateTimeFormat('en-u-ca-persian-nu-latn', { timeZone: 'Asia/Tehran', year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date());
+    var g = function (t) { return Number(p.filter(function (x) { return x.type === t; })[0].value); };
+    return { jy: g('year'), jm: g('month'), jd: g('day') };
+  }
+  var faPlain = function (n) { return new Intl.NumberFormat('fa-IR', { useGrouping: false }).format(n); };
+  function jalLabel(iso) {
+    // years must not get a thousands separator: ۱۴۰۵, never ۱٬۴۰۵
+    try { var j = isoToJalali(iso); return faPlain(j.jd) + ' ' + J_MONTHS[j.jm - 1] + ' ' + faPlain(j.jy); }
+    catch (e) { return iso; }
+  }
+
+  // day list has to follow the selected month, or the form offers 31 Esfand
+  function syncDays() {
+    var yS = $('hY'), mS = $('hM'), dS = $('hD');
+    if (!yS || !mS || !dS) return;
+    var y = yS.value ? Number(yS.value) : null;
+    var m = mS.value ? Number(mS.value) : null;
+    var max = (y && m) ? jalaliMonthLength(y, m) : 31;
+    var keep = dS.value;
+    var html = '<option value="">روز</option>';
+    for (var d = 1; d <= max; d++) html += '<option value="' + d + '">' + fa(d) + '</option>';
+    dS.innerHTML = html;
+    if (keep && Number(keep) <= max) dS.value = keep;
+  }
+
+  document.addEventListener('change', function (e) {
+    if (e.target && (e.target.id === 'hY' || e.target.id === 'hM')) syncDays();
+  });
+
+  document.addEventListener('click', function (e) {
+    var del = e.target.closest && e.target.closest('[data-del]');
+    if (del) {
+      var idx = Number(del.getAttribute('data-del'));
+      var list = loadHoldings();
+      if (idx >= 0 && idx < list.length && confirm('این قلم حذف شود؟')) {
+        list.splice(idx, 1);
+        saveHoldings(list);
+        draw();
+      }
+      return;
+    }
+    if (e.target && e.target.id === 'hAdd') addHolding();
+  });
+
+  function addHolding() {
+    var inst = $('hInst').value;
+    var qty = Number(String($('hQty').value).replace(/[^\d.]/g, ''));
+    var paid = Number(String($('hPaid').value).replace(/[^\d]/g, ''));
+    var hint = $('hHint');
+    if (!isFinite(qty) || qty <= 0) { hint.textContent = 'مقدار را درست وارد کنید.'; hint.className = 'down'; return; }
+
+    var boughtOn = '';
+    var yv = $('hY').value, mv = $('hM').value, dv = $('hD').value;
+    if (mv || dv) {
+      if (!(yv && mv && dv)) { hint.textContent = 'سال، ماه و روز را کامل کنید یا هر سه را خالی بگذارید.'; hint.className = 'down'; return; }
+      try {
+        boughtOn = jalaliToIso(Number(yv), Number(mv), Number(dv));
+        var todayIso = new Date().toISOString().slice(0, 10);
+        if (boughtOn > todayIso) { hint.textContent = 'تاریخ خرید نمی‌تواند در آینده باشد.'; hint.className = 'down'; return; }
+      } catch (err) { hint.textContent = 'تاریخ شمسی نامعتبر است.'; hint.className = 'down'; return; }
+    }
+
+    var list = loadHoldings();
+    list.push({ instrument: inst, qty: qty, paid: isFinite(paid) && paid > 0 ? paid : 0, boughtOn: boughtOn, at: Date.now() });
+    if (!saveHoldings(list)) { hint.textContent = 'ذخیره نشد؛ حافظه دستگاه اجازه نداد.'; hint.className = 'down'; return; }
+    draw();
+  }
+
+  // ── start ──
+  loadCache();
+  buildMenu();
+  go('board');
+  refresh();
+  // refresh when the app comes back to the foreground, but only if the data is getting old
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && Date.now() - cachedAt > 5 * 60000) refresh();
+  });
+})();
+</script>
+</body>
+</html>

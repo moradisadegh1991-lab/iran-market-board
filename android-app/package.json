@@ -1,0 +1,19 @@
+{
+  "name": "iran-market-board-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "پوسته اندرویدی تابلوی بازار — رابط کاربری آفلاین، داده از سرور",
+  "scripts": {
+    "set-url": "node set-url.mjs",
+    "sync": "cap sync android",
+    "open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/splash-screen": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}
