@@ -45,7 +45,24 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # Google removed the legacy "tools" package from the SDK repository on 2026-09-15;
+      # android-actions/setup-android's default `packages: 'tools platform-tools'` now fails
+      # every run with "Failed to find package 'tools'" (github.com/android-actions/setup-
+      # android/issues/537 — this hit many unrelated repos the same day, not just this one).
+      # Nothing here ever needed the standalone `tools` package: it only supplied legacy
+      # command-line utilities superseded by cmdline-tools years ago. Requesting just
+      # platform-tools sidesteps the dead package; the action still stands up ANDROID_HOME
+      # and pre-accepts the SDK licenses, which the next step's sdkmanager call relies on.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+
+      # Capacitor 6's default variables.gradle targets API 34 (capacitorjs.com/docs/updating/6-0).
+      # Installed explicitly rather than left to Gradle's own auto-download, matching how other
+      # projects worked around the same setup-android breakage — more predictable in CI than
+      # relying on an implicit download mid-build.
+      - name: Install the SDK platform and build-tools Capacitor 6 targets
+        run: yes | sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
