@@ -16,8 +16,11 @@ npm install
 node set-url.mjs https://YOUR-APP.vercel.app   # آدرس دیپلوی خودتان
 npx cap add android                             # فقط بار اول
 npx cap sync android
+npm run wire-plugin                             # پلاگین پیامک را به پروژه وصل می‌کند
 npx cap open android                            # یا: cd android && ./gradlew assembleRelease
 ```
+
+‏workflow گیت‌هاب همین قدم `wire-plugin` را خودش خودکار انجام می‌دهد؛ برای بیلد از طریق CI کاری لازم نیست.
 
 برای انتشار در مایکت و کافه‌بازار، همان `new-android-app.sh` و `release.sh` خودتان روی این پوشه کار می‌کنند؛ فقط `www/` را به‌عنوان webDir بدهید.
 

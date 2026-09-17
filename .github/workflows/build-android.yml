@@ -82,6 +82,9 @@ jobs:
           npx cap add android || echo "android/ already present"
           npx cap sync android
 
+      - name: Wire the SMS-reader plugin into the Android project
+        run: node scripts/wire-native-plugin.mjs
+
       - name: Decode keystore
         id: keystore
         env:

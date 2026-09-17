@@ -8,37 +8,21 @@
 
 فقط **می‌خواند**. نه ارسال، نه حذف، نه هیچ درخواست شبکه‌ای — متن پیامک‌ها از گوشی خارج نمی‌شود.
 
-## نصب
+## نصب — خودکار
 
-پس از `npx cap add android`:
+‌قبلاً این سه مرحله دستی بود (کپی فایل Java، ویرایش `MainActivity.java`، ویرایش مانیفست) — دقیقاً همان نوع کاری که یک خط اشتباه در آن اپ را بی‌صدا خراب می‌کند. حالا یک اسکریپت انجامش می‌دهد:
 
-**۱.** فایل را در مسیر پکیج اپ بگذارید (نام پکیج باید با `appId` در `capacitor.config.json` یکی باشد):
-
-```
-android/app/src/main/java/ir/moradisadegh/marketboard/SmsReaderPlugin.java
-```
-
-**۲.** در `android/app/src/main/java/.../MainActivity.java` ثبتش کنید:
-
-```java
-import com.getcapacitor.BridgeActivity;
-
-public class MainActivity extends BridgeActivity {
-    @Override
-    public void onCreate(android.os.Bundle savedInstanceState) {
-        registerPlugin(SmsReaderPlugin.class);
-        super.onCreate(savedInstanceState);
-    }
-}
+```bash
+npx cap add android      # فقط بار اول
+npx cap sync android
+npm run wire-plugin       # کپی پلاگین + ثبت در MainActivity + اضافه‌کردن مجوز
 ```
 
-**۳.** مجوز را به `android/app/src/main/AndroidManifest.xml` اضافه کنید:
+‏workflow گیت‌هاب (`build-android.yml`) همین را خودش، خودکار، در هر بیلد اجرا می‌کند — نیازی به کار دستی نیست.
 
-```xml
-<uses-permission android:name="android.permission.READ_SMS" />
-```
+اسکریپت (`scripts/wire-native-plugin.mjs`) idempotent است: اجرای دوباره‌اش چیزی را تکراری نمی‌کند. با هر دو حالت واقعی `MainActivity.java` که Capacitor می‌سازد تست شده — وقتی اصلاً `onCreate` ندارد (پیش‌فرض Capacitor 6) و وقتی از قبل `onCreate` دارد (اگر پلاگین دیگری قبلاً چیزی به آن اضافه کرده). در حالت دوم، کد موجود دست‌نخورده می‌ماند.
 
-**۴.** بیلد بگیرید و **روی گوشی واقعی** تست کنید — شبیه‌ساز پیامک بانکی ندارد.
+اگر ترجیح می‌دهید دستی انجام دهید یا می‌خواهید ببینید اسکریپت چه می‌کند:
 
 ## استفاده از سمت JS
 

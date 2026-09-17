@@ -7,7 +7,9 @@
     "set-url": "node set-url.mjs",
     "sync": "cap sync android",
     "open": "cap open android",
-    "test:sms": "node scripts/sms-parser-test.mjs"
+    "test:sms": "node scripts/sms-parser-test.mjs",
+    "wire-plugin": "node scripts/wire-native-plugin.mjs",
+    "test:wireplugin": "node scripts/wire-plugin-test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",
