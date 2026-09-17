@@ -113,6 +113,11 @@
   .banner.err { background: #fde8e5; border: 1px solid #f0bdb5; }
   select, input { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; min-width: 0; }
   input { text-align: right; }
+  /* the slider needs its own line: without wrapping it overlapped the label text */
+  .row.alloc { flex-wrap: wrap; row-gap: 6px; }
+  .row.alloc .label { flex: 1 1 auto; }
+  input[type=range] { accent-color: var(--teal); padding: 0; width: 100%; }
+  .chipbtn { font: inherit; font-size: 12.5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 5px 10px; cursor: pointer; }
   .addbtn { font: inherit; font-weight: 700; color: #fff; background: var(--teal); border: 0; border-radius: 10px; padding: 11px; cursor: pointer; }
   .addbtn:active { background: #0a5f62; }
   .center { text-align: center; padding: 40px 16px; color: var(--muted); }
@@ -140,6 +145,8 @@
   <div class="drawer-list" id="menu"></div>
 </nav>
 
+<script src="game-engine.js"></script>
+<script src="sms-parser.js"></script>
 <main id="view"><div class="center"><span class="spin"></span></div></main>
 
 <script>
@@ -158,6 +165,8 @@
     { id: 'stocks',    icon: '📈', title: 'بورس',           render: renderStocks },
     { id: 'portfolio', icon: '🧺', title: 'سبد پیشنهادی',   render: renderPortfolio },
     { id: 'mine',      icon: '💼', title: 'دارایی‌های من',   render: renderMine, offline: true },
+    { id: 'game',      icon: '🎮', title: 'واحد کنترل اقتصاد', render: renderGame, offline: true },
+    { id: 'spend',     icon: '🧾', title: 'هزینه‌ها',          render: renderSpend, offline: true },
     { id: 'sources',   icon: '🔌', title: 'وضعیت منابع',    render: renderSources },
     { id: 'about',     icon: 'ℹ', title: 'درباره',         render: renderAbout, offline: true }
   ];
@@ -695,6 +704,370 @@ function fa(n) {
     if (!saveHoldings(list)) { hint.textContent = 'ذخیره نشد؛ حافظه دستگاه اجازه نداد.'; hint.className = 'down'; return; }
     draw();
   }
+
+
+  // ── واحد کنترل اقتصاد ──────────────────────────────────────────────────────
+  // A 24-month personal-finance simulation. The engine is the original project's,
+  // ported unchanged (game-engine.js); only this interface is new. It needs no
+  // network at all, so the page is marked offline like the holdings page.
+  // Progress is kept on the phone so a half-finished run survives closing the app.
+  var GAME_KEY = 'imb.game.v1';
+  var game = null, gameAlloc = null, gameView = 'setup';
+
+  function ecu() { return window.ECU || null; }
+
+  // The engine returns its month label with Latin digits ("مرداد 1405"). Rather than edit
+  // the ported engine — it is verified byte-identical to the original — the digits are
+  // localised here, where presentation belongs.
+  function faDigits(str) {
+    return String(str).replace(/[0-9]/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'[+d]; });
+  }
+
+  function loadGame() {
+    try {
+      var raw = localStorage.getItem(GAME_KEY);
+      if (!raw) return null;
+      var o = JSON.parse(raw);
+      return o && o.state ? o : null;
+    } catch (e) { return null; }
+  }
+  function saveGame() {
+    try { localStorage.setItem(GAME_KEY, JSON.stringify({ state: game, alloc: gameAlloc, at: Date.now() })); } catch (e) {}
+  }
+  function clearGame() { try { localStorage.removeItem(GAME_KEY); } catch (e) {} }
+
+  function defaultAlloc(free) {
+    var rest = Math.max(1, Math.round(free / 3));
+    var side = Math.max(0, free - rest);
+    return { side: side, intl: 0, venture: 0, rest: rest };
+  }
+
+  function renderGame() {
+    var E = ecu();
+    if (!E) return empty('موتور بازی بارگذاری نشد.');
+
+    if (!game) {
+      var saved = loadGame();
+      if (saved) { game = saved.state; gameAlloc = saved.alloc || defaultAlloc(game.freeDays); gameView = 'play'; }
+    }
+    if (!game) return gameSetup(E);
+    if (game.month >= E.MONTHS) return gameOver(E);
+    return gamePlay(E);
+  }
+
+  function gameSetup(E) {
+    var jobs = Object.keys(E.JOBS).map(function (k) {
+      return '<option value="' + k + '">' + esc(E.JOBS[k].label || k) + '</option>';
+    }).join('');
+    return '<div class="card"><h2>واحد کنترل اقتصاد</h2>' +
+      '<div class="row"><span class="label">شبیه‌سازی ۲۴ ماه مدیریت مالی شخصی در اقتصاد تورمی. با شغل و درآمد و دارایی واقعی خودتان شروع کنید و ببینید تصمیم‌ها در دو سال چه نتیجه‌ای می‌دهند.<br><b>ابزار آموزشی است، نه مشاوره سرمایه‌گذاری.</b> اعداد شبیه‌سازی‌شده‌اند و پیش‌بینی آینده نیستند.</span></div>' +
+      '</div>' +
+      '<div class="card"><h2>شروع</h2><div class="row" style="flex-wrap:wrap;gap:8px">' +
+        '<label style="flex:1 1 100%"><span class="field-label">شغل</span><select id="gJob">' + jobs + '</select></label>' +
+        '<label style="flex:1 1 45%"><span class="field-label">درآمد ماهانه (میلیون تومان)</span><input id="gIncome" inputmode="numeric" value="90" /></label>' +
+        '<label style="flex:1 1 45%"><span class="field-label">هزینه زندگی (میلیون)</span><input id="gLiving" inputmode="numeric" value="30" /></label>' +
+        '<label style="flex:1 1 45%"><span class="field-label">قسط ماهانه (میلیون)</span><input id="gInst" inputmode="numeric" value="0" /></label>' +
+        '<label style="flex:1 1 45%"><span class="field-label">روزهای آزاد در ماه</span><input id="gFree" inputmode="numeric" value="8" /></label>' +
+        '<label style="flex:1 1 45%"><span class="field-label">نقد فعلی (میلیون)</span><input id="gCash" inputmode="numeric" value="50" /></label>' +
+        '<label style="flex:1 1 45%"><span class="field-label">تورم سالانه (٪)</span><input id="gInfl" inputmode="numeric" value="60" /></label>' +
+        '<small class="muted" id="gHint" style="flex:1 1 100%">قیمت طلا، دلار و سکه از آخرین داده تابلو گرفته می‌شود تا شبیه‌سازی از وضعیت امروز بازار شروع شود.</small>' +
+        '<button class="addbtn" id="gStart" style="flex:1 1 100%">شروع بازی</button>' +
+      '</div></div>';
+  }
+
+  /** Seed the simulation's starting prices from the live board when it's available. */
+  function startPrices(E) {
+    var d = E.DEFAULT_PROFILE.prices;
+    var out = { goldGram: d.goldGram, usd: d.usd, coinHalf: d.coinHalf };
+    if (!snap) return out;
+    var g18 = boardPrice('g18'), usd = boardPrice('usd'), coin = boardPrice('coin');
+    if (g18 && g18.unit === 'toman') out.goldGram = g18.price;
+    if (usd && usd.unit === 'toman') out.usd = usd.price;
+    // the board carries the full coin; the engine's reference is the half coin
+    if (coin && coin.unit === 'toman') out.coinHalf = coin.price / 2;
+    return out;
+  }
+
+  function gamePlay(E) {
+    var s = E.withHelpers ? E.withHelpers(game) : game;
+    var free = game.freeDays;
+    if (!gameAlloc) gameAlloc = defaultAlloc(free);
+    var used = gameAlloc.side + gameAlloc.intl + gameAlloc.venture + gameAlloc.rest;
+    var left = free - used;
+    var wealth = E.wealthOf(game), real = E.realWealthOf(game), buf = E.bufferMonthsOf(game);
+    var keys = [
+      { k: 'side', label: 'پروژه جانبی' },
+      { k: 'intl', label: 'مسیر بین‌المللی' },
+      { k: 'venture', label: 'کسب‌وکار خودت' },
+      { k: 'rest', label: 'استراحت' }
+    ];
+    if (!game.job.intl) keys = keys.filter(function (x) { return x.k !== 'intl'; });
+
+    var notes = (game.note || []).slice(-4).map(function (n) {
+      return '<div class="row"><span class="label">' + esc(n) + '</span></div>';
+    }).join('');
+
+    return '<div class="card"><h2>' + esc(faDigits(E.monthLabel(game.month))) + ' · ماه ' + fa(game.month + 1) + ' از ' + fa(E.MONTHS) + '</h2>' +
+        '<div class="row"><span class="label">دارایی کل</span><span class="val num">' + E.M(wealth) + '<span class="unit">میلیون</span></span></div>' +
+        '<div class="row"><span class="label">قدرت خرید واقعی<small>دارایی تعدیل‌شده با تورم</small></span><span class="val num">' + E.M(real) + '<span class="unit">میلیون</span></span></div>' +
+        '<div class="row"><span class="label">نقد</span><span class="val num">' + E.M(game.cash) + '<span class="unit">میلیون</span></span></div>' +
+        '<div class="row"><span class="label">سپر نقدی<small>چند ماه می‌توانی بدون درآمد دوام بیاوری</small></span><span class="val num ' + (buf < 3 ? 'down' : 'up') + '">' + fa(buf, 1) + '<span class="unit">ماه</span></span></div>' +
+        '<div class="row"><span class="label">تورم سالانه</span><span class="val num">' + fa(E.annualInflationOf(game), 0) + '٪</span></div>' +
+      '</div>' +
+      (notes ? '<div class="card"><h2>رویدادهای ماه گذشته</h2>' + notes + '</div>' : '') +
+      '<div class="card"><h2>' + fa(free) + ' روز آزاد این ماه را چطور خرج می‌کنی؟</h2>' +
+        keys.map(function (x) {
+          return '<div class="row alloc"><span class="label">' + esc(x.label) + '</span>' +
+            '<span class="val num" id="gv-' + x.k + '">' + fa(gameAlloc[x.k]) + '</span>' +
+            '<input type="range" min="0" max="' + free + '" value="' + gameAlloc[x.k] + '" data-alloc="' + x.k + '" style="flex:1 1 100%" /></div>';
+        }).join('') +
+        '<div class="row"><span class="label ' + (left < 0 ? 'down' : 'muted') + '" id="gLeft">' +
+          (left < 0 ? 'بیش از روزهای آزادت تخصیص داده‌ای (' + fa(-left) + ' روز اضافه)' : fa(left) + ' روز تخصیص‌نیافته') +
+        '</span></div>' +
+        '<div class="row"><button class="addbtn" id="gNext" style="flex:1 1 100%"' + (left < 0 ? ' disabled' : '') + '>ثبت ماه و رفتن به ماه بعد</button></div>' +
+      '</div>' +
+      '<div class="card"><div class="row"><button class="iconbtn" id="gReset" style="color:#b83a2f">شروع دوباره از اول</button></div></div>';
+  }
+
+  function gameOver(E) {
+    var wealth = E.wealthOf(game), real = E.realWealthOf(game);
+    var start = game.profile.assets ? 0 : 0;
+    return '<div class="card"><h2>پایان ۲۴ ماه</h2>' +
+      '<div class="row"><span class="label">دارایی نهایی</span><span class="val num">' + E.M(wealth) + '<span class="unit">میلیون</span></span></div>' +
+      '<div class="row"><span class="label">قدرت خرید واقعی</span><span class="val num">' + E.M(real) + '<span class="unit">میلیون</span></span></div>' +
+      '<div class="row"><span class="label">تورم انباشته</span><span class="val num">' + fa(game.cpi, 0) + '٪ شاخص</span></div>' +
+      '<div class="row"><span class="muted" style="font-size:12.5px">قدرت خرید واقعی مهم‌تر از عدد اسمی است: اگر دارایی‌ات دو برابر شده ولی قیمت‌ها سه برابر شده‌اند، عقب رفته‌ای.</span></div>' +
+      '<div class="row"><button class="addbtn" id="gReset" style="flex:1 1 100%">بازی دوباره</button></div>' +
+      '</div>';
+  }
+
+  // slider + button wiring (delegated, so it survives every re-render)
+  document.addEventListener('input', function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute || !t.getAttribute('data-alloc')) return;
+    gameAlloc[t.getAttribute('data-alloc')] = Number(t.value);
+    var lbl = $('gv-' + t.getAttribute('data-alloc'));
+    if (lbl) lbl.textContent = fa(Number(t.value));
+    var free = game.freeDays;
+    var left = free - (gameAlloc.side + gameAlloc.intl + gameAlloc.venture + gameAlloc.rest);
+    var l = $('gLeft'), btn = $('gNext');
+    if (l) {
+      l.textContent = left < 0 ? 'بیش از روزهای آزادت تخصیص داده‌ای (' + fa(-left) + ' روز اضافه)' : fa(left) + ' روز تخصیص‌نیافته';
+      l.className = 'label ' + (left < 0 ? 'down' : 'muted');
+    }
+    if (btn) btn.disabled = left < 0;
+    saveGame();
+  });
+
+  document.addEventListener('click', function (e) {
+    var E = ecu();
+    if (!e.target || !E) return;
+    if (e.target.id === 'gStart') {
+      var num = function (id, d) { var v = Number(String($(id).value).replace(/[^\d.]/g, '')); return isFinite(v) ? v : d; };
+      game = E.newGame({
+        jobKey: $('gJob').value,
+        income: num('gIncome', 90) * 1e6,
+        living: num('gLiving', 30) * 1e6,
+        installment: num('gInst', 0) * 1e6,
+        freeDays: Math.max(1, num('gFree', 8)),
+        inflation: num('gInfl', 60),
+        assets: { cash: num('gCash', 50) * 1e6, gold: 0, usd: 0, coin: 0, fixed: 0, equity: 0 },
+        prices: startPrices(E)
+      });
+      gameAlloc = defaultAlloc(game.freeDays);
+      saveGame();
+      draw();
+      return;
+    }
+    if (e.target.id === 'gNext') {
+      game = E.stepMonth(game, gameAlloc);
+      saveGame();
+      draw();
+      window.scrollTo(0, 0);
+      return;
+    }
+    if (e.target.id === 'gReset') {
+      if (!confirm('بازی از اول شروع شود؟ پیشرفت فعلی پاک می‌شود.')) return;
+      game = null; gameAlloc = null; clearGame();
+      draw();
+    }
+  });
+
+
+  // ── هزینه‌ها ───────────────────────────────────────────────────────────────
+  // Bank-SMS driven expense log. Everything stays on the phone: the SMS bodies are read by
+  // the native plugin, classified here by sms-parser.js, and only the resulting numbers are
+  // stored. Nothing is uploaded — the server has no endpoint for any of this.
+  var TX_KEY = 'imb.tx.v1';
+  var TXMETA_KEY = 'imb.txmeta.v1';
+  var pendingTx = [];      // ambiguous messages waiting for the user to decide
+  var spendMsg = null;
+
+  function loadTx() {
+    try { var v = JSON.parse(localStorage.getItem(TX_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+    catch (e) { return []; }
+  }
+  function saveTx(list) {
+    try { localStorage.setItem(TX_KEY, JSON.stringify(list.slice(0, 2000))); return true; } catch (e) { return false; }
+  }
+  function txMeta() {
+    try { return JSON.parse(localStorage.getItem(TXMETA_KEY) || '{}') || {}; } catch (e) { return {}; }
+  }
+  function setTxMeta(m) { try { localStorage.setItem(TXMETA_KEY, JSON.stringify(m)); } catch (e) {} }
+
+  function smsPlugin() {
+    var C = window.Capacitor;
+    return (C && C.Plugins && C.Plugins.SmsReader) ? C.Plugins.SmsReader : null;
+  }
+
+  /** Read new messages, classify them, store the clear ones, queue the doubtful ones. */
+  async function importSms() {
+    var plug = smsPlugin(), P = window.SmsParser;
+    if (!plug) { spendMsg = { err: 'پلاگین پیامک در دسترس نیست. این قابلیت فقط در نسخه اندروید کار می‌کند.' }; draw(); return; }
+    if (!P) { spendMsg = { err: 'پارسر پیامک بارگذاری نشد.' }; draw(); return; }
+    spendMsg = { info: 'در حال خواندن پیامک‌ها…' }; draw();
+    try {
+      var perm = await plug.requestPermission();
+      if (!perm || !perm.granted) { spendMsg = { err: 'اجازه خواندن پیامک داده نشد.' }; draw(); return; }
+
+      var meta = txMeta();
+      var res = await plug.read({ sinceMs: meta.lastImport || 0, limit: 500 });
+      var msgs = (res && res.messages) || [];
+
+      var list = loadTx(), added = 0, asked = 0, skipped = 0, newest = meta.lastImport || 0;
+      pendingTx = [];
+      for (var i = 0; i < msgs.length; i++) {
+        var m = msgs[i];
+        if (m.date > newest) newest = m.date;
+        var c = P.classify(m.body || '');
+        if (c.kind === 'confirmed') {
+          list.push({
+            id: 'x' + m.date + '-' + i,
+            at: m.date, amount: c.tx.amount, out: !!c.tx.isWithdrawal,
+            card: c.tx.cardLast4 || null, bank: c.tx.bankNameInSms || m.address || null,
+            channel: c.tx.channel || null, cat: null, src: 'sms'
+          });
+          added++;
+        } else if (c.kind === 'ambiguous') {
+          pendingTx.push({ at: m.date, body: m.body, amount: c.guessedAmount, out: c.guessedWithdrawal, address: m.address });
+          asked++;
+        } else skipped++;
+      }
+      saveTx(list);
+      setTxMeta({ lastImport: newest });
+      spendMsg = { info: fa(added) + ' تراکنش ثبت شد، ' + fa(asked) + ' مورد نیازمند تأیید، ' + fa(skipped) + ' پیامک غیرمالی نادیده گرفته شد.' };
+    } catch (e) {
+      spendMsg = { err: 'خواندن پیامک ناموفق بود: ' + ((e && e.message) || e) };
+    }
+    draw();
+  }
+
+  function monthKeyOf(ms) {
+    try { var j = isoToJalali(new Date(ms).toISOString().slice(0, 10)); return j.jy + '/' + j.jm; }
+    catch (e) { return '—'; }
+  }
+
+  function renderSpend() {
+    var list = loadTx();
+    var meta = txMeta();
+    var plug = !!smsPlugin();
+
+    // current Jalali month totals
+    var jt = todayJalali();
+    var thisKey = jt.jy + '/' + jt.jm;
+    var outSum = 0, inSum = 0;
+    list.forEach(function (t) {
+      if (monthKeyOf(t.at) !== thisKey) return;
+      if (t.out) outSum += t.amount; else inSum += t.amount;
+    });
+
+    var head = '<div class="card"><h2>' + esc(J_MONTHS[jt.jm - 1]) + ' ' + faPlain(jt.jy) + '</h2>' +
+      '<div class="row"><span class="label">خرج این ماه</span><span class="val num down">' + fa(outSum / 10) + '<span class="unit">تومان</span></span></div>' +
+      '<div class="row"><span class="label">ورودی این ماه</span><span class="val num up">' + fa(inSum / 10) + '<span class="unit">تومان</span></span></div>' +
+      '<div class="row"><span class="muted" style="font-size:12.5px">پیامک‌های بانکی به ریال‌اند؛ اعداد بالا به تومان تبدیل شده‌اند.</span></div>' +
+      '</div>';
+
+    var ctrl = '<div class="card"><h2>دریافت از پیامک بانکی</h2>' +
+      '<div class="row"><span class="label">' +
+        (plug ? 'پیامک‌ها روی همین گوشی خوانده و تحلیل می‌شوند. متن پیامک هیچ‌جا فرستاده نمی‌شود.'
+              : 'این قابلیت به نسخه اندروید نیاز دارد. در مرورگر می‌توانید تراکنش را دستی ثبت کنید.') +
+      '</span></div>' +
+      (meta.lastImport ? '<div class="row"><span class="label muted">آخرین دریافت</span><span>' + esc(fmtWhen(meta.lastImport)) + '</span></div>' : '') +
+      (plug ? '<div class="row"><button class="addbtn" id="sImport" style="flex:1 1 100%">خواندن پیامک‌های جدید</button></div>' : '') +
+      (spendMsg ? '<div class="row"><span class="' + (spendMsg.err ? 'err-text down' : 'muted') + '">' + esc(spendMsg.err || spendMsg.info) + '</span></div>' : '') +
+      '</div>';
+
+    var ask = pendingTx.length
+      ? '<div class="card"><h2>نیازمند تأیید شما (' + fa(pendingTx.length) + ')</h2>' +
+        '<div class="row"><span class="muted" style="font-size:12.5px">این پیامک‌ها نشانه مالی داشتند ولی مبلغ یا جهتشان قطعی نبود، پس خودکار ثبت نشدند.</span></div>' +
+        pendingTx.slice(0, 8).map(function (p, i) {
+          return '<div class="row alloc"><span class="label" style="font-size:13px">' + esc((p.body || '').slice(0, 110)) + '</span>' +
+            '<span class="val num">' + (p.amount ? fa(p.amount / 10) : '—') + '</span>' +
+            '<button class="chipbtn" data-ok="' + i + '">ثبت به‌عنوان ' + (p.out ? 'خرج' : 'ورودی') + '</button>' +
+            '<button class="chipbtn" data-no="' + i + '">نادیده بگیر</button></div>';
+        }).join('') + '</div>'
+      : '';
+
+    var recent = list.slice().sort(function (a, b) { return b.at - a.at; }).slice(0, 25);
+    var rows = recent.length
+      ? '<div class="card"><h2>آخرین تراکنش‌ها</h2>' + recent.map(function (t, i) {
+          return '<div class="row"><span class="label">' + (t.out ? 'خرج' : 'ورودی') +
+            '<small>' + esc(fmtWhen(t.at)) + (t.card ? ' · کارت ' + esc(t.card) : '') + (t.bank ? ' · ' + esc(String(t.bank).slice(0, 18)) : '') + '</small></span>' +
+            '<span class="val num ' + (t.out ? 'down' : 'up') + '">' + fa(t.amount / 10) + '<span class="unit">تومان</span></span>' +
+            '<button class="iconbtn" style="color:#b83a2f" data-txdel="' + esc(t.id) + '" aria-label="حذف">✕</button></div>';
+        }).join('') + '</div>'
+      : '<div class="card"><div class="row"><span class="muted">هنوز تراکنشی ثبت نشده.</span></div></div>';
+
+    var manual = '<div class="card"><h2>ثبت دستی</h2><div class="row" style="flex-wrap:wrap;gap:8px">' +
+      '<select id="sDir" aria-label="نوع" style="flex:1 1 40%"><option value="out">خرج</option><option value="in">ورودی</option></select>' +
+      '<input id="sAmt" inputmode="numeric" placeholder="مبلغ (تومان)" aria-label="مبلغ" style="flex:1 1 55%" />' +
+      '<button class="addbtn" id="sAdd" style="flex:1 1 100%">افزودن</button>' +
+      '</div></div>';
+
+    return head + ctrl + ask + rows + manual;
+  }
+
+  function fmtWhen(ms) {
+    try {
+      var d = new Date(ms);
+      var j = isoToJalali(d.toISOString().slice(0, 10));
+      var hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0');
+      return faPlain(j.jd) + ' ' + J_MONTHS[j.jm - 1] + ' ' + faPlain(j.jy) + '، ' + faDigits(hh + ':' + mm);
+    } catch (e) { return '—'; }
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t) return;
+    if (t.id === 'sImport') { importSms(); return; }
+    if (t.id === 'sAdd') {
+      var amt = Number(String($('sAmt').value).replace(/[^\d]/g, ''));
+      if (!isFinite(amt) || amt <= 0) return;
+      var list = loadTx();
+      // stored in rial to match what the SMS parser produces, so the two never mix units
+      list.push({ id: 'm' + Date.now(), at: Date.now(), amount: amt * 10, out: $('sDir').value === 'out', card: null, bank: null, channel: null, cat: null, src: 'manual' });
+      saveTx(list); spendMsg = null; draw(); return;
+    }
+    var del = t.getAttribute && t.getAttribute('data-txdel');
+    if (del) {
+      var l2 = loadTx().filter(function (x) { return x.id !== del; });
+      saveTx(l2); draw(); return;
+    }
+    var ok = t.getAttribute && t.getAttribute('data-ok');
+    if (ok !== null && ok !== undefined && ok !== '') {
+      var p = pendingTx[Number(ok)];
+      if (p && p.amount) {
+        var l3 = loadTx();
+        l3.push({ id: 'a' + p.at, at: p.at, amount: p.amount, out: !!p.out, card: null, bank: p.address || null, channel: null, cat: null, src: 'sms-confirmed' });
+        saveTx(l3);
+      }
+      pendingTx.splice(Number(ok), 1); draw(); return;
+    }
+    var no = t.getAttribute && t.getAttribute('data-no');
+    if (no !== null && no !== undefined && no !== '') {
+      pendingTx.splice(Number(no), 1); draw();
+    }
+  });
 
   // ── start ──
   loadCache();

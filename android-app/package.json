@@ -6,7 +6,8 @@
   "scripts": {
     "set-url": "node set-url.mjs",
     "sync": "cap sync android",
-    "open": "cap open android"
+    "open": "cap open android",
+    "test:sms": "node scripts/sms-parser-test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",
