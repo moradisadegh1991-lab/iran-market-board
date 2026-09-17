@@ -117,6 +117,10 @@
   .row.alloc { flex-wrap: wrap; row-gap: 6px; }
   .row.alloc .label { flex: 1 1 auto; }
   input[type=range] { accent-color: var(--teal); padding: 0; width: 100%; }
+  .bars { display: flex; align-items: flex-end; gap: 8px; height: 132px; padding: 14px; }
+  .bar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 5px; }
+  .bar-fill { width: 100%; background: var(--teal); border-radius: 5px 5px 0 0; min-height: 2px; }
+  .bar small { font-size: 11px; color: var(--muted); }
   .chipbtn { font: inherit; font-size: 12.5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 5px 10px; cursor: pointer; }
   .addbtn { font: inherit; font-weight: 700; color: #fff; background: var(--teal); border: 0; border-radius: 10px; padding: 11px; cursor: pointer; }
   .addbtn:active { background: #0a5f62; }
@@ -895,32 +899,47 @@ function fa(n) {
 
 
   // ── هزینه‌ها ───────────────────────────────────────────────────────────────
-  // Bank-SMS driven expense log. Everything stays on the phone: the SMS bodies are read by
-  // the native plugin, classified here by sms-parser.js, and only the resulting numbers are
-  // stored. Nothing is uploaded — the server has no endpoint for any of this.
-  var TX_KEY = 'imb.tx.v1';
-  var TXMETA_KEY = 'imb.txmeta.v1';
-  var pendingTx = [];      // ambiguous messages waiting for the user to decide
-  var spendMsg = null;
+  // Full port of ExpenseTracker: transactions, pending queue, categories, cards,
+  // bank senders, per-category breakdown, monthly bars and the AI advisor.
+  // Everything lives on the phone. Amounts are stored in RIAL exactly as the bank SMS
+  // states them, and converted to toman only for display — mixing the two units is the
+  // easiest way to silently corrupt a ledger.
+  var TX_KEY = 'imb.tx.v1', TXMETA_KEY = 'imb.txmeta.v1', PEND_KEY = 'imb.pending.v1';
+  var CAT_KEY = 'imb.cats.v1', CARD_KEY = 'imb.cards.v1', SENDER_KEY = 'imb.senders.v1';
+  var AIKEY_KEY = 'imb.aikey.v1';
+  var spendMsg = null, spendTab = 'dash', aiBusy = false, aiAnswer = null;
 
-  function loadTx() {
-    try { var v = JSON.parse(localStorage.getItem(TX_KEY) || '[]'); return Array.isArray(v) ? v : []; }
-    catch (e) { return []; }
-  }
-  function saveTx(list) {
-    try { localStorage.setItem(TX_KEY, JSON.stringify(list.slice(0, 2000))); return true; } catch (e) { return false; }
-  }
-  function txMeta() {
-    try { return JSON.parse(localStorage.getItem(TXMETA_KEY) || '{}') || {}; } catch (e) { return {}; }
-  }
-  function setTxMeta(m) { try { localStorage.setItem(TXMETA_KEY, JSON.stringify(m)); } catch (e) {} }
+  var DEFAULT_CATS = [
+    { id: 'c1', name: 'خوراک', emoji: '🍽' }, { id: 'c2', name: 'حمل‌ونقل', emoji: '🚗' },
+    { id: 'c3', name: 'قبوض', emoji: '🧾' },  { id: 'c4', name: 'خرید', emoji: '🛍' },
+    { id: 'c5', name: 'درمان', emoji: '💊' }, { id: 'c6', name: 'مسکن', emoji: '🏠' },
+    { id: 'c7', name: 'پس‌انداز', emoji: '🐖' }, { id: 'c8', name: 'سایر', emoji: '💰' }
+  ];
+
+  function jget(k, d) { try { var v = JSON.parse(localStorage.getItem(k)); return v === null || v === undefined ? d : v; } catch (e) { return d; } }
+  function jset(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+
+  function loadTx() { var v = jget(TX_KEY, []); return Array.isArray(v) ? v : []; }
+  function saveTx(l) { return jset(TX_KEY, l.slice(0, 3000)); }
+  function loadPending() { var v = jget(PEND_KEY, []); return Array.isArray(v) ? v : []; }
+  function savePending(l) { return jset(PEND_KEY, l.slice(0, 300)); }
+  function loadCats() { var v = jget(CAT_KEY, null); if (!Array.isArray(v)) { jset(CAT_KEY, DEFAULT_CATS); return DEFAULT_CATS.slice(); } return v; }
+  function loadCards() { var v = jget(CARD_KEY, []); return Array.isArray(v) ? v : []; }
+  function loadSenders() { var v = jget(SENDER_KEY, []); return Array.isArray(v) ? v : []; }
+  function txMeta() { return jget(TXMETA_KEY, {}) || {}; }
 
   function smsPlugin() {
     var C = window.Capacitor;
     return (C && C.Plugins && C.Plugins.SmsReader) ? C.Plugins.SmsReader : null;
   }
+  function catById(id) { var c = loadCats().filter(function (x) { return x.id === id; }); return c[0] || null; }
+  /** Sender number → bank name, so "985000..." shows as "بانک تجارت". */
+  function bankOfSender(addr) {
+    var s = loadSenders().filter(function (x) { return addr && String(addr).indexOf(x.sender) >= 0; });
+    return s[0] ? s[0].bank : null;
+  }
+  var toToman = function (rial) { return rial / 10; };
 
-  /** Read new messages, classify them, store the clear ones, queue the doubtful ones. */
   async function importSms() {
     var plug = smsPlugin(), P = window.SmsParser;
     if (!plug) { spendMsg = { err: 'پلاگین پیامک در دسترس نیست. این قابلیت فقط در نسخه اندروید کار می‌کند.' }; draw(); return; }
@@ -929,33 +948,37 @@ function fa(n) {
     try {
       var perm = await plug.requestPermission();
       if (!perm || !perm.granted) { spendMsg = { err: 'اجازه خواندن پیامک داده نشد.' }; draw(); return; }
-
       var meta = txMeta();
       var res = await plug.read({ sinceMs: meta.lastImport || 0, limit: 500 });
       var msgs = (res && res.messages) || [];
-
-      var list = loadTx(), added = 0, asked = 0, skipped = 0, newest = meta.lastImport || 0;
-      pendingTx = [];
+      var list = loadTx(), pend = loadPending();
+      var seen = {}; list.forEach(function (t) { seen[t.id] = 1; });
+      var added = 0, asked = 0, skipped = 0, newest = meta.lastImport || 0;
       for (var i = 0; i < msgs.length; i++) {
         var m = msgs[i];
         if (m.date > newest) newest = m.date;
         var c = P.classify(m.body || '');
+        var id = 'x' + m.date + '-' + ((m.body || '').length);
+        if (seen[id]) { skipped++; continue; }      // same message imported twice
         if (c.kind === 'confirmed') {
           list.push({
-            id: 'x' + m.date + '-' + i,
-            at: m.date, amount: c.tx.amount, out: !!c.tx.isWithdrawal,
-            card: c.tx.cardLast4 || null, bank: c.tx.bankNameInSms || m.address || null,
-            channel: c.tx.channel || null, cat: null, src: 'sms'
+            id: id, at: m.date, amount: c.tx.amount, out: !!c.tx.isWithdrawal,
+            card: c.tx.cardLast4 || null,
+            bank: c.tx.bankNameInSms || bankOfSender(m.address) || m.address || null,
+            balance: c.tx.balance || null, channel: c.tx.channel || null,
+            raw: (m.body || '').slice(0, 300), cat: null,
+            transfer: false, typeUnknown: c.tx.directionClear === false, src: 'sms'
           });
-          added++;
+          seen[id] = 1; added++;
         } else if (c.kind === 'ambiguous') {
-          pendingTx.push({ at: m.date, body: m.body, amount: c.guessedAmount, out: c.guessedWithdrawal, address: m.address });
-          asked++;
+          if (!pend.some(function (p) { return p.id === id; })) {
+            pend.push({ id: id, at: m.date, body: (m.body || '').slice(0, 300), amount: c.guessedAmount, out: c.guessedWithdrawal, address: m.address });
+            asked++;
+          }
         } else skipped++;
       }
-      saveTx(list);
-      setTxMeta({ lastImport: newest });
-      spendMsg = { info: fa(added) + ' تراکنش ثبت شد، ' + fa(asked) + ' مورد نیازمند تأیید، ' + fa(skipped) + ' پیامک غیرمالی نادیده گرفته شد.' };
+      saveTx(list); savePending(pend); jset(TXMETA_KEY, { lastImport: newest });
+      spendMsg = { info: fa(added) + ' تراکنش ثبت شد، ' + fa(asked) + ' مورد نیازمند تأیید، ' + fa(skipped) + ' نادیده گرفته شد.' };
     } catch (e) {
       spendMsg = { err: 'خواندن پیامک ناموفق بود: ' + ((e && e.message) || e) };
     }
@@ -966,106 +989,319 @@ function fa(n) {
     try { var j = isoToJalali(new Date(ms).toISOString().slice(0, 10)); return j.jy + '/' + j.jm; }
     catch (e) { return '—'; }
   }
-
-  function renderSpend() {
-    var list = loadTx();
-    var meta = txMeta();
-    var plug = !!smsPlugin();
-
-    // current Jalali month totals
-    var jt = todayJalali();
-    var thisKey = jt.jy + '/' + jt.jm;
-    var outSum = 0, inSum = 0;
-    list.forEach(function (t) {
-      if (monthKeyOf(t.at) !== thisKey) return;
-      if (t.out) outSum += t.amount; else inSum += t.amount;
-    });
-
-    var head = '<div class="card"><h2>' + esc(J_MONTHS[jt.jm - 1]) + ' ' + faPlain(jt.jy) + '</h2>' +
-      '<div class="row"><span class="label">خرج این ماه</span><span class="val num down">' + fa(outSum / 10) + '<span class="unit">تومان</span></span></div>' +
-      '<div class="row"><span class="label">ورودی این ماه</span><span class="val num up">' + fa(inSum / 10) + '<span class="unit">تومان</span></span></div>' +
-      '<div class="row"><span class="muted" style="font-size:12.5px">پیامک‌های بانکی به ریال‌اند؛ اعداد بالا به تومان تبدیل شده‌اند.</span></div>' +
-      '</div>';
-
-    var ctrl = '<div class="card"><h2>دریافت از پیامک بانکی</h2>' +
-      '<div class="row"><span class="label">' +
-        (plug ? 'پیامک‌ها روی همین گوشی خوانده و تحلیل می‌شوند. متن پیامک هیچ‌جا فرستاده نمی‌شود.'
-              : 'این قابلیت به نسخه اندروید نیاز دارد. در مرورگر می‌توانید تراکنش را دستی ثبت کنید.') +
-      '</span></div>' +
-      (meta.lastImport ? '<div class="row"><span class="label muted">آخرین دریافت</span><span>' + esc(fmtWhen(meta.lastImport)) + '</span></div>' : '') +
-      (plug ? '<div class="row"><button class="addbtn" id="sImport" style="flex:1 1 100%">خواندن پیامک‌های جدید</button></div>' : '') +
-      (spendMsg ? '<div class="row"><span class="' + (spendMsg.err ? 'err-text down' : 'muted') + '">' + esc(spendMsg.err || spendMsg.info) + '</span></div>' : '') +
-      '</div>';
-
-    var ask = pendingTx.length
-      ? '<div class="card"><h2>نیازمند تأیید شما (' + fa(pendingTx.length) + ')</h2>' +
-        '<div class="row"><span class="muted" style="font-size:12.5px">این پیامک‌ها نشانه مالی داشتند ولی مبلغ یا جهتشان قطعی نبود، پس خودکار ثبت نشدند.</span></div>' +
-        pendingTx.slice(0, 8).map(function (p, i) {
-          return '<div class="row alloc"><span class="label" style="font-size:13px">' + esc((p.body || '').slice(0, 110)) + '</span>' +
-            '<span class="val num">' + (p.amount ? fa(p.amount / 10) : '—') + '</span>' +
-            '<button class="chipbtn" data-ok="' + i + '">ثبت به‌عنوان ' + (p.out ? 'خرج' : 'ورودی') + '</button>' +
-            '<button class="chipbtn" data-no="' + i + '">نادیده بگیر</button></div>';
-        }).join('') + '</div>'
-      : '';
-
-    var recent = list.slice().sort(function (a, b) { return b.at - a.at; }).slice(0, 25);
-    var rows = recent.length
-      ? '<div class="card"><h2>آخرین تراکنش‌ها</h2>' + recent.map(function (t, i) {
-          return '<div class="row"><span class="label">' + (t.out ? 'خرج' : 'ورودی') +
-            '<small>' + esc(fmtWhen(t.at)) + (t.card ? ' · کارت ' + esc(t.card) : '') + (t.bank ? ' · ' + esc(String(t.bank).slice(0, 18)) : '') + '</small></span>' +
-            '<span class="val num ' + (t.out ? 'down' : 'up') + '">' + fa(t.amount / 10) + '<span class="unit">تومان</span></span>' +
-            '<button class="iconbtn" style="color:#b83a2f" data-txdel="' + esc(t.id) + '" aria-label="حذف">✕</button></div>';
-        }).join('') + '</div>'
-      : '<div class="card"><div class="row"><span class="muted">هنوز تراکنشی ثبت نشده.</span></div></div>';
-
-    var manual = '<div class="card"><h2>ثبت دستی</h2><div class="row" style="flex-wrap:wrap;gap:8px">' +
-      '<select id="sDir" aria-label="نوع" style="flex:1 1 40%"><option value="out">خرج</option><option value="in">ورودی</option></select>' +
-      '<input id="sAmt" inputmode="numeric" placeholder="مبلغ (تومان)" aria-label="مبلغ" style="flex:1 1 55%" />' +
-      '<button class="addbtn" id="sAdd" style="flex:1 1 100%">افزودن</button>' +
-      '</div></div>';
-
-    return head + ctrl + ask + rows + manual;
-  }
-
   function fmtWhen(ms) {
     try {
-      var d = new Date(ms);
-      var j = isoToJalali(d.toISOString().slice(0, 10));
-      var hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0');
-      return faPlain(j.jd) + ' ' + J_MONTHS[j.jm - 1] + ' ' + faPlain(j.jy) + '، ' + faDigits(hh + ':' + mm);
+      var d = new Date(ms), j = isoToJalali(d.toISOString().slice(0, 10));
+      return faPlain(j.jd) + ' ' + J_MONTHS[j.jm - 1] + ' ' + faPlain(j.jy) + '، ' +
+        faDigits(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
     } catch (e) { return '—'; }
   }
 
+  var SPEND_TABS = [
+    { k: 'dash', label: 'خلاصه' }, { k: 'tx', label: 'تراکنش‌ها' },
+    { k: 'cats', label: 'دسته‌ها' }, { k: 'cards', label: 'کارت‌ها' }, { k: 'ai', label: 'مشاور' }
+  ];
+
+  function renderSpend() {
+    var tabs = '<div class="chips" style="margin-bottom:12px">' + SPEND_TABS.map(function (t) {
+      return '<button aria-pressed="' + (spendTab === t.k) + '" data-stab="' + t.k + '">' + esc(t.label) + '</button>';
+    }).join('') + '</div>';
+    var body = spendTab === 'tx' ? spendTxTab() : spendTab === 'cats' ? spendCatsTab()
+      : spendTab === 'cards' ? spendCardsTab() : spendTab === 'ai' ? spendAiTab() : spendDashTab();
+    return tabs + body;
+  }
+
+  function spendDashTab() {
+    var list = loadTx(), pend = loadPending(), meta = txMeta(), plug = !!smsPlugin();
+    var jt = todayJalali(), thisKey = jt.jy + '/' + jt.jm;
+
+    // Transfers between the user's own accounts and unknown-direction rows are excluded
+    // from spending, exactly as the original dashboard does — counting a transfer as an
+    // expense doubles the month's total.
+    var month = list.filter(function (t) { return monthKeyOf(t.at) === thisKey && !t.transfer; });
+    var outSum = 0, inSum = 0;
+    month.forEach(function (t) { if (t.typeUnknown) return; if (t.out) outSum += t.amount; else inSum += t.amount; });
+
+    var uncat = month.filter(function (t) { return t.out && !t.cat && !t.typeUnknown; });
+    var unknown = month.filter(function (t) { return t.typeUnknown; });
+
+    var byCat = {};
+    month.filter(function (t) { return t.out && !t.typeUnknown; }).forEach(function (t) {
+      byCat[t.cat || '_'] = (byCat[t.cat || '_'] || 0) + t.amount;
+    });
+    var catRows = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; }).map(function (k) {
+      var c = k === '_' ? null : catById(k);
+      var share = outSum ? (byCat[k] / outSum) * 100 : 0;
+      return '<div class="row"><span class="label">' + (c ? esc(c.emoji + ' ' + c.name) : '❓ دسته‌بندی‌نشده') +
+        '<small>' + fa(share, 0) + '٪ خرج ماه</small></span>' +
+        '<span class="val num">' + fa(toToman(byCat[k])) + '<span class="unit">تومان</span></span></div>';
+    }).join('');
+
+    // last 6 Jalali months, oldest first
+    var bars = [], cursor = { jy: jt.jy, jm: jt.jm };
+    for (var i = 0; i < 6; i++) {
+      var key = cursor.jy + '/' + cursor.jm;
+      var sum = list.filter(function (t) { return monthKeyOf(t.at) === key && t.out && !t.transfer && !t.typeUnknown; })
+        .reduce(function (a, t) { return a + t.amount; }, 0);
+      bars.unshift({ label: J_MONTHS[cursor.jm - 1], v: sum });
+      cursor.jm--; if (cursor.jm < 1) { cursor.jm = 12; cursor.jy--; }
+    }
+    var max = Math.max.apply(null, bars.map(function (b) { return b.v; }).concat([1]));
+    var chart = '<div class="card"><h2>شش ماه گذشته</h2><div class="bars">' + bars.map(function (b) {
+      return '<div class="bar"><span class="bar-fill" style="height:' + Math.max(2, (b.v / max) * 100) + '%"></span>' +
+        '<small>' + esc(b.label) + '</small></div>';
+    }).join('') + '</div><div class="row"><span class="muted" style="font-size:12.5px">بلندترین ستون: ' + fa(toToman(max)) + ' تومان</span></div></div>';
+
+    return '<div class="card"><h2>' + esc(J_MONTHS[jt.jm - 1]) + ' ' + faPlain(jt.jy) + '</h2>' +
+        '<div class="row"><span class="label">خرج این ماه</span><span class="val num down">' + fa(toToman(outSum)) + '<span class="unit">تومان</span></span></div>' +
+        '<div class="row"><span class="label">ورودی این ماه</span><span class="val num up">' + fa(toToman(inSum)) + '<span class="unit">تومان</span></span></div>' +
+        '<div class="row"><span class="label">مانده</span><span class="val num ' + (inSum - outSum >= 0 ? 'up' : 'down') + '">' + fa(toToman(inSum - outSum)) + '<span class="unit">تومان</span></span></div>' +
+        (uncat.length ? '<div class="row"><span class="label" style="color:var(--down)">⚠️ ' + fa(uncat.length) + ' تراکنش دسته‌بندی‌نشده</span></div>' : '') +
+        (unknown.length ? '<div class="row"><span class="label muted">❔ ' + fa(unknown.length) + ' تراکنش با جهت نامشخص (در جمع نیامده)</span></div>' : '') +
+        (pend.length ? '<div class="row"><span class="label muted">❓ ' + fa(pend.length) + ' پیامک نیازمند تأیید</span></div>' : '') +
+        '<div class="row"><span class="muted" style="font-size:12.5px">پیامک بانکی به ریال است؛ اعداد بالا به تومان تبدیل شده‌اند.</span></div>' +
+      '</div>' +
+      '<div class="card"><h2>دریافت از پیامک بانکی</h2>' +
+        '<div class="row"><span class="label">' + (plug
+          ? 'پیامک‌ها روی همین گوشی خوانده و تحلیل می‌شوند. متن پیامک هیچ‌جا فرستاده نمی‌شود.'
+          : 'این قابلیت به نسخه اندروید نیاز دارد. در مرورگر می‌توانید تراکنش را دستی ثبت کنید.') + '</span></div>' +
+        (meta.lastImport ? '<div class="row"><span class="label muted">آخرین دریافت</span><span>' + esc(fmtWhen(meta.lastImport)) + '</span></div>' : '') +
+        (plug ? '<div class="row"><button class="addbtn" id="sImport" style="flex:1 1 100%">خواندن پیامک‌های جدید</button></div>' : '') +
+        (spendMsg ? '<div class="row"><span class="' + (spendMsg.err ? 'down' : 'muted') + '">' + esc(spendMsg.err || spendMsg.info) + '</span></div>' : '') +
+      '</div>' +
+      (catRows ? '<div class="card"><h2>به تفکیک دسته</h2>' + catRows + '</div>' : '') +
+      chart +
+      spendPendingCard();
+  }
+
+  function spendPendingCard() {
+    var pend = loadPending();
+    if (!pend.length) return '';
+    var cats = loadCats();
+    return '<div class="card"><h2>نیازمند تأیید شما (' + fa(pend.length) + ')</h2>' +
+      '<div class="row"><span class="muted" style="font-size:12.5px">این پیامک‌ها نشانه مالی داشتند ولی مبلغ یا جهتشان قطعی نبود، پس خودکار ثبت نشدند.</span></div>' +
+      pend.slice(0, 10).map(function (p, i) {
+        return '<div class="row alloc"><span class="label" style="font-size:13px">' + esc(p.body.slice(0, 120)) + '</span>' +
+          '<span class="val num">' + (p.amount ? fa(toToman(p.amount)) : '—') + '</span>' +
+          '<button class="chipbtn" data-pok="' + i + '">ثبت به‌عنوان ' + (p.out ? 'خرج' : 'ورودی') + '</button>' +
+          '<button class="chipbtn" data-pflip="' + i + '">برعکس کن</button>' +
+          '<button class="chipbtn" data-pno="' + i + '">نادیده</button></div>';
+      }).join('') + '</div>';
+  }
+
+  function spendTxTab() {
+    var list = loadTx().slice().sort(function (a, b) { return b.at - a.at; });
+    var cats = loadCats();
+    if (!list.length) return '<div class="card"><div class="row"><span class="muted">هنوز تراکنشی ثبت نشده.</span></div></div>' + spendManualCard();
+    var opts = function (sel) {
+      return '<option value="">دسته…</option>' + cats.map(function (c) {
+        return '<option value="' + c.id + '"' + (sel === c.id ? ' selected' : '') + '>' + esc(c.emoji + ' ' + c.name) + '</option>';
+      }).join('');
+    };
+    return '<div class="card"><h2>تراکنش‌ها (' + fa(list.length) + ')</h2>' +
+      list.slice(0, 60).map(function (t) {
+        return '<div class="row alloc"><span class="label">' +
+            (t.typeUnknown ? '❔ نامشخص' : t.out ? 'خرج' : 'ورودی') + (t.transfer ? ' · جابه‌جایی' : '') +
+            '<small>' + esc(fmtWhen(t.at)) + (t.card ? ' · کارت ' + esc(t.card) : '') + (t.bank ? ' · ' + esc(String(t.bank).slice(0, 18)) : '') + '</small></span>' +
+          '<span class="val num ' + (t.typeUnknown ? '' : t.out ? 'down' : 'up') + '">' + fa(toToman(t.amount)) + '<span class="unit">تومان</span></span>' +
+          '<button class="iconbtn" style="color:#b83a2f" data-txdel="' + esc(t.id) + '" aria-label="حذف">✕</button>' +
+          '<select data-txcat="' + esc(t.id) + '" style="flex:1 1 40%">' + opts(t.cat) + '</select>' +
+          '<button class="chipbtn" data-txtr="' + esc(t.id) + '">' + (t.transfer ? 'جابه‌جایی نیست' : 'جابه‌جایی بین حساب‌ها') + '</button>' +
+          (t.typeUnknown ? '<button class="chipbtn" data-txfix="' + esc(t.id) + '">این خرج بود</button>' : '') +
+          '</div>';
+      }).join('') + '</div>' + spendManualCard();
+  }
+
+  function spendManualCard() {
+    var cats = loadCats();
+    return '<div class="card"><h2>ثبت دستی</h2><div class="row" style="flex-wrap:wrap;gap:8px">' +
+      '<select id="sDir" aria-label="نوع" style="flex:1 1 30%"><option value="out">خرج</option><option value="in">ورودی</option></select>' +
+      '<input id="sAmt" inputmode="numeric" placeholder="مبلغ (تومان)" aria-label="مبلغ" style="flex:1 1 40%" />' +
+      '<select id="sCat" aria-label="دسته" style="flex:1 1 25%"><option value="">دسته…</option>' +
+        cats.map(function (c) { return '<option value="' + c.id + '">' + esc(c.emoji + ' ' + c.name) + '</option>'; }).join('') +
+      '</select>' +
+      '<button class="addbtn" id="sAdd" style="flex:1 1 100%">افزودن</button>' +
+      '</div></div>';
+  }
+
+  function spendCatsTab() {
+    var cats = loadCats(), list = loadTx();
+    return '<div class="card"><h2>دسته‌ها</h2>' + cats.map(function (c) {
+      var n = list.filter(function (t) { return t.cat === c.id; }).length;
+      return '<div class="row"><span class="label">' + esc(c.emoji + ' ' + c.name) + '<small>' + fa(n) + ' تراکنش</small></span>' +
+        '<button class="iconbtn" style="color:#b83a2f" data-catdel="' + esc(c.id) + '" aria-label="حذف">✕</button></div>';
+    }).join('') +
+    '<div class="row" style="flex-wrap:wrap;gap:8px">' +
+      '<input id="cEmoji" placeholder="🙂" aria-label="ایموji" style="flex:0 0 68px;text-align:center" />' +
+      '<input id="cName" placeholder="نام دسته" aria-label="نام دسته" style="flex:1 1 55%" />' +
+      '<button class="addbtn" id="cAdd" style="flex:1 1 100%">افزودن دسته</button>' +
+    '</div></div>';
+  }
+
+  function spendCardsTab() {
+    var cards = loadCards(), senders = loadSenders();
+    return '<div class="card"><h2>کارت‌ها</h2>' +
+      (cards.length ? cards.map(function (c) {
+        return '<div class="row"><span class="label">' + esc(c.title) + '<small>' + esc(c.bank || '') + ' · ' + esc(c.last4) + '</small></span>' +
+          '<button class="iconbtn" style="color:#b83a2f" data-carddel="' + esc(c.id) + '" aria-label="حذف">✕</button></div>';
+      }).join('') : '<div class="row"><span class="muted">کارتی ثبت نشده.</span></div>') +
+      '<div class="row" style="flex-wrap:wrap;gap:8px">' +
+        '<input id="kLast4" inputmode="numeric" maxlength="4" placeholder="۴ رقم آخر" aria-label="چهار رقم آخر" style="flex:1 1 28%" />' +
+        '<input id="kTitle" placeholder="عنوان (مثلاً کارت حقوق)" aria-label="عنوان" style="flex:1 1 65%" />' +
+        '<input id="kBank" placeholder="بانک" aria-label="بانک" style="flex:1 1 100%" />' +
+        '<button class="addbtn" id="kAdd" style="flex:1 1 100%">افزودن کارت</button>' +
+      '</div></div>' +
+      '<div class="card"><h2>شماره‌های بانک</h2>' +
+        '<div class="row"><span class="muted" style="font-size:12.5px">شماره فرستنده پیامک را به نام بانک وصل می‌کند تا در فهرست تراکنش‌ها نام بانک نشان داده شود.</span></div>' +
+        (senders.length ? senders.map(function (s2) {
+          return '<div class="row"><span class="label">' + esc(s2.bank) + '<small>' + esc(s2.sender) + '</small></span>' +
+            '<button class="iconbtn" style="color:#b83a2f" data-senddel="' + esc(s2.id) + '" aria-label="حذف">✕</button></div>';
+        }).join('') : '<div class="row"><span class="muted">موردی ثبت نشده.</span></div>') +
+        '<div class="row" style="flex-wrap:wrap;gap:8px">' +
+          '<input id="nSender" placeholder="شماره یا نام فرستنده" aria-label="فرستنده" style="flex:1 1 55%" />' +
+          '<input id="nBank" placeholder="نام بانک" aria-label="نام بانک" style="flex:1 1 40%" />' +
+          '<button class="addbtn" id="nAdd" style="flex:1 1 100%">افزودن</button>' +
+        '</div></div>';
+  }
+
+  /** Builds the same 30-day summary the Kotlin advisor sent, so answers stay comparable. */
+  function aiSummary() {
+    var since = Date.now() - 30 * 86400000;
+    var txs = loadTx().filter(function (t) { return t.at >= since && !t.transfer; });
+    var lines = ['خلاصه تراکنش‌های ۳۰ روز اخیر کاربر (مبالغ به ریال):'];
+    var by = {};
+    txs.filter(function (t) { return t.out && !t.typeUnknown; }).forEach(function (t) {
+      var k = t.cat || '_'; by[k] = by[k] || { n: 0, sum: 0 }; by[k].n++; by[k].sum += t.amount;
+    });
+    Object.keys(by).forEach(function (k) {
+      var c = k === '_' ? null : catById(k);
+      lines.push('- ' + (c ? c.name : 'دسته‌بندی‌نشده') + ': ' + by[k].n + ' تراکنش، مجموع ' + by[k].sum);
+    });
+    lines.push('مجموع واریزی‌ها: ' + txs.filter(function (t) { return !t.out && !t.typeUnknown; }).reduce(function (a, t) { return a + t.amount; }, 0));
+    return lines.join('\n');
+  }
+
+  function spendAiTab() {
+    var key = localStorage.getItem(AIKEY_KEY) || '';
+    return '<div class="card"><h2>مشاور مالی</h2>' +
+      '<div class="row"><span class="label">خلاصه تراکنش‌های ۳۰ روز اخیر شما به سرویس هوش مصنوعی فرستاده می‌شود تا تحلیل بدهد. <b>کلید API خودتان لازم است</b> و روی همین گوشی ذخیره می‌شود.<br>' +
+      'توجه: برخلاف بقیه بخش‌ها، این یکی داده را به یک سرویس بیرونی می‌فرستد — البته فقط خلاصه اعداد، نه متن پیامک‌ها.</span></div>' +
+      '<div class="row" style="flex-wrap:wrap;gap:8px">' +
+        '<input id="aiKey" type="password" placeholder="OpenRouter API key" aria-label="کلید" value="' + esc(key) + '" style="flex:1 1 100%" />' +
+        '<input id="aiQ" placeholder="سوالت را بنویس، مثلاً: کجا زیاد خرج می‌کنم؟" aria-label="سوال" style="flex:1 1 100%" />' +
+        '<button class="addbtn" id="aiAsk" style="flex:1 1 100%"' + (aiBusy ? ' disabled' : '') + '>' + (aiBusy ? 'در حال پرسیدن…' : 'بپرس') + '</button>' +
+      '</div>' +
+      (aiAnswer ? '<div class="row"><span class="label" style="white-space:pre-wrap">' + esc(aiAnswer) + '</span></div>' : '') +
+      '</div>' +
+      '<div class="card"><h2>خلاصه‌ای که فرستاده می‌شود</h2><div class="row"><span class="label muted" style="white-space:pre-wrap;font-size:12.5px">' + esc(aiSummary()) + '</span></div></div>';
+  }
+
+  async function askAi() {
+    var key = String(($('aiKey') || {}).value || '').trim();
+    var q = String(($('aiQ') || {}).value || '').trim();
+    if (!key) { aiAnswer = 'کلید API وارد نشده.'; draw(); return; }
+    if (!q) { aiAnswer = 'سوالت را بنویس.'; draw(); return; }
+    localStorage.setItem(AIKEY_KEY, key);
+    aiBusy = true; aiAnswer = null; draw();
+    try {
+      var r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify({
+          model: 'deepseek/deepseek-chat:free',
+          messages: [{ role: 'user', content: aiSummary() + '\n\nسوال کاربر: ' + q }]
+        })
+      });
+      var j = await r.json();
+      if (!r.ok || j.error) throw new Error((j.error && (j.error.message || j.error)) || ('خطای ' + r.status));
+      aiAnswer = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || 'پاسخی برنگشت.';
+    } catch (e) {
+      aiAnswer = 'خطا: ' + ((e && e.message) || e);
+    }
+    aiBusy = false; draw();
+  }
+
+  document.addEventListener('change', function (e) {
+    var t = e.target; if (!t || !t.getAttribute) return;
+    var id = t.getAttribute('data-txcat');
+    if (id) {
+      var l = loadTx();
+      l.forEach(function (x) { if (x.id === id) x.cat = t.value || null; });
+      saveTx(l);
+    }
+  });
+
   document.addEventListener('click', function (e) {
-    var t = e.target;
-    if (!t) return;
+    var t = e.target; if (!t) return;
+    var g = function (a) { return t.getAttribute && t.getAttribute(a); };
+
+    var tab = g('data-stab');
+    if (tab) { spendTab = tab; aiAnswer = null; draw(); return; }
     if (t.id === 'sImport') { importSms(); return; }
+    if (t.id === 'aiAsk') { askAi(); return; }
+
     if (t.id === 'sAdd') {
       var amt = Number(String($('sAmt').value).replace(/[^\d]/g, ''));
       if (!isFinite(amt) || amt <= 0) return;
-      var list = loadTx();
-      // stored in rial to match what the SMS parser produces, so the two never mix units
-      list.push({ id: 'm' + Date.now(), at: Date.now(), amount: amt * 10, out: $('sDir').value === 'out', card: null, bank: null, channel: null, cat: null, src: 'manual' });
-      saveTx(list); spendMsg = null; draw(); return;
+      var l1 = loadTx();
+      // stored in rial like the SMS rows, so the two never mix units
+      l1.push({ id: 'm' + Date.now(), at: Date.now(), amount: amt * 10, out: $('sDir').value === 'out',
+        card: null, bank: null, balance: null, channel: null, raw: '', cat: $('sCat').value || null,
+        transfer: false, typeUnknown: false, src: 'manual' });
+      saveTx(l1); spendMsg = null; draw(); return;
     }
-    var del = t.getAttribute && t.getAttribute('data-txdel');
-    if (del) {
-      var l2 = loadTx().filter(function (x) { return x.id !== del; });
-      saveTx(l2); draw(); return;
+    if (t.id === 'cAdd') {
+      var name = String($('cName').value).trim(); if (!name) return;
+      var cats = loadCats();
+      cats.push({ id: 'c' + Date.now(), name: name, emoji: String($('cEmoji').value).trim() || '💰' });
+      jset(CAT_KEY, cats); draw(); return;
     }
-    var ok = t.getAttribute && t.getAttribute('data-ok');
-    if (ok !== null && ok !== undefined && ok !== '') {
-      var p = pendingTx[Number(ok)];
-      if (p && p.amount) {
-        var l3 = loadTx();
-        l3.push({ id: 'a' + p.at, at: p.at, amount: p.amount, out: !!p.out, card: null, bank: p.address || null, channel: null, cat: null, src: 'sms-confirmed' });
-        saveTx(l3);
+    if (t.id === 'kAdd') {
+      var l4 = String($('kLast4').value).replace(/[^\d]/g, '').slice(-4); if (l4.length !== 4) return;
+      var cards = loadCards();
+      cards.push({ id: 'k' + Date.now(), last4: l4, title: String($('kTitle').value).trim() || ('کارت ' + l4), bank: String($('kBank').value).trim() });
+      jset(CARD_KEY, cards); draw(); return;
+    }
+    if (t.id === 'nAdd') {
+      var snd = String($('nSender').value).trim(), bnk = String($('nBank').value).trim();
+      if (!snd || !bnk) return;
+      var ss = loadSenders(); ss.push({ id: 'n' + Date.now(), sender: snd, bank: bnk });
+      jset(SENDER_KEY, ss); draw(); return;
+    }
+
+    var d1 = g('data-txdel');
+    if (d1) { saveTx(loadTx().filter(function (x) { return x.id !== d1; })); draw(); return; }
+    var d2 = g('data-catdel');
+    if (d2) {
+      if (!confirm('این دسته حذف شود؟ تراکنش‌هایش بدون دسته می‌شوند.')) return;
+      jset(CAT_KEY, loadCats().filter(function (x) { return x.id !== d2; }));
+      var lt = loadTx(); lt.forEach(function (x) { if (x.cat === d2) x.cat = null; }); saveTx(lt);
+      draw(); return;
+    }
+    var d3 = g('data-carddel');
+    if (d3) { jset(CARD_KEY, loadCards().filter(function (x) { return x.id !== d3; })); draw(); return; }
+    var d4 = g('data-senddel');
+    if (d4) { jset(SENDER_KEY, loadSenders().filter(function (x) { return x.id !== d4; })); draw(); return; }
+
+    var tr = g('data-txtr');
+    if (tr) { var l5 = loadTx(); l5.forEach(function (x) { if (x.id === tr) x.transfer = !x.transfer; }); saveTx(l5); draw(); return; }
+    var fx = g('data-txfix');
+    if (fx) { var l6 = loadTx(); l6.forEach(function (x) { if (x.id === fx) { x.typeUnknown = false; x.out = true; } }); saveTx(l6); draw(); return; }
+
+    var pk = g('data-pok'), pf = g('data-pflip'), pn = g('data-pno');
+    if (pk || pf || pn) {
+      var pend = loadPending();
+      var idx = Number(pk || pf || pn);
+      var p = pend[idx]; if (!p) return;
+      if (pf) { p.out = !p.out; savePending(pend); draw(); return; }
+      if (pk && p.amount) {
+        var l7 = loadTx();
+        l7.push({ id: p.id, at: p.at, amount: p.amount, out: !!p.out, card: null,
+          bank: bankOfSender(p.address) || p.address || null, balance: null, channel: null,
+          raw: p.body, cat: null, transfer: false, typeUnknown: false, src: 'sms-confirmed' });
+        saveTx(l7);
       }
-      pendingTx.splice(Number(ok), 1); draw(); return;
-    }
-    var no = t.getAttribute && t.getAttribute('data-no');
-    if (no !== null && no !== undefined && no !== '') {
-      pendingTx.splice(Number(no), 1); draw();
+      pend.splice(idx, 1); savePending(pend); draw();
     }
   });
 
