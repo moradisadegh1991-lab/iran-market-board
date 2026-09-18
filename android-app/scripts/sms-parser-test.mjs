@@ -132,4 +132,39 @@ console.log('\ndynamic-password (رمز پویا) — the double-counting case:'
   assert.equal(blu.amount, 50000, 'Blu amount, not the balance');
   console.log('  ✓ Blu amount read correctly (was reading the balance)');
 }
+console.log('\noperator messages (never a transaction):');
+{
+  const cases = [
+    ['ایرانسل: کد فعال‌سازی بسته شما 48219 است', 'operator code'],
+    ['همراه اول: شارژ شما 200,000 ریال افزایش یافت', 'operator top-up'],
+    ['ایرانسل: اعتبار شما 200,000 ریال افزایش یافت. مانده اعتبار: 1,500,000', 'operator top-up with balance'],
+    ['رایتل: بسته اینترنت 30 گیگ فعال شد', 'operator package'],
+    ['کد: 84213', 'bare code, no sender hint'],
+    ['رمز 918273', 'bare رمز'],
+  ];
+  for (const [body, label] of cases) {
+    assert.equal(P.classify(body).kind, 'not', label + ' must not be a transaction');
+    console.log('  ✓ ' + label);
+  }
+  // …but a real bank SMS must still get through
+  assert.equal(P.classify('واریز 3,000,000 ریال به حساب شما حساب: 1234567890 مانده: 45,000,000').kind, 'confirmed');
+  assert.equal(P.classify('برداشت: 1,250,000 ریال کارت: *4417 مانده: 9,000,000').kind, 'confirmed');
+  console.log('  ✓ real bank messages still parse (the filter is not too greedy)');
+}
+
+console.log('\ntransfer fees and account numbers:');
+{
+  const fee = P.parse('برداشت: 5,000 ریال کارمزد انتقال وجه کارت: *4417');
+  assert.ok(fee && fee.isFee === true, 'کارمزد must be flagged');
+  const notFee = P.parse('برداشت: 1,250,000 ریال کارت: *4417');
+  assert.equal(notFee.isFee, false, 'an ordinary withdrawal is not a fee');
+  const acc = P.parse('واریز 3,000,000 ریال حساب: 1234567890');
+  assert.equal(acc.accountNo, '1234567890', 'account number must be extracted');
+  // an account number must NOT masquerade as a card, or every account is duplicated as one
+  assert.equal(acc.cardLast4, null, 'account-only SMS must not produce a card');
+  const both = P.parse('برداشت: 1,250,000 ریال کارت: *4417 مانده: 9,000,000');
+  assert.equal(both.cardLast4, '4417', 'a real card must still be read');
+  console.log('  ✓ fee flag, non-fee, account number, no phantom card');
+}
+
 console.log('\nSMS PARSER OK');

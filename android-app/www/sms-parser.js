@@ -78,6 +78,8 @@
       cardLast4: ref4,
       balance: toCleanLong(firstGroup(balanceRx, n, 1)),
       channel: null,
+      accountNo: firstGroup(accountRx, n, 1),
+      isFee: isFeeText(n),
       bankNameInSms: (firstGroup(bankNameRx, n, 1) || '').trim() || null,
       directionClear: true
     };
@@ -93,6 +95,8 @@
       cardLast4: null,
       balance: toCleanLong(firstGroup(balanceRx, n, 1)),
       channel: 'اینترنت‌بانک سپه',
+      accountNo: firstGroup(accountRx, n, 1),
+      isFee: isFeeText(n),
       bankNameInSms: 'بانک سپه',
       directionClear: true
     };
@@ -127,12 +131,37 @@
     return {
       amount: amount,
       isWithdrawal: isWithdrawal && !isDeposit,
-      cardLast4: card || (acc ? acc.slice(-4) : null),
+      // NOTE: the Kotlin fell back to the account's last 4 digits as the "card" here. Now
+      // that accountNo is carried separately, that fallback would register every account as
+      // a phantom card as well, so the card stays null when the SMS names no card.
+      cardLast4: card,
       balance: toCleanLong(firstGroup(balanceRx, n, 1)),
       channel: chan ? chan.trim().slice(0, 40) : null,
+      accountNo: acc,
+      isFee: isFeeText(n),
       bankNameInSms: null,
       directionClear: !(isWithdrawal && isDeposit)
     };
+  }
+
+  function isFeeText(n) { return feeHints.some(function (h) { return n.indexOf(h) >= 0; }); }
+
+  /** True for mobile-operator / bare-code messages that must never reach the ledger. */
+  function isOperatorMessage(body) {
+    var n = normalize(body), lower = n.toLowerCase();
+    var fromOperator = operatorHints.some(function (h) { return lower.indexOf(h) >= 0; });
+    var hasBankVerb = withdrawKeys.concat(depositKeys).some(function (k) { return n.indexOf(k) >= 0; });
+    if (!hasBankVerb && bareCodeRx.test(n)) return true; // a bare code from anyone
+    if (!fromOperator) return false;
+    if (bareCodeRx.test(n)) return true;                 // operator message that is a code
+    /*
+     * An operator message can still look like a bank one: "اعتبار شما ۲۰۰٬۰۰۰ ریال افزایش
+     * یافت. مانده اعتبار: ۱٬۵۰۰٬۰۰۰" has a deposit verb AND a balance, and was being recorded
+     * as a real deposit. What a genuine bank SMS always carries and an operator one does not
+     * is an account or card number, so that is the deciding evidence.
+     */
+    var hasAccountEvidence = cardRx.test(n) || accountRx.test(n);
+    return !hasAccountEvidence;
   }
 
   function parse(body) {
@@ -145,8 +174,22 @@
   // ── classifier ──
   var financialHints = ['ریال', 'ريال', 'تومان', 'مانده', 'موجودی', 'حساب', 'کارت',
     'برداشت', 'واریز', 'واريز', 'خرید', 'انتقال', 'تراکنش', 'بانک'];
-  var spamHints = ['رمز یکبار', 'رمز پویا', 'رمز دوم', 'کد تایید', 'کد فعالسازی', 'otp', 'تخفیف', 'جشنواره',
-    'اقساط وام', 'کد ورود', 'لغو11', 'لغو 11'];
+  var spamHints = ['رمز یکبار', 'رمز پویا', 'رمز دوم', 'کد تایید', 'کد تأیید', 'کد فعالسازی', 'کد فعال‌سازی',
+    'otp', 'تخفیف', 'جشنواره', 'اقساط وام', 'کد ورود', 'لغو11', 'لغو 11'];
+
+  /**
+   * Mobile-operator and service messages. These carry codes and sometimes رial amounts
+   * (top-up, package price), so without an explicit filter they look financial enough to be
+   * parsed as transactions. Checked before anything else.
+   */
+  var operatorHints = ['ایرانسل', 'همراه اول', 'همراه‌اول', 'رایتل', 'شاتل', 'مخابرات', 'مخابرات ایران',
+    'اپراتور', 'شارژ شما', 'بسته اینترنت', 'بسته اینترنتی', 'اعتبار شما', 'باقیمانده بسته',
+    'رمز شبکه', 'کد شگفت', 'سیم کارت', 'سیم‌کارت', 'mci', 'irancell', 'rightel', 'shatel'];
+  /** a bare "کد: 12345" / "رمز 12345" with no bank verb is a code message, whoever sent it */
+  var bareCodeRx = /(?:^|\s)(?:کد|رمز)\s*:?\s*\d{4,8}(?:\s|$)/;
+
+  /** Transfer fees — real money, but they are a cost of moving money, not spending. */
+  var feeHints = ['کارمزد', 'کارمزد انتقال', 'هزینه انتقال', 'کارمزد تراکنش', 'کارمزد خدمات'];
   var bigNumberRx = /[\d,،]{5,}/g;
 
   /** A 12-digit 989… value is a phone number, not money; and no personal transaction is 2bn toman. */
@@ -166,6 +209,7 @@
      * Second intentional deviation from the Kotlin; worth porting back to it.
      */
     if (spamHints.some(function (h) { return lower0.indexOf(h) >= 0; })) return { kind: 'not' };
+    if (isOperatorMessage(body)) return { kind: 'not' };
 
     var tx = parse(body);
     if (tx) {
@@ -191,7 +235,7 @@
     return { kind: 'not' };
   }
 
-  var api = { parse: parse, classify: classify, normalize: normalize, isAbnormalAmount: isAbnormalAmount };
+  var api = { parse: parse, classify: classify, normalize: normalize, isAbnormalAmount: isAbnormalAmount, isOperatorMessage: isOperatorMessage, isFeeText: isFeeText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.SmsParser = api;
 })();

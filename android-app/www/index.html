@@ -117,6 +117,54 @@
   .row.alloc { flex-wrap: wrap; row-gap: 6px; }
   .row.alloc .label { flex: 1 1 auto; }
   input[type=range] { accent-color: var(--teal); padding: 0; width: 100%; }
+  /* ── expenses: visual layer ── */
+  .chips.seg { background: #e8ecf2; padding: 4px; border-radius: 12px; gap: 4px; }
+  .chips.seg button { flex: 1; border: 0; background: transparent; border-radius: 9px; padding: 8px 6px; font-size: 13.5px; }
+  .chips.seg button[aria-pressed='true'] { background: var(--surface); color: var(--teal); font-weight: 700; box-shadow: 0 1px 3px rgba(20,30,50,.12); }
+
+  .hero-card {
+    background: radial-gradient(130% 100% at 80% -20%, #26406f 0%, rgba(38,64,111,0) 60%), var(--lapis);
+    color: #fff; border-radius: 18px; padding: 18px 16px 16px; margin-bottom: 12px;
+    box-shadow: 0 10px 26px -16px rgba(16,26,48,.8);
+  }
+  .hero-top { font-size: 13px; color: #b9c6dd; margin-bottom: 6px; }
+  .hero-main { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .hero-num { font-size: 34px; font-weight: 800; letter-spacing: -.5px; }
+  .hero-unit { font-size: 13px; color: #b9c6dd; }
+  .hero-grid { display: flex; gap: 10px; margin-top: 14px; }
+  .hero-grid > div { flex: 1; background: rgba(255,255,255,.08); border-radius: 12px; padding: 9px 11px; }
+  .hg-k { display: block; font-size: 12px; color: #b9c6dd; }
+  .hg-v { font-size: 16.5px; font-weight: 700; }
+  .hero-grid .up { color: #7fdcab; } .hero-grid .down { color: #ffa398; }
+
+  .donut-wrap { display: flex; align-items: center; gap: 16px; padding: 14px 16px; flex-wrap: wrap; }
+  .donut { width: 116px; height: 116px; border-radius: 50%; flex: 0 0 auto;
+    -webkit-mask: radial-gradient(circle, transparent 54%, #000 55%); mask: radial-gradient(circle, transparent 54%, #000 55%); }
+  .legend { list-style: none; margin: 0; padding: 0; flex: 1 1 140px; min-width: 0; }
+  .legend li { display: flex; align-items: center; gap: 7px; font-size: 13px; padding: 2px 0; }
+  .legend .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+  .lg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lg-val { color: var(--muted); }
+
+  .tag { display: inline-block; font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 9px; }
+  .tag.out { background: #fde8e5; color: #8e2f26; }
+  .tag.in { background: #e4f3ea; color: #12633e; }
+  .tag.fee { background: #fff1d6; color: #85600d; }
+  .tag.tr { background: #e9edf5; color: #46587a; }
+  .tag.unk { background: #eceff3; color: #5c6b82; }
+
+  .src-card { position: relative; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 10px 14px; }
+  /* leave room for the absolutely-positioned delete button, or the number runs under it */
+  .src-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding-inline-end: 38px; }
+  .src-top .num { color: var(--muted); font-size: 12.5px; }
+  .src-bank { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .src-bal { margin-top: 8px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .src-bal .num { font-size: 19px; font-weight: 700; }
+  .src-bal small { font-size: 11.5px; color: var(--muted); }
+  .src-io { display: flex; gap: 14px; margin-top: 8px; font-size: 13.5px; font-weight: 700; }
+  .src-card .iconbtn { position: absolute; top: 6px; left: 6px; }
+
+  .bar-v { font-size: 10.5px; color: var(--muted); }
   .bars { display: flex; align-items: flex-end; gap: 8px; height: 132px; padding: 14px; }
   .bar { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 5px; }
   .bar-fill { width: 100%; background: var(--teal); border-radius: 5px 5px 0 0; min-height: 2px; }
@@ -186,6 +234,7 @@
     if (n === null || n === undefined || !isFinite(n)) return '—';
     return new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 1, signDisplay: 'exceptZero' }).format(n) + '٪';
   };
+  var isNum = function (n) { return typeof n === 'number' && isFinite(n); };
   var esc = function (s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var UNIT = { toman: 'تومان', usd: 'دلار', point: 'واحد' };
 
@@ -899,46 +948,82 @@ function fa(n) {
 
 
   // ── هزینه‌ها ───────────────────────────────────────────────────────────────
-  // Full port of ExpenseTracker: transactions, pending queue, categories, cards,
-  // bank senders, per-category breakdown, monthly bars and the AI advisor.
-  // Everything lives on the phone. Amounts are stored in RIAL exactly as the bank SMS
-  // states them, and converted to toman only for display — mixing the two units is the
-  // easiest way to silently corrupt a ledger.
+  // Amounts are stored in RIAL exactly as the bank states them and converted to toman only
+  // for display. Money moved between the user's own accounts, and the fee paid to move it,
+  // are tracked but kept OUT of the income/expense totals: neither is spending, and counting
+  // them makes a month look far busier than it was.
   var TX_KEY = 'imb.tx.v1', TXMETA_KEY = 'imb.txmeta.v1', PEND_KEY = 'imb.pending.v1';
-  var CAT_KEY = 'imb.cats.v1', CARD_KEY = 'imb.cards.v1', SENDER_KEY = 'imb.senders.v1';
+  var CAT_KEY = 'imb.cats.v1', INCAT_KEY = 'imb.incats.v1';
+  var CARD_KEY = 'imb.cards.v1', ACC_KEY = 'imb.accounts.v1', SENDER_KEY = 'imb.senders.v1';
   var AIKEY_KEY = 'imb.aikey.v1';
-  var spendMsg = null, spendTab = 'dash', aiBusy = false, aiAnswer = null;
+  var spendMsg = null, spendTab = 'dash', spendRange = 'month', aiBusy = false, aiAnswer = null;
 
   var DEFAULT_CATS = [
     { id: 'c1', name: 'خوراک', emoji: '🍽' }, { id: 'c2', name: 'حمل‌ونقل', emoji: '🚗' },
     { id: 'c3', name: 'قبوض', emoji: '🧾' },  { id: 'c4', name: 'خرید', emoji: '🛍' },
     { id: 'c5', name: 'درمان', emoji: '💊' }, { id: 'c6', name: 'مسکن', emoji: '🏠' },
-    { id: 'c7', name: 'پس‌انداز', emoji: '🐖' }, { id: 'c8', name: 'سایر', emoji: '💰' }
+    { id: 'c7', name: 'آموزش', emoji: '📚' }, { id: 'c8', name: 'سایر', emoji: '💰' }
+  ];
+  // Income has its own list: a salary is not a spending category, and mixing the two made
+  // the breakdown meaningless.
+  var DEFAULT_INCATS = [
+    { id: 'i1', name: 'حقوق', emoji: '💼' }, { id: 'i2', name: 'پروژه', emoji: '🧑‍💻' },
+    { id: 'i3', name: 'فروش', emoji: '🏷' },  { id: 'i4', name: 'سود سرمایه', emoji: '📈' },
+    { id: 'i5', name: 'هدیه', emoji: '🎁' },  { id: 'i6', name: 'سایر', emoji: '💵' }
   ];
 
   function jget(k, d) { try { var v = JSON.parse(localStorage.getItem(k)); return v === null || v === undefined ? d : v; } catch (e) { return d; } }
   function jset(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
-
   function loadTx() { var v = jget(TX_KEY, []); return Array.isArray(v) ? v : []; }
   function saveTx(l) { return jset(TX_KEY, l.slice(0, 3000)); }
   function loadPending() { var v = jget(PEND_KEY, []); return Array.isArray(v) ? v : []; }
   function savePending(l) { return jset(PEND_KEY, l.slice(0, 300)); }
   function loadCats() { var v = jget(CAT_KEY, null); if (!Array.isArray(v)) { jset(CAT_KEY, DEFAULT_CATS); return DEFAULT_CATS.slice(); } return v; }
+  function loadInCats() { var v = jget(INCAT_KEY, null); if (!Array.isArray(v)) { jset(INCAT_KEY, DEFAULT_INCATS); return DEFAULT_INCATS.slice(); } return v; }
   function loadCards() { var v = jget(CARD_KEY, []); return Array.isArray(v) ? v : []; }
+  function loadAccounts() { var v = jget(ACC_KEY, []); return Array.isArray(v) ? v : []; }
   function loadSenders() { var v = jget(SENDER_KEY, []); return Array.isArray(v) ? v : []; }
   function txMeta() { return jget(TXMETA_KEY, {}) || {}; }
 
-  function smsPlugin() {
-    var C = window.Capacitor;
-    return (C && C.Plugins && C.Plugins.SmsReader) ? C.Plugins.SmsReader : null;
-  }
-  function catById(id) { var c = loadCats().filter(function (x) { return x.id === id; }); return c[0] || null; }
-  /** Sender number → bank name, so "985000..." shows as "بانک تجارت". */
+  function smsPlugin() { var C = window.Capacitor; return (C && C.Plugins && C.Plugins.SmsReader) ? C.Plugins.SmsReader : null; }
+  function catById(id) { var c = loadCats().concat(loadInCats()).filter(function (x) { return x.id === id; }); return c[0] || null; }
   function bankOfSender(addr) {
     var s = loadSenders().filter(function (x) { return addr && String(addr).indexOf(x.sender) >= 0; });
     return s[0] ? s[0].bank : null;
   }
-  var toToman = function (rial) { return rial / 10; };
+  var toToman = function (r) { return r / 10; };
+
+  /** Cards and accounts are discovered from the SMS themselves — nothing to type in. */
+  function learnSource(tx) {
+    if (tx.card) {
+      var cards = loadCards();
+      if (!cards.some(function (c) { return c.last4 === tx.card; })) {
+        cards.push({ id: 'k' + tx.card, last4: tx.card, title: 'کارت ' + tx.card, bank: tx.bank || '', auto: true });
+        jset(CARD_KEY, cards);
+      } else if (tx.bank) {
+        cards.forEach(function (c) { if (c.last4 === tx.card && !c.bank) c.bank = tx.bank; });
+        jset(CARD_KEY, cards);
+      }
+    }
+    if (tx.accountNo) {
+      var accs = loadAccounts();
+      if (!accs.some(function (a) { return a.no === tx.accountNo; })) {
+        accs.push({ id: 'a' + tx.accountNo, no: tx.accountNo, title: 'حساب ' + String(tx.accountNo).slice(-4), bank: tx.bank || '', auto: true });
+        jset(ACC_KEY, accs);
+      }
+    }
+  }
+
+  /** Latest reported balance per card/account — banks put it in the SMS, so we don't guess. */
+  function balancesOf(list) {
+    var byCard = {}, byAcc = {};
+    list.slice().sort(function (a, b) { return a.at - b.at; }).forEach(function (t) {
+      if (!isNum(t.balance)) return;
+      if (t.card) byCard[t.card] = { v: t.balance, at: t.at };
+      if (t.accountNo) byAcc[t.accountNo] = { v: t.balance, at: t.at };
+    });
+    return { card: byCard, acc: byAcc };
+  }
 
   async function importSms() {
     var plug = smsPlugin(), P = window.SmsParser;
@@ -953,23 +1038,25 @@ function fa(n) {
       var msgs = (res && res.messages) || [];
       var list = loadTx(), pend = loadPending();
       var seen = {}; list.forEach(function (t) { seen[t.id] = 1; });
-      var added = 0, asked = 0, skipped = 0, newest = meta.lastImport || 0;
+      var added = 0, asked = 0, skipped = 0, fees = 0, newest = meta.lastImport || 0;
       for (var i = 0; i < msgs.length; i++) {
         var m = msgs[i];
         if (m.date > newest) newest = m.date;
         var c = P.classify(m.body || '');
         var id = 'x' + m.date + '-' + ((m.body || '').length);
-        if (seen[id]) { skipped++; continue; }      // same message imported twice
+        if (seen[id]) { skipped++; continue; }
         if (c.kind === 'confirmed') {
-          list.push({
+          var row = {
             id: id, at: m.date, amount: c.tx.amount, out: !!c.tx.isWithdrawal,
-            card: c.tx.cardLast4 || null,
+            card: c.tx.cardLast4 || null, accountNo: c.tx.accountNo || null,
             bank: c.tx.bankNameInSms || bankOfSender(m.address) || m.address || null,
             balance: c.tx.balance || null, channel: c.tx.channel || null,
             raw: (m.body || '').slice(0, 300), cat: null,
-            transfer: false, typeUnknown: c.tx.directionClear === false, src: 'sms'
-          });
-          seen[id] = 1; added++;
+            transfer: false, fee: !!c.tx.isFee,
+            typeUnknown: c.tx.directionClear === false, src: 'sms'
+          };
+          list.push(row); learnSource(row); seen[id] = 1; added++;
+          if (row.fee) fees++;
         } else if (c.kind === 'ambiguous') {
           if (!pend.some(function (p) { return p.id === id; })) {
             pend.push({ id: id, at: m.date, body: (m.body || '').slice(0, 300), amount: c.guessedAmount, out: c.guessedWithdrawal, address: m.address });
@@ -978,217 +1065,341 @@ function fa(n) {
         } else skipped++;
       }
       saveTx(list); savePending(pend); jset(TXMETA_KEY, { lastImport: newest });
-      spendMsg = { info: fa(added) + ' تراکنش ثبت شد، ' + fa(asked) + ' مورد نیازمند تأیید، ' + fa(skipped) + ' نادیده گرفته شد.' };
+      spendMsg = { info: fa(added) + ' تراکنش ثبت شد' + (fees ? '، ' + fa(fees) + ' کارمزد' : '') +
+        '، ' + fa(asked) + ' نیازمند تأیید، ' + fa(skipped) + ' نادیده (پیامک اپراتور، رمز و تبلیغ).' };
     } catch (e) {
       spendMsg = { err: 'خواندن پیامک ناموفق بود: ' + ((e && e.message) || e) };
     }
     draw();
   }
 
-  function monthKeyOf(ms) {
-    try { var j = isoToJalali(new Date(ms).toISOString().slice(0, 10)); return j.jy + '/' + j.jm; }
-    catch (e) { return '—'; }
-  }
+  // ── date helpers ──
+  function jOf(ms) { try { return isoToJalali(new Date(ms).toISOString().slice(0, 10)); } catch (e) { return null; } }
+  function monthKeyOf(ms) { var j = jOf(ms); return j ? j.jy + '/' + j.jm : '—'; }
   function fmtWhen(ms) {
     try {
-      var d = new Date(ms), j = isoToJalali(d.toISOString().slice(0, 10));
+      var d = new Date(ms), j = jOf(ms);
       return faPlain(j.jd) + ' ' + J_MONTHS[j.jm - 1] + ' ' + faPlain(j.jy) + '، ' +
         faDigits(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
     } catch (e) { return '—'; }
   }
+  /** Start of the current week/month/year in the Jalali calendar (week starts Saturday). */
+  function rangeStart(kind) {
+    var now = new Date(), jt = todayJalali();
+    if (kind === 'week') {
+      var dow = (now.getDay() + 1) % 7;  // JS Sun=0 → Sat=0
+      var d = new Date(now); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - dow);
+      return d.getTime();
+    }
+    if (kind === 'year') return new Date(jalaliToIso(jt.jy, 1, 1) + 'T00:00:00').getTime();
+    return new Date(jalaliToIso(jt.jy, jt.jm, 1) + 'T00:00:00').getTime();
+  }
+  var RANGES = [{ k: 'week', label: 'این هفته' }, { k: 'month', label: 'این ماه' }, { k: 'year', label: 'امسال' }];
+
+  /**
+   * Totals for a window. Self-transfers and transfer fees are counted separately and kept
+   * out of income/expense; rows whose direction the bank text left unclear are held aside
+   * rather than guessed into one side.
+   */
+  function totals(list, fromMs) {
+    var t = { out: 0, in: 0, transfer: 0, fee: 0, unknown: 0, nOut: 0, nIn: 0, nFee: 0, nTransfer: 0, nUnknown: 0 };
+    list.forEach(function (x) {
+      if (x.at < fromMs) return;
+      if (x.typeUnknown) { t.unknown += x.amount; t.nUnknown++; return; }
+      if (x.fee) { t.fee += x.amount; t.nFee++; return; }
+      if (x.transfer) { t.transfer += x.amount; t.nTransfer++; return; }
+      if (x.out) { t.out += x.amount; t.nOut++; } else { t.in += x.amount; t.nIn++; }
+    });
+    return t;
+  }
 
   var SPEND_TABS = [
     { k: 'dash', label: 'خلاصه' }, { k: 'tx', label: 'تراکنش‌ها' },
-    { k: 'cats', label: 'دسته‌ها' }, { k: 'cards', label: 'کارت‌ها' }, { k: 'ai', label: 'مشاور' }
+    { k: 'cats', label: 'دسته‌ها' }, { k: 'srcs', label: 'کارت و حساب' }, { k: 'ai', label: 'مشاور' }
   ];
 
   function renderSpend() {
-    var tabs = '<div class="chips" style="margin-bottom:12px">' + SPEND_TABS.map(function (t) {
+    var tabs = '<div class="chips seg" style="margin-bottom:12px">' + SPEND_TABS.map(function (t) {
       return '<button aria-pressed="' + (spendTab === t.k) + '" data-stab="' + t.k + '">' + esc(t.label) + '</button>';
     }).join('') + '</div>';
     var body = spendTab === 'tx' ? spendTxTab() : spendTab === 'cats' ? spendCatsTab()
-      : spendTab === 'cards' ? spendCardsTab() : spendTab === 'ai' ? spendAiTab() : spendDashTab();
+      : spendTab === 'srcs' ? spendSourcesTab() : spendTab === 'ai' ? spendAiTab() : spendDashTab();
     return tabs + body;
+  }
+
+  function donut(parts, total) {
+    if (!total) return '';
+    var COLORS = ['#0d7377', '#f4a300', '#b83a2f', '#4f7ac7', '#6aa84f', '#8e5ea2', '#d98a3a', '#5b8c85'];
+    var acc = 0, segs = parts.map(function (p, i) {
+      var from = (acc / total) * 360; acc += p.v;
+      var to = (acc / total) * 360;
+      return COLORS[i % COLORS.length] + ' ' + from.toFixed(1) + 'deg ' + to.toFixed(1) + 'deg';
+    }).join(', ');
+    return '<div class="donut-wrap"><div class="donut" style="background:conic-gradient(' + segs + ')"></div>' +
+      '<ul class="legend">' + parts.map(function (p, i) {
+        return '<li><span class="dot" style="background:' + COLORS[i % COLORS.length] + '"></span>' +
+          '<span class="lg-name">' + esc(p.label) + '</span>' +
+          '<span class="lg-val num">' + fa((p.v / total) * 100, 0) + '٪</span></li>';
+      }).join('') + '</ul></div>';
   }
 
   function spendDashTab() {
     var list = loadTx(), pend = loadPending(), meta = txMeta(), plug = !!smsPlugin();
-    var jt = todayJalali(), thisKey = jt.jy + '/' + jt.jm;
+    var from = rangeStart(spendRange);
+    var t = totals(list, from);
+    var jt = todayJalali();
+    var title = spendRange === 'week' ? 'این هفته' : spendRange === 'year' ? ('سال ' + faPlain(jt.jy)) : (J_MONTHS[jt.jm - 1] + ' ' + faPlain(jt.jy));
 
-    // Transfers between the user's own accounts and unknown-direction rows are excluded
-    // from spending, exactly as the original dashboard does — counting a transfer as an
-    // expense doubles the month's total.
-    var month = list.filter(function (t) { return monthKeyOf(t.at) === thisKey && !t.transfer; });
-    var outSum = 0, inSum = 0;
-    month.forEach(function (t) { if (t.typeUnknown) return; if (t.out) outSum += t.amount; else inSum += t.amount; });
+    var segs = '<div class="chips seg" style="margin-bottom:12px">' + RANGES.map(function (r) {
+      return '<button aria-pressed="' + (spendRange === r.k) + '" data-srange="' + r.k + '">' + esc(r.label) + '</button>';
+    }).join('') + '</div>';
 
-    var uncat = month.filter(function (t) { return t.out && !t.cat && !t.typeUnknown; });
-    var unknown = month.filter(function (t) { return t.typeUnknown; });
+    var net = t.in - t.out;
+    var hero = '<div class="hero-card">' +
+      '<div class="hero-top"><span>' + esc(title) + '</span></div>' +
+      '<div class="hero-main"><span class="hero-num num">' + fa(toToman(t.out)) + '</span><span class="hero-unit">تومان خرج</span></div>' +
+      '<div class="hero-grid">' +
+        '<div><span class="hg-k">واریزی</span><span class="hg-v num up">' + fa(toToman(t.in)) + '</span></div>' +
+        '<div><span class="hg-k">مانده دوره</span><span class="hg-v num ' + (net >= 0 ? 'up' : 'down') + '">' + fa(toToman(net)) + '</span></div>' +
+      '</div></div>';
 
+    // expense breakdown by category
+    var cats = loadCats(), inCats = loadInCats();
     var byCat = {};
-    month.filter(function (t) { return t.out && !t.typeUnknown; }).forEach(function (t) {
-      byCat[t.cat || '_'] = (byCat[t.cat || '_'] || 0) + t.amount;
+    list.forEach(function (x) {
+      if (x.at < from || x.typeUnknown || x.fee || x.transfer || !x.out) return;
+      byCat[x.cat || '_'] = (byCat[x.cat || '_'] || 0) + x.amount;
     });
-    var catRows = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; }).map(function (k) {
+    var outParts = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; }).map(function (k) {
       var c = k === '_' ? null : catById(k);
-      var share = outSum ? (byCat[k] / outSum) * 100 : 0;
-      return '<div class="row"><span class="label">' + (c ? esc(c.emoji + ' ' + c.name) : '❓ دسته‌بندی‌نشده') +
-        '<small>' + fa(share, 0) + '٪ خرج ماه</small></span>' +
-        '<span class="val num">' + fa(toToman(byCat[k])) + '<span class="unit">تومان</span></span></div>';
-    }).join('');
+      return { label: c ? c.emoji + ' ' + c.name : '❓ دسته‌بندی‌نشده', v: byCat[k] };
+    });
+    var outCard = outParts.length
+      ? '<div class="card"><h2>خرج به تفکیک دسته</h2>' + donut(outParts, t.out) +
+        outParts.map(function (p) {
+          return '<div class="row"><span class="label">' + esc(p.label) + '</span>' +
+            '<span class="val num">' + fa(toToman(p.v)) + '<span class="unit">تومان</span></span></div>';
+        }).join('') + '</div>'
+      : '';
 
-    // last 6 Jalali months, oldest first
-    var bars = [], cursor = { jy: jt.jy, jm: jt.jm };
+    // income breakdown, separate from expenses
+    var byIn = {};
+    list.forEach(function (x) {
+      if (x.at < from || x.typeUnknown || x.fee || x.transfer || x.out) return;
+      byIn[x.cat || '_'] = (byIn[x.cat || '_'] || 0) + x.amount;
+    });
+    var inParts = Object.keys(byIn).sort(function (a, b) { return byIn[b] - byIn[a]; }).map(function (k) {
+      var c = k === '_' ? null : catById(k);
+      return { label: c ? c.emoji + ' ' + c.name : '❓ دسته‌بندی‌نشده', v: byIn[k] };
+    });
+    var inCard = inParts.length
+      ? '<div class="card"><h2>واریزی به تفکیک دسته</h2>' +
+        inParts.map(function (p) {
+          return '<div class="row"><span class="label">' + esc(p.label) + '</span>' +
+            '<span class="val num up">' + fa(toToman(p.v)) + '<span class="unit">تومان</span></span></div>';
+        }).join('') + '</div>'
+      : '';
+
+    // things deliberately excluded from the totals
+    var excluded = (t.nTransfer || t.nFee || t.nUnknown)
+      ? '<div class="card"><h2>خارج از جمع بالا</h2>' +
+        (t.nTransfer ? '<div class="row"><span class="label">🔁 جابه‌جایی بین حساب‌های خودتان<small>' + fa(t.nTransfer) + ' تراکنش · نه خرج است نه درآمد</small></span><span class="val num muted">' + fa(toToman(t.transfer)) + '</span></div>' : '') +
+        (t.nFee ? '<div class="row"><span class="label">🧮 کارمزد انتقال<small>' + fa(t.nFee) + ' مورد · هزینه جابه‌جایی پول، نه خرید</small></span><span class="val num">' + fa(toToman(t.fee)) + '</span></div>' : '') +
+        (t.nUnknown ? '<div class="row"><span class="label">❔ جهت نامشخص<small>' + fa(t.nUnknown) + ' مورد · در زبانه تراکنش‌ها مشخصش کنید</small></span><span class="val num muted">' + fa(toToman(t.unknown)) + '</span></div>' : '') +
+        '</div>'
+      : '';
+
+    // six-month bars
+    var bars = [], cur = { jy: jt.jy, jm: jt.jm };
     for (var i = 0; i < 6; i++) {
-      var key = cursor.jy + '/' + cursor.jm;
-      var sum = list.filter(function (t) { return monthKeyOf(t.at) === key && t.out && !t.transfer && !t.typeUnknown; })
-        .reduce(function (a, t) { return a + t.amount; }, 0);
-      bars.unshift({ label: J_MONTHS[cursor.jm - 1], v: sum });
-      cursor.jm--; if (cursor.jm < 1) { cursor.jm = 12; cursor.jy--; }
+      var key = cur.jy + '/' + cur.jm;
+      var sum = list.filter(function (x) { return monthKeyOf(x.at) === key && x.out && !x.transfer && !x.fee && !x.typeUnknown; })
+        .reduce(function (a, x) { return a + x.amount; }, 0);
+      bars.unshift({ label: J_MONTHS[cur.jm - 1], v: sum });
+      cur.jm--; if (cur.jm < 1) { cur.jm = 12; cur.jy--; }
     }
     var max = Math.max.apply(null, bars.map(function (b) { return b.v; }).concat([1]));
-    var chart = '<div class="card"><h2>شش ماه گذشته</h2><div class="bars">' + bars.map(function (b) {
-      return '<div class="bar"><span class="bar-fill" style="height:' + Math.max(2, (b.v / max) * 100) + '%"></span>' +
+    var chart = '<div class="card"><h2>خرج شش ماه گذشته</h2><div class="bars">' + bars.map(function (b) {
+      return '<div class="bar"><span class="bar-v num">' + (b.v ? fa(toToman(b.v) / 1e6, 1) : '') + '</span>' +
+        '<span class="bar-fill" style="height:' + Math.max(2, (b.v / max) * 100) + '%"></span>' +
         '<small>' + esc(b.label) + '</small></div>';
-    }).join('') + '</div><div class="row"><span class="muted" style="font-size:12.5px">بلندترین ستون: ' + fa(toToman(max)) + ' تومان</span></div></div>';
+    }).join('') + '</div><div class="row"><span class="muted" style="font-size:12.5px">اعداد روی ستون‌ها: میلیون تومان</span></div></div>';
 
-    return '<div class="card"><h2>' + esc(J_MONTHS[jt.jm - 1]) + ' ' + faPlain(jt.jy) + '</h2>' +
-        '<div class="row"><span class="label">خرج این ماه</span><span class="val num down">' + fa(toToman(outSum)) + '<span class="unit">تومان</span></span></div>' +
-        '<div class="row"><span class="label">ورودی این ماه</span><span class="val num up">' + fa(toToman(inSum)) + '<span class="unit">تومان</span></span></div>' +
-        '<div class="row"><span class="label">مانده</span><span class="val num ' + (inSum - outSum >= 0 ? 'up' : 'down') + '">' + fa(toToman(inSum - outSum)) + '<span class="unit">تومان</span></span></div>' +
-        (uncat.length ? '<div class="row"><span class="label" style="color:var(--down)">⚠️ ' + fa(uncat.length) + ' تراکنش دسته‌بندی‌نشده</span></div>' : '') +
-        (unknown.length ? '<div class="row"><span class="label muted">❔ ' + fa(unknown.length) + ' تراکنش با جهت نامشخص (در جمع نیامده)</span></div>' : '') +
-        (pend.length ? '<div class="row"><span class="label muted">❓ ' + fa(pend.length) + ' پیامک نیازمند تأیید</span></div>' : '') +
-        '<div class="row"><span class="muted" style="font-size:12.5px">پیامک بانکی به ریال است؛ اعداد بالا به تومان تبدیل شده‌اند.</span></div>' +
-      '</div>' +
+    var uncat = list.filter(function (x) { return x.at >= from && x.out && !x.cat && !x.typeUnknown && !x.fee && !x.transfer; });
+
+    return segs + hero +
       '<div class="card"><h2>دریافت از پیامک بانکی</h2>' +
         '<div class="row"><span class="label">' + (plug
-          ? 'پیامک‌ها روی همین گوشی خوانده و تحلیل می‌شوند. متن پیامک هیچ‌جا فرستاده نمی‌شود.'
+          ? 'پیامک‌ها روی همین گوشی خوانده و تحلیل می‌شوند. پیامک اپراتور، رمز پویا و تبلیغ خودکار کنار گذاشته می‌شوند.'
           : 'این قابلیت به نسخه اندروید نیاز دارد. در مرورگر می‌توانید تراکنش را دستی ثبت کنید.') + '</span></div>' +
         (meta.lastImport ? '<div class="row"><span class="label muted">آخرین دریافت</span><span>' + esc(fmtWhen(meta.lastImport)) + '</span></div>' : '') +
         (plug ? '<div class="row"><button class="addbtn" id="sImport" style="flex:1 1 100%">خواندن پیامک‌های جدید</button></div>' : '') +
         (spendMsg ? '<div class="row"><span class="' + (spendMsg.err ? 'down' : 'muted') + '">' + esc(spendMsg.err || spendMsg.info) + '</span></div>' : '') +
+        (uncat.length ? '<div class="row"><span class="label" style="color:var(--down)">⚠️ ' + fa(uncat.length) + ' تراکنش دسته‌بندی‌نشده</span></div>' : '') +
+        (pend.length ? '<div class="row"><span class="label muted">❓ ' + fa(pend.length) + ' پیامک نیازمند تأیید</span></div>' : '') +
       '</div>' +
-      (catRows ? '<div class="card"><h2>به تفکیک دسته</h2>' + catRows + '</div>' : '') +
-      chart +
-      spendPendingCard();
+      outCard + inCard + excluded + chart + spendPendingCard();
   }
 
   function spendPendingCard() {
     var pend = loadPending();
     if (!pend.length) return '';
-    var cats = loadCats();
     return '<div class="card"><h2>نیازمند تأیید شما (' + fa(pend.length) + ')</h2>' +
-      '<div class="row"><span class="muted" style="font-size:12.5px">این پیامک‌ها نشانه مالی داشتند ولی مبلغ یا جهتشان قطعی نبود، پس خودکار ثبت نشدند.</span></div>' +
+      '<div class="row"><span class="muted" style="font-size:12.5px">نشانه مالی داشتند ولی مبلغ یا جهتشان قطعی نبود، پس خودکار ثبت نشدند.</span></div>' +
       pend.slice(0, 10).map(function (p, i) {
         return '<div class="row alloc"><span class="label" style="font-size:13px">' + esc(p.body.slice(0, 120)) + '</span>' +
           '<span class="val num">' + (p.amount ? fa(toToman(p.amount)) : '—') + '</span>' +
-          '<button class="chipbtn" data-pok="' + i + '">ثبت به‌عنوان ' + (p.out ? 'خرج' : 'ورودی') + '</button>' +
-          '<button class="chipbtn" data-pflip="' + i + '">برعکس کن</button>' +
+          '<button class="chipbtn" data-pok="' + i + '">ثبت به‌عنوان ' + (p.out ? 'خرج' : 'واریزی') + '</button>' +
+          '<button class="chipbtn" data-pflip="' + i + '">برعکس</button>' +
           '<button class="chipbtn" data-pno="' + i + '">نادیده</button></div>';
       }).join('') + '</div>';
   }
 
   function spendTxTab() {
     var list = loadTx().slice().sort(function (a, b) { return b.at - a.at; });
-    var cats = loadCats();
     if (!list.length) return '<div class="card"><div class="row"><span class="muted">هنوز تراکنشی ثبت نشده.</span></div></div>' + spendManualCard();
-    var opts = function (sel) {
-      return '<option value="">دسته…</option>' + cats.map(function (c) {
-        return '<option value="' + c.id + '"' + (sel === c.id ? ' selected' : '') + '>' + esc(c.emoji + ' ' + c.name) + '</option>';
-      }).join('');
-    };
+    var cats = loadCats(), inCats = loadInCats();
     return '<div class="card"><h2>تراکنش‌ها (' + fa(list.length) + ')</h2>' +
       list.slice(0, 60).map(function (t) {
-        return '<div class="row alloc"><span class="label">' +
-            (t.typeUnknown ? '❔ نامشخص' : t.out ? 'خرج' : 'ورودی') + (t.transfer ? ' · جابه‌جایی' : '') +
-            '<small>' + esc(fmtWhen(t.at)) + (t.card ? ' · کارت ' + esc(t.card) : '') + (t.bank ? ' · ' + esc(String(t.bank).slice(0, 18)) : '') + '</small></span>' +
-          '<span class="val num ' + (t.typeUnknown ? '' : t.out ? 'down' : 'up') + '">' + fa(toToman(t.amount)) + '<span class="unit">تومان</span></span>' +
+        var pool = t.out ? cats : inCats;
+        var opts = '<option value="">دسته…</option>' + pool.map(function (c) {
+          return '<option value="' + c.id + '"' + (t.cat === c.id ? ' selected' : '') + '>' + esc(c.emoji + ' ' + c.name) + '</option>';
+        }).join('');
+        var tag = t.typeUnknown ? '<span class="tag unk">نامشخص</span>'
+          : t.fee ? '<span class="tag fee">کارمزد</span>'
+          : t.transfer ? '<span class="tag tr">جابه‌جایی</span>'
+          : t.out ? '<span class="tag out">خرج</span>' : '<span class="tag in">واریزی</span>';
+        return '<div class="row alloc"><span class="label">' + tag +
+            '<small>' + esc(fmtWhen(t.at)) + (t.card ? ' · کارت ' + esc(t.card) : '') +
+            (t.accountNo ? ' · حساب ' + esc(String(t.accountNo).slice(-4)) : '') +
+            (t.bank ? ' · ' + esc(String(t.bank).slice(0, 16)) : '') + '</small></span>' +
+          '<span class="val num ' + (t.typeUnknown || t.transfer ? '' : t.fee ? 'down' : t.out ? 'down' : 'up') + '">' + fa(toToman(t.amount)) + '<span class="unit">تومان</span></span>' +
           '<button class="iconbtn" style="color:#b83a2f" data-txdel="' + esc(t.id) + '" aria-label="حذف">✕</button>' +
-          '<select data-txcat="' + esc(t.id) + '" style="flex:1 1 40%">' + opts(t.cat) + '</select>' +
+          (t.typeUnknown || t.fee || t.transfer ? '' : '<select data-txcat="' + esc(t.id) + '" style="flex:1 1 40%">' + opts + '</select>') +
           '<button class="chipbtn" data-txtr="' + esc(t.id) + '">' + (t.transfer ? 'جابه‌جایی نیست' : 'جابه‌جایی بین حساب‌ها') + '</button>' +
-          (t.typeUnknown ? '<button class="chipbtn" data-txfix="' + esc(t.id) + '">این خرج بود</button>' : '') +
+          '<button class="chipbtn" data-txfee="' + esc(t.id) + '">' + (t.fee ? 'کارمزد نیست' : 'کارمزد است') + '</button>' +
+          (t.typeUnknown ? '<button class="chipbtn" data-txfix="' + esc(t.id) + '">خرج بود</button><button class="chipbtn" data-txfixin="' + esc(t.id) + '">واریزی بود</button>' : '') +
           '</div>';
       }).join('') + '</div>' + spendManualCard();
   }
 
   function spendManualCard() {
-    var cats = loadCats();
+    var cats = loadCats(), inCats = loadInCats();
     return '<div class="card"><h2>ثبت دستی</h2><div class="row" style="flex-wrap:wrap;gap:8px">' +
-      '<select id="sDir" aria-label="نوع" style="flex:1 1 30%"><option value="out">خرج</option><option value="in">ورودی</option></select>' +
+      '<select id="sDir" aria-label="نوع" style="flex:1 1 30%"><option value="out">خرج</option><option value="in">واریزی</option></select>' +
       '<input id="sAmt" inputmode="numeric" placeholder="مبلغ (تومان)" aria-label="مبلغ" style="flex:1 1 40%" />' +
       '<select id="sCat" aria-label="دسته" style="flex:1 1 25%"><option value="">دسته…</option>' +
         cats.map(function (c) { return '<option value="' + c.id + '">' + esc(c.emoji + ' ' + c.name) + '</option>'; }).join('') +
+        inCats.map(function (c) { return '<option value="' + c.id + '">' + esc(c.emoji + ' ' + c.name) + '</option>'; }).join('') +
       '</select>' +
       '<button class="addbtn" id="sAdd" style="flex:1 1 100%">افزودن</button>' +
       '</div></div>';
   }
 
-  function spendCatsTab() {
-    var cats = loadCats(), list = loadTx();
-    return '<div class="card"><h2>دسته‌ها</h2>' + cats.map(function (c) {
+  function catBlock(title, cats, list, delAttr, addIds) {
+    return '<div class="card"><h2>' + esc(title) + '</h2>' + cats.map(function (c) {
       var n = list.filter(function (t) { return t.cat === c.id; }).length;
       return '<div class="row"><span class="label">' + esc(c.emoji + ' ' + c.name) + '<small>' + fa(n) + ' تراکنش</small></span>' +
-        '<button class="iconbtn" style="color:#b83a2f" data-catdel="' + esc(c.id) + '" aria-label="حذف">✕</button></div>';
+        '<button class="iconbtn" style="color:#b83a2f" data-' + delAttr + '="' + esc(c.id) + '" aria-label="حذف">✕</button></div>';
     }).join('') +
     '<div class="row" style="flex-wrap:wrap;gap:8px">' +
-      '<input id="cEmoji" placeholder="🙂" aria-label="ایموji" style="flex:0 0 68px;text-align:center" />' +
-      '<input id="cName" placeholder="نام دسته" aria-label="نام دسته" style="flex:1 1 55%" />' +
-      '<button class="addbtn" id="cAdd" style="flex:1 1 100%">افزودن دسته</button>' +
+      '<input id="' + addIds[0] + '" placeholder="🙂" aria-label="ایموجی" style="flex:0 0 68px;text-align:center" />' +
+      '<input id="' + addIds[1] + '" placeholder="نام دسته" aria-label="نام دسته" style="flex:1 1 55%" />' +
+      '<button class="addbtn" id="' + addIds[2] + '" style="flex:1 1 100%">افزودن</button>' +
     '</div></div>';
   }
 
-  function spendCardsTab() {
-    var cards = loadCards(), senders = loadSenders();
+  function spendCatsTab() {
+    var list = loadTx();
+    return catBlock('دسته‌های خرج', loadCats(), list, 'catdel', ['cEmoji', 'cName', 'cAdd']) +
+      catBlock('دسته‌های واریزی', loadInCats(), list, 'incatdel', ['iEmoji', 'iName', 'iAdd']);
+  }
+
+  function spendSourcesTab() {
+    var list = loadTx(), bal = balancesOf(list), cards = loadCards(), accs = loadAccounts(), senders = loadSenders();
+    var statsFor = function (pred) {
+      var o = 0, i = 0;
+      list.forEach(function (t) {
+        if (!pred(t) || t.typeUnknown || t.transfer) return;
+        if (t.out) o += t.amount; else i += t.amount;
+      });
+      return { out: o, in: i };
+    };
+    var cardRows = cards.length ? cards.map(function (c) {
+      var st = statsFor(function (t) { return t.card === c.last4; });
+      var b = bal.card[c.last4];
+      return '<div class="src-card"><div class="src-top"><b>' + esc(c.title) + '</b>' +
+        '<span class="num">•••• ' + esc(c.last4) + '</span></div>' +
+        (c.bank ? '<div class="src-bank">' + esc(String(c.bank).slice(0, 24)) + '</div>' : '') +
+        '<div class="src-bal">' + (b ? '<span class="num">' + fa(toToman(b.v)) + '</span><small>مانده · ' + esc(fmtWhen(b.at)) + '</small>' : '<small class="muted">مانده‌ای در پیامک‌ها نبود</small>') + '</div>' +
+        '<div class="src-io"><span class="down num">−' + fa(toToman(st.out)) + '</span><span class="up num">+' + fa(toToman(st.in)) + '</span></div>' +
+        '<button class="iconbtn" style="color:#b83a2f" data-carddel="' + esc(c.id) + '" aria-label="حذف">✕</button></div>';
+    }).join('') : '<div class="row"><span class="muted">کارتی شناسایی نشده. بعد از خواندن پیامک‌ها خودکار اضافه می‌شوند.</span></div>';
+
+    var accRows = accs.length ? accs.map(function (a) {
+      var st = statsFor(function (t) { return t.accountNo === a.no; });
+      var b = bal.acc[a.no];
+      return '<div class="src-card"><div class="src-top"><b>' + esc(a.title) + '</b><span class="num">' + esc(a.no) + '</span></div>' +
+        (a.bank ? '<div class="src-bank">' + esc(String(a.bank).slice(0, 24)) + '</div>' : '') +
+        '<div class="src-bal">' + (b ? '<span class="num">' + fa(toToman(b.v)) + '</span><small>مانده · ' + esc(fmtWhen(b.at)) + '</small>' : '<small class="muted">مانده‌ای در پیامک‌ها نبود</small>') + '</div>' +
+        '<div class="src-io"><span class="down num">−' + fa(toToman(st.out)) + '</span><span class="up num">+' + fa(toToman(st.in)) + '</span></div>' +
+        '<button class="iconbtn" style="color:#b83a2f" data-accdel="' + esc(a.id) + '" aria-label="حذف">✕</button></div>';
+    }).join('') : '<div class="row"><span class="muted">حسابی شناسایی نشده.</span></div>';
+
     return '<div class="card"><h2>کارت‌ها</h2>' +
-      (cards.length ? cards.map(function (c) {
-        return '<div class="row"><span class="label">' + esc(c.title) + '<small>' + esc(c.bank || '') + ' · ' + esc(c.last4) + '</small></span>' +
-          '<button class="iconbtn" style="color:#b83a2f" data-carddel="' + esc(c.id) + '" aria-label="حذف">✕</button></div>';
-      }).join('') : '<div class="row"><span class="muted">کارتی ثبت نشده.</span></div>') +
-      '<div class="row" style="flex-wrap:wrap;gap:8px">' +
-        '<input id="kLast4" inputmode="numeric" maxlength="4" placeholder="۴ رقم آخر" aria-label="چهار رقم آخر" style="flex:1 1 28%" />' +
-        '<input id="kTitle" placeholder="عنوان (مثلاً کارت حقوق)" aria-label="عنوان" style="flex:1 1 65%" />' +
-        '<input id="kBank" placeholder="بانک" aria-label="بانک" style="flex:1 1 100%" />' +
-        '<button class="addbtn" id="kAdd" style="flex:1 1 100%">افزودن کارت</button>' +
-      '</div></div>' +
+        '<div class="row"><span class="muted" style="font-size:12.5px">کارت‌ها از خود پیامک‌ها شناسایی می‌شوند. مانده، آخرین عددی است که بانک در پیامک اعلام کرده — محاسبه نشده، نقل‌شده.</span></div>' +
+        cardRows +
+        '<div class="row" style="flex-wrap:wrap;gap:8px">' +
+          '<input id="kLast4" inputmode="numeric" maxlength="4" placeholder="۴ رقم آخر" style="flex:1 1 28%" />' +
+          '<input id="kTitle" placeholder="عنوان" style="flex:1 1 65%" />' +
+          '<button class="addbtn" id="kAdd" style="flex:1 1 100%">افزودن دستی کارت</button></div>' +
+      '</div>' +
+      '<div class="card"><h2>حساب‌ها</h2>' + accRows +
+        '<div class="row" style="flex-wrap:wrap;gap:8px">' +
+          '<input id="aNo" inputmode="numeric" placeholder="شماره حساب" style="flex:1 1 55%" />' +
+          '<input id="aTitle" placeholder="عنوان" style="flex:1 1 40%" />' +
+          '<button class="addbtn" id="aAdd" style="flex:1 1 100%">افزودن دستی حساب</button></div>' +
+      '</div>' +
       '<div class="card"><h2>شماره‌های بانک</h2>' +
-        '<div class="row"><span class="muted" style="font-size:12.5px">شماره فرستنده پیامک را به نام بانک وصل می‌کند تا در فهرست تراکنش‌ها نام بانک نشان داده شود.</span></div>' +
+        '<div class="row"><span class="muted" style="font-size:12.5px">شماره فرستنده پیامک را به نام بانک وصل می‌کند.</span></div>' +
         (senders.length ? senders.map(function (s2) {
           return '<div class="row"><span class="label">' + esc(s2.bank) + '<small>' + esc(s2.sender) + '</small></span>' +
             '<button class="iconbtn" style="color:#b83a2f" data-senddel="' + esc(s2.id) + '" aria-label="حذف">✕</button></div>';
         }).join('') : '<div class="row"><span class="muted">موردی ثبت نشده.</span></div>') +
         '<div class="row" style="flex-wrap:wrap;gap:8px">' +
-          '<input id="nSender" placeholder="شماره یا نام فرستنده" aria-label="فرستنده" style="flex:1 1 55%" />' +
-          '<input id="nBank" placeholder="نام بانک" aria-label="نام بانک" style="flex:1 1 40%" />' +
-          '<button class="addbtn" id="nAdd" style="flex:1 1 100%">افزودن</button>' +
-        '</div></div>';
+          '<input id="nSender" placeholder="شماره فرستنده" style="flex:1 1 55%" />' +
+          '<input id="nBank" placeholder="نام بانک" style="flex:1 1 40%" />' +
+          '<button class="addbtn" id="nAdd" style="flex:1 1 100%">افزودن</button></div>' +
+      '</div>';
   }
 
-  /** Builds the same 30-day summary the Kotlin advisor sent, so answers stay comparable. */
   function aiSummary() {
-    var since = Date.now() - 30 * 86400000;
-    var txs = loadTx().filter(function (t) { return t.at >= since && !t.transfer; });
-    var lines = ['خلاصه تراکنش‌های ۳۰ روز اخیر کاربر (مبالغ به ریال):'];
+    var from = rangeStart('month');
+    var txs = loadTx().filter(function (t) { return t.at >= from && !t.transfer && !t.fee; });
+    var t = totals(loadTx(), from);
+    var lines = ['خلاصه مالی ماه جاری کاربر (مبالغ به ریال):'];
     var by = {};
-    txs.filter(function (t) { return t.out && !t.typeUnknown; }).forEach(function (t) {
-      var k = t.cat || '_'; by[k] = by[k] || { n: 0, sum: 0 }; by[k].n++; by[k].sum += t.amount;
+    txs.filter(function (x) { return x.out && !x.typeUnknown; }).forEach(function (x) {
+      var k = x.cat || '_'; by[k] = by[k] || { n: 0, sum: 0 }; by[k].n++; by[k].sum += x.amount;
     });
     Object.keys(by).forEach(function (k) {
       var c = k === '_' ? null : catById(k);
-      lines.push('- ' + (c ? c.name : 'دسته‌بندی‌نشده') + ': ' + by[k].n + ' تراکنش، مجموع ' + by[k].sum);
+      lines.push('- خرج ' + (c ? c.name : 'دسته‌بندی‌نشده') + ': ' + by[k].n + ' تراکنش، مجموع ' + by[k].sum);
     });
-    lines.push('مجموع واریزی‌ها: ' + txs.filter(function (t) { return !t.out && !t.typeUnknown; }).reduce(function (a, t) { return a + t.amount; }, 0));
+    lines.push('مجموع خرج: ' + t.out);
+    lines.push('مجموع واریزی: ' + t.in);
+    lines.push('کارمزد انتقال: ' + t.fee);
     return lines.join('\n');
   }
 
   function spendAiTab() {
     var key = localStorage.getItem(AIKEY_KEY) || '';
     return '<div class="card"><h2>مشاور مالی</h2>' +
-      '<div class="row"><span class="label">خلاصه تراکنش‌های ۳۰ روز اخیر شما به سرویس هوش مصنوعی فرستاده می‌شود تا تحلیل بدهد. <b>کلید API خودتان لازم است</b> و روی همین گوشی ذخیره می‌شود.<br>' +
-      'توجه: برخلاف بقیه بخش‌ها، این یکی داده را به یک سرویس بیرونی می‌فرستد — البته فقط خلاصه اعداد، نه متن پیامک‌ها.</span></div>' +
+      '<div class="row"><span class="label">خلاصه اعداد ماه جاری به سرویس هوش مصنوعی فرستاده می‌شود. <b>کلید API خودتان لازم است</b> و روی همین گوشی ذخیره می‌شود.<br>' +
+      'این تنها بخشی است که داده را بیرون می‌فرستد — فقط خلاصه اعداد، نه متن پیامک‌ها.</span></div>' +
       '<div class="row" style="flex-wrap:wrap;gap:8px">' +
-        '<input id="aiKey" type="password" placeholder="OpenRouter API key" aria-label="کلید" value="' + esc(key) + '" style="flex:1 1 100%" />' +
-        '<input id="aiQ" placeholder="سوالت را بنویس، مثلاً: کجا زیاد خرج می‌کنم؟" aria-label="سوال" style="flex:1 1 100%" />' +
+        '<input id="aiKey" type="password" placeholder="OpenRouter API key" value="' + esc(key) + '" style="flex:1 1 100%" />' +
+        '<input id="aiQ" placeholder="مثلاً: کجا زیاد خرج می‌کنم؟" style="flex:1 1 100%" />' +
         '<button class="addbtn" id="aiAsk" style="flex:1 1 100%"' + (aiBusy ? ' disabled' : '') + '>' + (aiBusy ? 'در حال پرسیدن…' : 'بپرس') + '</button>' +
       '</div>' +
       (aiAnswer ? '<div class="row"><span class="label" style="white-space:pre-wrap">' + esc(aiAnswer) + '</span></div>' : '') +
@@ -1207,36 +1418,27 @@ function fa(n) {
       var r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-        body: JSON.stringify({
-          model: 'deepseek/deepseek-chat:free',
-          messages: [{ role: 'user', content: aiSummary() + '\n\nسوال کاربر: ' + q }]
-        })
+        body: JSON.stringify({ model: 'deepseek/deepseek-chat:free', messages: [{ role: 'user', content: aiSummary() + '\n\nسوال کاربر: ' + q }] })
       });
       var j = await r.json();
       if (!r.ok || j.error) throw new Error((j.error && (j.error.message || j.error)) || ('خطای ' + r.status));
       aiAnswer = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || 'پاسخی برنگشت.';
-    } catch (e) {
-      aiAnswer = 'خطا: ' + ((e && e.message) || e);
-    }
+    } catch (e) { aiAnswer = 'خطا: ' + ((e && e.message) || e); }
     aiBusy = false; draw();
   }
 
   document.addEventListener('change', function (e) {
     var t = e.target; if (!t || !t.getAttribute) return;
     var id = t.getAttribute('data-txcat');
-    if (id) {
-      var l = loadTx();
-      l.forEach(function (x) { if (x.id === id) x.cat = t.value || null; });
-      saveTx(l);
-    }
+    if (id) { var l = loadTx(); l.forEach(function (x) { if (x.id === id) x.cat = t.value || null; }); saveTx(l); }
   });
 
   document.addEventListener('click', function (e) {
     var t = e.target; if (!t) return;
     var g = function (a) { return t.getAttribute && t.getAttribute(a); };
 
-    var tab = g('data-stab');
-    if (tab) { spendTab = tab; aiAnswer = null; draw(); return; }
+    var tab = g('data-stab'); if (tab) { spendTab = tab; aiAnswer = null; draw(); return; }
+    var rg = g('data-srange'); if (rg) { spendRange = rg; draw(); return; }
     if (t.id === 'sImport') { importSms(); return; }
     if (t.id === 'aiAsk') { askAi(); return; }
 
@@ -1244,61 +1446,76 @@ function fa(n) {
       var amt = Number(String($('sAmt').value).replace(/[^\d]/g, ''));
       if (!isFinite(amt) || amt <= 0) return;
       var l1 = loadTx();
-      // stored in rial like the SMS rows, so the two never mix units
       l1.push({ id: 'm' + Date.now(), at: Date.now(), amount: amt * 10, out: $('sDir').value === 'out',
-        card: null, bank: null, balance: null, channel: null, raw: '', cat: $('sCat').value || null,
-        transfer: false, typeUnknown: false, src: 'manual' });
+        card: null, accountNo: null, bank: null, balance: null, channel: null, raw: '',
+        cat: $('sCat').value || null, transfer: false, fee: false, typeUnknown: false, src: 'manual' });
       saveTx(l1); spendMsg = null; draw(); return;
     }
-    if (t.id === 'cAdd') {
-      var name = String($('cName').value).trim(); if (!name) return;
-      var cats = loadCats();
-      cats.push({ id: 'c' + Date.now(), name: name, emoji: String($('cEmoji').value).trim() || '💰' });
-      jset(CAT_KEY, cats); draw(); return;
+    if (t.id === 'cAdd' || t.id === 'iAdd') {
+      var isIn = t.id === 'iAdd';
+      var nm = String($(isIn ? 'iName' : 'cName').value).trim(); if (!nm) return;
+      var key = isIn ? INCAT_KEY : CAT_KEY, arr = isIn ? loadInCats() : loadCats();
+      arr.push({ id: (isIn ? 'i' : 'c') + Date.now(), name: nm, emoji: String($(isIn ? 'iEmoji' : 'cEmoji').value).trim() || (isIn ? '💵' : '💰') });
+      jset(key, arr); draw(); return;
     }
     if (t.id === 'kAdd') {
       var l4 = String($('kLast4').value).replace(/[^\d]/g, '').slice(-4); if (l4.length !== 4) return;
       var cards = loadCards();
-      cards.push({ id: 'k' + Date.now(), last4: l4, title: String($('kTitle').value).trim() || ('کارت ' + l4), bank: String($('kBank').value).trim() });
-      jset(CARD_KEY, cards); draw(); return;
+      if (!cards.some(function (c) { return c.last4 === l4; })) {
+        cards.push({ id: 'k' + l4, last4: l4, title: String($('kTitle').value).trim() || ('کارت ' + l4), bank: '', auto: false });
+        jset(CARD_KEY, cards);
+      }
+      draw(); return;
+    }
+    if (t.id === 'aAdd') {
+      var no = String($('aNo').value).replace(/[^\d]/g, ''); if (no.length < 6) return;
+      var accs = loadAccounts();
+      if (!accs.some(function (a) { return a.no === no; })) {
+        accs.push({ id: 'a' + no, no: no, title: String($('aTitle').value).trim() || ('حساب ' + no.slice(-4)), bank: '', auto: false });
+        jset(ACC_KEY, accs);
+      }
+      draw(); return;
     }
     if (t.id === 'nAdd') {
       var snd = String($('nSender').value).trim(), bnk = String($('nBank').value).trim();
       if (!snd || !bnk) return;
-      var ss = loadSenders(); ss.push({ id: 'n' + Date.now(), sender: snd, bank: bnk });
-      jset(SENDER_KEY, ss); draw(); return;
+      var ss = loadSenders(); ss.push({ id: 'n' + Date.now(), sender: snd, bank: bnk }); jset(SENDER_KEY, ss); draw(); return;
     }
 
-    var d1 = g('data-txdel');
-    if (d1) { saveTx(loadTx().filter(function (x) { return x.id !== d1; })); draw(); return; }
-    var d2 = g('data-catdel');
-    if (d2) {
+    var d1 = g('data-txdel'); if (d1) { saveTx(loadTx().filter(function (x) { return x.id !== d1; })); draw(); return; }
+    var d2 = g('data-catdel'), d2i = g('data-incatdel');
+    if (d2 || d2i) {
       if (!confirm('این دسته حذف شود؟ تراکنش‌هایش بدون دسته می‌شوند.')) return;
-      jset(CAT_KEY, loadCats().filter(function (x) { return x.id !== d2; }));
-      var lt = loadTx(); lt.forEach(function (x) { if (x.cat === d2) x.cat = null; }); saveTx(lt);
+      var kk = d2 ? CAT_KEY : INCAT_KEY, id2 = d2 || d2i;
+      jset(kk, (d2 ? loadCats() : loadInCats()).filter(function (x) { return x.id !== id2; }));
+      var lt = loadTx(); lt.forEach(function (x) { if (x.cat === id2) x.cat = null; }); saveTx(lt);
       draw(); return;
     }
-    var d3 = g('data-carddel');
-    if (d3) { jset(CARD_KEY, loadCards().filter(function (x) { return x.id !== d3; })); draw(); return; }
-    var d4 = g('data-senddel');
-    if (d4) { jset(SENDER_KEY, loadSenders().filter(function (x) { return x.id !== d4; })); draw(); return; }
+    var d3 = g('data-carddel'); if (d3) { jset(CARD_KEY, loadCards().filter(function (x) { return x.id !== d3; })); draw(); return; }
+    var d3a = g('data-accdel'); if (d3a) { jset(ACC_KEY, loadAccounts().filter(function (x) { return x.id !== d3a; })); draw(); return; }
+    var d4 = g('data-senddel'); if (d4) { jset(SENDER_KEY, loadSenders().filter(function (x) { return x.id !== d4; })); draw(); return; }
 
     var tr = g('data-txtr');
     if (tr) { var l5 = loadTx(); l5.forEach(function (x) { if (x.id === tr) x.transfer = !x.transfer; }); saveTx(l5); draw(); return; }
-    var fx = g('data-txfix');
-    if (fx) { var l6 = loadTx(); l6.forEach(function (x) { if (x.id === fx) { x.typeUnknown = false; x.out = true; } }); saveTx(l6); draw(); return; }
+    var fe = g('data-txfee');
+    if (fe) { var l8 = loadTx(); l8.forEach(function (x) { if (x.id === fe) x.fee = !x.fee; }); saveTx(l8); draw(); return; }
+    var fx = g('data-txfix'), fxi = g('data-txfixin');
+    if (fx || fxi) {
+      var l6 = loadTx(), fid = fx || fxi;
+      l6.forEach(function (x) { if (x.id === fid) { x.typeUnknown = false; x.out = !!fx; } });
+      saveTx(l6); draw(); return;
+    }
 
     var pk = g('data-pok'), pf = g('data-pflip'), pn = g('data-pno');
     if (pk || pf || pn) {
-      var pend = loadPending();
-      var idx = Number(pk || pf || pn);
-      var p = pend[idx]; if (!p) return;
+      var pend = loadPending(), idx = Number(pk || pf || pn), p = pend[idx];
+      if (!p) return;
       if (pf) { p.out = !p.out; savePending(pend); draw(); return; }
       if (pk && p.amount) {
         var l7 = loadTx();
-        l7.push({ id: p.id, at: p.at, amount: p.amount, out: !!p.out, card: null,
+        l7.push({ id: p.id, at: p.at, amount: p.amount, out: !!p.out, card: null, accountNo: null,
           bank: bankOfSender(p.address) || p.address || null, balance: null, channel: null,
-          raw: p.body, cat: null, transfer: false, typeUnknown: false, src: 'sms-confirmed' });
+          raw: p.body, cat: null, transfer: false, fee: false, typeUnknown: false, src: 'sms-confirmed' });
         saveTx(l7);
       }
       pend.splice(idx, 1); savePending(pend); draw();
