@@ -85,20 +85,37 @@
     };
   }
 
+  /**
+   * "مبلغ X ریال" — the Sepah shape, but plenty of other banks use the same wording.
+   *
+   * Two things the Kotlin got wrong here:
+   *  • it hard-coded the bank to سپه for ANY message of this shape, so a Melli card purchase
+   *    was filed under Sepah;
+   *  • with no withdraw keyword it defaulted isWithdrawal to false, i.e. silently counted the
+   *    transaction as INCOME. "تراکنش کارت شما … به مبلغ ۲٬۴۰۰٬۰۰۰ ریال ثبت شد" is a card
+   *    purchase, and booking it as income both inflates income and hides the spending.
+   * Now the bank is only claimed when the text actually says so, and an unstated direction is
+   * marked unclear so the user is asked instead of guessed at.
+   */
+  var sepahRx = /سپه/;
   function parseSepah(n) {
     var amount = toCleanLong(firstGroup(mablaghRx, n, 1));
     if (amount === null || amount < 1000) return null;
     var isWithdrawal = withdrawKeys.some(function (k) { return n.indexOf(k) >= 0; });
+    var isDeposit = depositKeys.some(function (k) { return n.indexOf(k) >= 0; });
+    var isSepah = sepahRx.test(n);
+    var named = (firstGroup(bankNameRx, n, 1) || '').trim();
     return {
       amount: amount,
       isWithdrawal: isWithdrawal,
       cardLast4: null,
       balance: toCleanLong(firstGroup(balanceRx, n, 1)),
-      channel: 'اینترنت‌بانک سپه',
+      channel: isSepah ? 'اینترنت‌بانک سپه' : null,
       accountNo: firstGroup(accountRx, n, 1),
       isFee: isFeeText(n),
-      bankNameInSms: 'بانک سپه',
-      directionClear: true
+      bankNameInSms: isSepah ? 'بانک سپه' : (named || null),
+      // neither verb present ⇒ the direction is genuinely unstated, not a deposit
+      directionClear: isWithdrawal !== isDeposit
     };
   }
 

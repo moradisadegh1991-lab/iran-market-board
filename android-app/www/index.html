@@ -146,6 +146,10 @@
   .lg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lg-val { color: var(--muted); }
 
+  .sms-box { flex: 1 1 100%; font-size: 12.5px; line-height: 1.85; color: var(--muted);
+    background: #f6f8fa; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px;
+    white-space: pre-wrap; word-break: break-word; }
+  .sms-box.open { color: var(--ink); background: #fffdf6; border-color: #ecdfbc; }
   .tag { display: inline-block; font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 2px 9px; }
   .tag.out { background: #fde8e5; color: #8e2f26; }
   .tag.in { background: #e4f3ea; color: #12633e; }
@@ -955,7 +959,8 @@ function fa(n) {
   var TX_KEY = 'imb.tx.v1', TXMETA_KEY = 'imb.txmeta.v1', PEND_KEY = 'imb.pending.v1';
   var CAT_KEY = 'imb.cats.v1', INCAT_KEY = 'imb.incats.v1';
   var CARD_KEY = 'imb.cards.v1', ACC_KEY = 'imb.accounts.v1', SENDER_KEY = 'imb.senders.v1';
-  var AIKEY_KEY = 'imb.aikey.v1';
+  var AIKEY_KEY = 'imb.aikey.v1', NOTIF_KEY = 'imb.notif.v1';
+  var openRaw = {};   // which SMS bodies the user has expanded
   var spendMsg = null, spendTab = 'dash', spendRange = 'month', aiBusy = false, aiAnswer = null;
 
   var DEFAULT_CATS = [
@@ -984,6 +989,38 @@ function fa(n) {
   function loadAccounts() { var v = jget(ACC_KEY, []); return Array.isArray(v) ? v : []; }
   function loadSenders() { var v = jget(SENDER_KEY, []); return Array.isArray(v) ? v : []; }
   function txMeta() { return jget(TXMETA_KEY, {}) || {}; }
+
+  function notifPlugin() {
+    var C = window.Capacitor;
+    return (C && C.Plugins && C.Plugins.LocalNotifications) ? C.Plugins.LocalNotifications : null;
+  }
+  function notifOn() { return jget(NOTIF_KEY, true) !== false; }
+
+  /**
+   * Fires a local notification after an import. Deliberately summary-only: putting the
+   * amount or the bank in a notification would show it on the lock screen, and this is the
+   * one place in the app where data leaves the app's own window.
+   */
+  async function notify(title, body) {
+    var plug = notifPlugin();
+    if (!plug || !notifOn()) return;
+    try {
+      var perm = await plug.checkPermissions();
+      if (!perm || perm.display !== 'granted') {
+        var req = await plug.requestPermissions();
+        if (!req || req.display !== 'granted') return;
+      }
+      await plug.schedule({
+        notifications: [{
+          id: Date.now() % 2147483647,
+          title: title,
+          body: body,
+          smallIcon: 'ic_stat_icon_config_sample',
+          channelId: 'imb-tx'
+        }]
+      });
+    } catch (e) { /* a failed notification must never break the import */ }
+  }
 
   function smsPlugin() { var C = window.Capacitor; return (C && C.Plugins && C.Plugins.SmsReader) ? C.Plugins.SmsReader : null; }
   function catById(id) { var c = loadCats().concat(loadInCats()).filter(function (x) { return x.id === id; }); return c[0] || null; }
@@ -1067,6 +1104,12 @@ function fa(n) {
       saveTx(list); savePending(pend); jset(TXMETA_KEY, { lastImport: newest });
       spendMsg = { info: fa(added) + ' تراکنش ثبت شد' + (fees ? '، ' + fa(fees) + ' کارمزد' : '') +
         '، ' + fa(asked) + ' نیازمند تأیید، ' + fa(skipped) + ' نادیده (پیامک اپراتور، رمز و تبلیغ).' };
+      if (added || asked) {
+        notify(
+          'تراکنش‌های جدید',
+          fa(added) + ' تراکنش ثبت شد' + (asked ? ' و ' + fa(asked) + ' مورد منتظر تأیید شماست' : '') + '.'
+        );
+      }
     } catch (e) {
       spendMsg = { err: 'خواندن پیامک ناموفق بود: ' + ((e && e.message) || e) };
     }
@@ -1235,6 +1278,9 @@ function fa(n) {
         (meta.lastImport ? '<div class="row"><span class="label muted">آخرین دریافت</span><span>' + esc(fmtWhen(meta.lastImport)) + '</span></div>' : '') +
         (plug ? '<div class="row"><button class="addbtn" id="sImport" style="flex:1 1 100%">خواندن پیامک‌های جدید</button></div>' : '') +
         (spendMsg ? '<div class="row"><span class="' + (spendMsg.err ? 'down' : 'muted') + '">' + esc(spendMsg.err || spendMsg.info) + '</span></div>' : '') +
+        '<div class="row"><span class="label">اعلان تراکنش جدید<small>' +
+          (notifPlugin() ? 'بعد از هر دریافت، خلاصه‌ای اعلان می‌شود. مبلغ و نام بانک در اعلان نمی‌آید تا روی صفحه قفل دیده نشود.' : 'در نسخه اندروید فعال می‌شود.') +
+        '</small></span><button class="chipbtn" id="notifToggle" aria-pressed="' + notifOn() + '">' + (notifOn() ? 'روشن' : 'خاموش') + '</button></div>' +
         (uncat.length ? '<div class="row"><span class="label" style="color:var(--down)">⚠️ ' + fa(uncat.length) + ' تراکنش دسته‌بندی‌نشده</span></div>' : '') +
         (pend.length ? '<div class="row"><span class="label muted">❓ ' + fa(pend.length) + ' پیامک نیازمند تأیید</span></div>' : '') +
       '</div>' +
@@ -1247,7 +1293,12 @@ function fa(n) {
     return '<div class="card"><h2>نیازمند تأیید شما (' + fa(pend.length) + ')</h2>' +
       '<div class="row"><span class="muted" style="font-size:12.5px">نشانه مالی داشتند ولی مبلغ یا جهتشان قطعی نبود، پس خودکار ثبت نشدند.</span></div>' +
       pend.slice(0, 10).map(function (p, i) {
-        return '<div class="row alloc"><span class="label" style="font-size:13px">' + esc(p.body.slice(0, 120)) + '</span>' +
+        var key = 'p' + i;
+        var open = !!openRaw[key];
+        var short = p.body.length > 120 ? p.body.slice(0, 120) + '…' : p.body;
+        return '<div class="row alloc">' +
+          '<div class="sms-box' + (open ? ' open' : '') + '">' + esc(open ? p.body : short) + '</div>' +
+          (p.body.length > 120 ? '<button class="chipbtn" data-raw="' + key + '">' + (open ? 'کوتاه کن' : 'متن کامل پیامک') + '</button>' : '') +
           '<span class="val num">' + (p.amount ? fa(toToman(p.amount)) : '—') + '</span>' +
           '<button class="chipbtn" data-pok="' + i + '">ثبت به‌عنوان ' + (p.out ? 'خرج' : 'واریزی') + '</button>' +
           '<button class="chipbtn" data-pflip="' + i + '">برعکس</button>' +
@@ -1279,6 +1330,8 @@ function fa(n) {
           '<button class="chipbtn" data-txtr="' + esc(t.id) + '">' + (t.transfer ? 'جابه‌جایی نیست' : 'جابه‌جایی بین حساب‌ها') + '</button>' +
           '<button class="chipbtn" data-txfee="' + esc(t.id) + '">' + (t.fee ? 'کارمزد نیست' : 'کارمزد است') + '</button>' +
           (t.typeUnknown ? '<button class="chipbtn" data-txfix="' + esc(t.id) + '">خرج بود</button><button class="chipbtn" data-txfixin="' + esc(t.id) + '">واریزی بود</button>' : '') +
+          (t.raw ? '<button class="chipbtn" data-raw="t' + esc(t.id) + '">' + (openRaw['t' + t.id] ? 'بستن متن' : 'متن پیامک') + '</button>' : '') +
+          (t.raw && openRaw['t' + t.id] ? '<div class="sms-box open">' + esc(t.raw) + '</div>' : '') +
           '</div>';
       }).join('') + '</div>' + spendManualCard();
   }
@@ -1438,6 +1491,12 @@ function fa(n) {
     var g = function (a) { return t.getAttribute && t.getAttribute(a); };
 
     var tab = g('data-stab'); if (tab) { spendTab = tab; aiAnswer = null; draw(); return; }
+    var rawK = g('data-raw'); if (rawK) { openRaw[rawK] = !openRaw[rawK]; draw(); return; }
+    if (t.id === 'notifToggle') {
+      jset(NOTIF_KEY, !notifOn());
+      if (notifOn()) notify('اعلان روشن شد', 'از این پس تراکنش‌های جدید اعلان می‌شوند.');
+      draw(); return;
+    }
     var rg = g('data-srange'); if (rg) { spendRange = rg; draw(); return; }
     if (t.id === 'sImport') { importSms(); return; }
     if (t.id === 'aiAsk') { askAi(); return; }

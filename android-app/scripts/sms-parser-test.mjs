@@ -19,14 +19,28 @@ t('Tejarat withdrawal', () => {
   assert.equal(r.balance, 12300000);
 });
 
-// ② سپه — «مبلغ X ریال» بعد از «انتقال وجه»
-t('Sepah transfer', () => {
+// ② «مبلغ X ریال» — the Sepah shape, also used by other banks
+t('"مبلغ X ریال" transfer', () => {
   const r = P.parse('انتقال وجه\nمبلغ 1,012,000 ریال\nمانده: 5,000,000');
   assert.ok(r);
   assert.equal(r.amount, 1012000);
   assert.equal(r.isWithdrawal, true);
+  assert.equal(r.directionClear, true);
+  // the text never says سپه, so the bank must not be claimed
+  assert.equal(r.bankNameInSms, null, 'do not attribute an unnamed bank to Sepah');
+});
+t('Sepah named explicitly is attributed', () => {
+  const r = P.parse('بانک سپه: واریز مبلغ 5,000,000 ریال');
   assert.equal(r.bankNameInSms, 'بانک سپه');
   assert.equal(r.channel, 'اینترنت‌بانک سپه');
+  assert.equal(r.isWithdrawal, false);
+});
+t('a purchase with no direction verb is NOT booked as income', () => {
+  // this silently counted as a deposit before: it inflated income and hid the spending
+  const r = P.parse('تراکنش کارت شما در بانک ملت به مبلغ 2,400,000 ریال ثبت شد');
+  assert.ok(r);
+  assert.equal(r.directionClear, false, 'unstated direction must be flagged, not guessed');
+  assert.notEqual(r.bankNameInSms, 'بانک سپه', 'a Melli message must not be filed under Sepah');
 });
 
 // ③ رسالت — sign before the number, and after it

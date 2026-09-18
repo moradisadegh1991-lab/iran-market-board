@@ -79,21 +79,25 @@ if (!existsSync(mainActivityPath)) {
   }
 }
 
-// ── 3. READ_SMS permission ──
+// ── 3. permissions ──
 if (!existsSync(manifestPath)) {
   warnMissing(manifestPath, 'expected after `cap add android`; run that first.');
 } else {
   let mf = readFileSync(manifestPath, 'utf8');
-  if (mf.includes('android.permission.READ_SMS')) {
-    console.log('✓ AndroidManifest.xml already has READ_SMS (no change)');
-  } else {
-    mf = mf.replace(
-      /(<manifest[^>]*>)/,
-      `$1\n    <uses-permission android:name="android.permission.READ_SMS" />`,
-    );
-    writeFileSync(manifestPath, mf);
-    console.log('✓ AndroidManifest.xml: READ_SMS permission added');
+  // POST_NOTIFICATIONS is required from Android 13 (API 33); without it the local
+  // notification is silently dropped and nothing tells you why.
+  const perms = ['android.permission.READ_SMS', 'android.permission.POST_NOTIFICATIONS'];
+  let changed = false;
+  for (const perm of perms) {
+    if (mf.includes(perm)) {
+      console.log(`✓ AndroidManifest.xml already has ${perm.split('.').pop()} (no change)`);
+      continue;
+    }
+    mf = mf.replace(/(<manifest[^>]*>)/, `$1\n    <uses-permission android:name="${perm}" />`);
+    changed = true;
+    console.log(`✓ AndroidManifest.xml: ${perm.split('.').pop()} permission added`);
   }
+  if (changed) writeFileSync(manifestPath, mf);
 }
 
 console.log('\nپلاگین پیامک به پروژه اندروید متصل شد.');
