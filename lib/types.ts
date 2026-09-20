@@ -143,6 +143,12 @@ export interface Portfolio {
   lines: AllocationLine[];
   annualVolPct: number | null;
   varPct: number | null; // 95% horizon loss estimate (positive number)
+  /** expected shortfall: average loss across the worst 5% of outcomes (positive number) */
+  esPct: number | null;
+  /** whether varPct/esPct came from the sleeves' real joint history or the assumed matrix */
+  riskBasis: 'measured' | 'assumed';
+  /** measured average pairwise correlation among the risky sleeves */
+  avgCorrPct: number | null;
   notes: string[];
 }
 

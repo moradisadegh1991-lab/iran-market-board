@@ -189,7 +189,12 @@ async function buildSnapshot(): Promise<Snapshot> {
       assets: scenarios,
       note: 'بدترین سناریو یعنی فقط در ۵٪ حالت‌ها قیمت از آن پایین‌تر می‌رود و بهترین سناریو یعنی فقط در ۵٪ حالت‌ها بالاتر. رویدادهای کاملاً پیش‌بینی‌نشده (جنگ، تغییر ناگهانی سیاست ارزی) می‌توانند قیمت را بیرون از این بازه ببرند.',
     },
-    portfolios: buildPortfolios(risk, { items, coinBubblePct, g18BubblePct, usdtPremiumPct }, crypto.coins),
+    portfolios: buildPortfolios(
+      risk,
+      { items, coinBubblePct, g18BubblePct, usdtPremiumPct },
+      crypto.coins,
+      new Map([...seriesByKey].map(([k, s]) => [k, { dates: s.dates, prices: s.prices }])),
+    ),
     defaultProfile,
   };
 }

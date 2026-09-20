@@ -31,13 +31,14 @@ app/api/             snapshot · diag · ingest · chart · simulate · paper/{,
                      · swing (backtest/portfolio/scan) · swing-live/{,tick} · learning
                      · holdings · cron/* · telegram/{webhook,setup,broadcast}
 lib/sources/         tgju · goldapi · nobitex · brsapi · coingecko · history · news · cache
-lib/engine/          stats · risk · crypto · tse · portfolio · scenario · simulator · live
-                     · learning · swing · swing-portfolio · swing-scan · holdings-analysis
+lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-risk · scenario
+                     · simulator · live · learning · swing · swing-portfolio · swing-scan
+                     · holdings-analysis · sizing
 lib/telegram/        api · format · handler · paper
 lib/                 snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
-                     · Sparkline · RollingNumber · HoldingsPanel
+                     · Sparkline · RollingNumber · HoldingsPanel · PositionSizer
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
                      · Crypto · Portfolio · Bot
 scripts/             تست‌های آفلاین همه با tsx اجرا می‌شوند — بخش ۵ را ببین
@@ -103,6 +104,23 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
    می‌فرستد، نه متن پیامک.
 8. **‏گیت‌هاب اکشن‌ها روی ریپوی خصوصی ماهی ۲٬۰۰۰ دقیقه رایگان دارد، روی عمومی نامحدود.**
    `paper-tick.yml` قبلاً این را در دو روز تمام می‌کرد (بخش ۸).
+9. **‏هر عدد «تومانی» باید نرخ تتر روزِ خودش را داشته باشد.** موتور نوسان‌گیری قبلاً کل بازه را
+   با نرخ تتر امروز تبدیل می‌کرد؛ یعنی عدد تومانی در واقع عدد دلاری بود و پای ریالی معامله —
+   که برای دارنده ایرانی اغلب نصف بازده است — حذف می‌شد. حالا `SwingConfig.usdtRialByDate`
+   وجود دارد و اگر ندهی، نتیجه با `metrics.fixedFx` علامت می‌خورد و هشدار می‌دهد. `runSwing`
+   بدون این نگاشت دقیقاً مثل نسخه قبلی رفتار می‌کند (`scripts/swing-fx-test.ts` این را قفل کرده).
+10. **‏بازده را با نرخ بدون ریسک بسنج، نه با صفر.** در بازاری که صندوق درآمد ثابت ~۳۰٪ می‌دهد،
+    بازده مثبت به‌تنهایی نشانه هیچ‌چیز نیست. شبیه‌ساز از اول این کار را می‌کرد؛ موتور
+    نوسان‌گیری و امتیاز غربال هم حالا می‌کنند (`riskFreeAnnual`، پیش‌فرض `FIXED_INCOME_YIELD`).
+11. **‏همبستگی سبد اندازه‌گیری می‌شود، فرض نمی‌شود.** `lib/engine/portfolio-risk.ts` سری بازده
+    خود سبد را از تاریخچه واقعی می‌سازد، پس همبستگی از داده می‌آید نه از ماتریس ثابت. روی داده
+    زنده، میانگین همبستگی بخش‌های پرریسک ۶۳–۷۸٪ اندازه‌گیری شد — یعنی سبد «متنوع» عملاً یک شرط
+    واحد روی تضعیف ریال است. ماتریس ثابت قبلی فقط وقتی استفاده می‌شود که تاریخچه هم‌زمان کمتر
+    از ۶۰ روز باشد، و آن موقع `riskBasis: 'assumed'` علامت می‌خورد.
+12. **‏VaR در سطح ۹۵٪ دُم پهن را نشان نمی‌دهد.** در بسط Cornish–Fisher جملهٔ کشیدگی پشت
+    ‎|z| = √۳‎ (حدود ۴٫۲٪) تغییر علامت می‌دهد، پس VaR ۹۵٪ به دُم تقریباً بی‌اعتناست. به همین دلیل
+    Expected Shortfall (میانگین زیان در بدترین ۵٪) هم گزارش می‌شود و برای ریسک جهشی بازار ایران
+    عدد درست‌تری است. `scripts/portfolio-risk-test.ts` هر دو رفتار را قفل کرده.
 
 ## ۵) چک‌لیست تأیید قبل از هر تحویل
 
@@ -116,6 +134,7 @@ npm run smoke && npm run smoke:sim
 npm run test:jalali && npm run test:holdings
 npm run test:swingpf && npm run test:swingscan && npm run test:swinghist
 npm run test:activity
+npm run test:pfrisk && npm run test:swingfx && npm run test:sizing
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts
 npx tsx scripts/learn-live-test.ts
@@ -127,9 +146,22 @@ node scripts/sms-parser-test.mjs
 node scripts/wire-plugin-test.mjs
 ```
 
-‏برای دیدن UI واقعی (نه فقط تست منطق)، از skill مربوط به frontend-design استفاده کن و با
-Playwright + یک mock برای fetch اسکرین‌شات بگیر — همان روشی که در کل این پروژه استفاده شد.
-هیچ صفحه‌ای را بدون دیدنش در مرورگر (حتی هدلس) تحویل نده.
+‏هیچ صفحه‌ای را بدون دیدنش در مرورگر (حتی هدلس) تحویل نده. روشی که جواب می‌دهد:
+
+```bash
+npm i -D playwright            # عمداً در package.json نیست؛ فقط موقع بررسی نصبش کن
+npm run build && npx next start -p 3111 &   # PID را نگه دار
+# در Playwright به‌جای mock کردن fetchهای بیرونی، فقط /api/snapshot را intercept کن:
+#   await page.route('**/api/snapshot*', r => r.fulfill({ body: snapshotJson }))
+npm uninstall playwright       # قبل از commit پاکش کن
+```
+
+‏نکته‌ها: (۱) اگر شبکه باز باشد، خود SSR از TGJU/GoldAPI/CoinGecko داده واقعی می‌گیرد و لازم
+نیست چیزی mock کنی — نوبیتکس و BrsApi بدون کلید fail می‌شوند ولی صفحه کار می‌کند. (۲) کروم
+در این محیط از قبل نصب است؛ `npx playwright install` را اجرا نکن، به‌جایش
+`chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' })`.
+(۳) هرگز `pkill -f "next start"` نزن — الگو با خودِ خط فرمان جاری هم مطابقت می‌کند و شل را
+می‌کشد؛ PID را نگه دار یا از `ss -lptn 'sport = :3111'` بگیر.
 
 ## ۶) نکته‌های خاص محیط (اگر در محیطی مثل من کار می‌کنی)
 

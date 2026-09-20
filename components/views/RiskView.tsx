@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { HORIZONS, RISK_LEVEL_LABEL, riskLevel } from '@/lib/engine/risk';
 import { fmtInt, fmtPct, fmtPrice } from '@/lib/num';
 import type { AssetRisk, HorizonKey } from '@/lib/types';
+import PositionSizer from '../PositionSizer';
 import { WithSnapshot } from '../SnapshotProvider';
 import { Chips, FilterBar, PageHead, Select, Toggle } from '../ui';
 
@@ -165,6 +166,7 @@ export default function RiskView() {
                   </dl>
                 </section>
               ) : null}
+              <PositionSizer assets={snap.risk} />
             </>
           );
         }}

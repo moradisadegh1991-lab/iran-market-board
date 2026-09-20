@@ -501,11 +501,31 @@ ol.list { counter-reset: n; }
 .t tr.me th, .t tr.me td { background: var(--teal-soft); font-weight: 700; }
 .news-used h2 { margin-bottom: 4px; }
 
+/* ── Position sizer (چقدر بخرم) ── */
+.sizer { margin-top: 22px; }
+.sizer h2 { margin: 0 0 4px; }
+.sizer .lede { margin: 0 0 18px; }
+.sizer-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 26px; }
+.sizer-grid > div > .chips { margin-bottom: 6px; }
+.sizer-grid small.muted { display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.7; }
+.sizer-out { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px 24px; margin: 20px 0 0; padding-top: 18px; border-top: 1px solid var(--line-soft); }
+.sizer-out dt { font-size: 12.5px; color: var(--muted); }
+.sizer-out dd { margin: 0; font-weight: 700; font-size: 15.5px; }
+.sizer-out dd small { font-weight: 400; color: var(--muted); font-size: 12.5px; }
+.sizer-out .wide { grid-column: 1 / -1; }
+.sizer-out .big { font-size: clamp(20px, 3.4vw, 27px); line-height: 1.4; }
+.sizer-out .down { color: var(--down); }
+.sizer .banner { margin-top: 12px; }
+.sizer-foot { margin: 16px 0 0; line-height: 1.8; }
+.linkish { font: inherit; color: var(--teal); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
 @media (max-width: 980px) {
   .statement-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sizer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
   .ticket-grid { grid-template-columns: 1fr; }
+  .sizer-grid { grid-template-columns: 1fr; }
   .statement { padding: 16px; }
   .statement-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .entry { grid-template-columns: 62px minmax(0, 1fr); padding: 12px; gap: 0 10px; }

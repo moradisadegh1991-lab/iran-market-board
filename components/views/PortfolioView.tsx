@@ -44,12 +44,26 @@ export default function PortfolioView() {
                     <dt>افت محتمل در بدترین ۵٪ حالت‌ها طی {HORIZON_LABEL[horizon]}</dt>
                     <dd className="num">{fmtPct(p.varPct, 0, false)}</dd>
                   </div>
+                  <div>
+                    <dt>میانگین افت در همان ۵٪ بد (اگر اتفاق بیفتد)</dt>
+                    <dd className="num">{fmtPct(p.esPct, 0, false)}</dd>
+                  </div>
                   {hasAmount && p.varPct ? (
                     <div>
                       <dt>معادل ریالی این افت</dt>
-                      <dd className="num">{fmtInt((amount * p.varPct) / 100)} تومان</dd>
+                      <dd className="num">
+                        {fmtInt((amount * p.varPct) / 100)} تومان
+                        {p.esPct ? <small className="muted"> · در بدترین حالت‌ها {fmtInt((amount * p.esPct) / 100)}</small> : null}
+                      </dd>
                     </div>
                   ) : null}
+                  <div>
+                    <dt>همبستگی اندازه‌گیری‌شده بخش‌های پرریسک</dt>
+                    <dd className="num">
+                      {p.riskBasis === 'measured' ? fmtPct(p.avgCorrPct, 0, false) : '—'}
+                      <small className="muted"> · {p.riskBasis === 'measured' ? 'از تاریخچه واقعی' : 'تاریخچه کافی نبود، فرضی'}</small>
+                    </dd>
+                  </div>
                 </dl>
                 <div className="alloc" role="img" aria-label={lines.map((l) => `${l.label} ${Math.round(l.weight * 100)} درصد`).join('، ')}>
                   {lines.map((l) => (

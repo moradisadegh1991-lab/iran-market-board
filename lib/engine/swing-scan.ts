@@ -47,17 +47,28 @@ const MIN_TRADES = 4;
 
 /**
  * Swing-suitability score on the in-sample half.
- * Return alone would crown whatever trended hardest, so it is divided by the drawdown it
- * took to get there and only counted when the strategy actually traded enough times for the
- * number to mean anything.
+ *
+ * Return alone would crown whatever trended hardest, so it is divided by the drawdown it took
+ * to get there and only counted when the strategy traded enough times for the number to mean
+ * anything. Two further corrections matter in this market specifically:
+ *
+ *  • the edge is measured against the fixed-income rate, not against zero. Where a fund pays
+ *    ~30% a year for no risk, a positive backtest return is not by itself evidence of anything;
+ *    a coin that returned 8% over three months was a worse place for the money than cash.
+ *  • profit factor enters separately, so a coin that made its return from one lucky trade ranks
+ *    below one that made the same return from a repeatable edge. Log-scaled and capped, because
+ *    the difference between PF 3 and PF 6 on a dozen trades is noise.
  */
 function score(r: SwingResult): number {
   const m = r.metrics;
   if (m.trades < MIN_TRADES) return -Infinity;
   const dd = Math.max(Math.abs(m.maxDrawdownPct), 3); // floor so a tiny-drawdown fluke can't dominate
-  const perTrade = m.returnPct / m.trades;
-  // return per unit of pain, nudged by consistency; capped so one huge trade can't carry it
-  return (m.returnPct / dd) * 1 + Math.max(-2, Math.min(2, perTrade)) * 0.25;
+  const excess = m.returnPct - (m.fixedIncomePct ?? 0);
+  const perTrade = Math.max(-2, Math.min(2, m.expectancyPct ?? m.returnPct / m.trades));
+  const pf = Number.isFinite(m.profitFactor as number) && (m.profitFactor as number) > 0
+    ? Math.max(-1, Math.min(1, Math.log(m.profitFactor as number)))
+    : 0;
+  return excess / dd + 0.25 * perTrade + 0.35 * pf;
 }
 
 function half(bars: SwingBar[]): { train: SwingBar[]; test: SwingBar[]; splitAt: number } {

@@ -1,6 +1,7 @@
 // Strategic anchor weights (editable) + tactical tilt from horizon risk scores + caps → allocation per profile/horizon
 import { clamp, fmtInt, fmtNum, fmtPct, isNum } from '@/lib/num';
 import type { AllocationLine, AssetRisk, CryptoRow, LiveBoard, Portfolio, PortfolioHorizon, Profile, RiskAssetKey } from '@/lib/types';
+import { portfolioRisk, type ClassSeries } from './portfolio-risk';
 
 type Cls = AllocationLine['cls'];
 const CLASSES: Cls[] = ['cash', 'usd', 'gold', 'equity', 'btc', 'spec'];
@@ -40,7 +41,12 @@ const CORR: number[][] = [
 ];
 const H_DAYS: Record<PortfolioHorizon, number> = { m1: 30, m3: 90, m6: 180, y1: 365 };
 
-export function buildPortfolios(risk: AssetRisk[], live: LiveBoard, coins: CryptoRow[]): Record<Profile, Record<PortfolioHorizon, Portfolio>> {
+export function buildPortfolios(
+  risk: AssetRisk[],
+  live: LiveBoard,
+  coins: CryptoRow[],
+  series?: Map<RiskAssetKey, ClassSeries>,
+): Record<Profile, Record<PortfolioHorizon, Portfolio>> {
   const byKey = new Map(risk.map((r) => [r.key, r]));
   const fixedYield = Number(process.env.FIXED_INCOME_YIELD || 0.3);
   const out = {} as Record<Profile, Record<PortfolioHorizon, Portfolio>>;
@@ -89,8 +95,26 @@ export function buildPortfolios(risk: AssetRisk[], live: LiveBoard, coins: Crypt
       });
       let variance = 0;
       for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) variance += rounded[i] * rounded[j] * vols[i] * vols[j] * CORR[i][j];
-      const annualVolPct = Math.sqrt(variance) * 100;
-      const varPct = 1.645 * annualVolPct * Math.sqrt(H_DAYS[horizon] / 365);
+      const assumedVolPct = Math.sqrt(variance) * 100;
+
+      // Measure the same thing from the sleeves' joint history where possible; the assumed
+      // matrix above stays as the fallback for a portfolio whose history is still too short.
+      const measured = portfolioRisk(
+        CLASSES.map((cls, i) => {
+          const rk = RISK_KEY[cls];
+          return {
+            key: cls,
+            weight: rounded[i],
+            series: rk ? series?.get(rk) ?? null : null,
+            volMult: cls === 'spec' ? 1.8 : 1,
+            fixedDaily: rk ? undefined : Math.pow(1 + fixedYield, 1 / 365) - 1,
+          };
+        }),
+        H_DAYS[horizon],
+        { annualVolPct: assumedVolPct, varPct: 1.645 * assumedVolPct * Math.sqrt(H_DAYS[horizon] / 365) },
+      );
+      const annualVolPct = measured.annualVolPct ?? assumedVolPct;
+      const varPct = measured.varPct;
 
       const topCoins = coins.filter((c) => c.onNobitex !== false).slice(0, 3).map((c) => c.symbol).join('، ');
       const instrument: Record<Cls, string> = {
@@ -116,9 +140,15 @@ export function buildPortfolios(risk: AssetRisk[], live: LiveBoard, coins: Crypt
 
       if (rounded[0] > base[0] + 0.05) notes.push('ریسک‌های فعلی بالاتر از حد معمول است؛ سهم درآمد ثابت افزایش یافته.');
       if (rounded[0] < base[0] - 0.05) notes.push('ریسک ورود دارایی‌ها پایین‌تر از معمول است؛ سهم دارایی‌های پرنوسان کمی بیشتر شده.');
+      notes.push(...measured.notes);
       notes.push('خرید را پلکانی (۳ تا ۴ مرحله) انجام دهید و در پایان بازه وزن‌ها را دوباره متعادل کنید.');
 
-      out[profile][horizon] = { profile, horizon, lines, annualVolPct, varPct, notes };
+      out[profile][horizon] = {
+        profile, horizon, lines, annualVolPct, varPct, notes,
+        esPct: measured.esPct,
+        riskBasis: measured.basis,
+        avgCorrPct: measured.avgCorrPct,
+      };
     }
   }
   return out;

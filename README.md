@@ -171,7 +171,16 @@ curl -s "https://api.nobitex.ir/market/stats?srcCurrency=usdt,btc,eth&dstCurrenc
 
 **سهام (ماه)** — قدرت نسبی ۲۰ روزه به شاخص، بازده ۶۰ روزه، جهش ارزش معاملات ۵ روز به ۴۰ روز، نزدیکی به سقف ۶۰ روزه، SMA20/50، ورود پول حقیقی؛ جریمه اشباع خرید، صف خرید، P/E بالا و زیان‌ده. فیلتر نقدشوندگی: `TSE_MIN_TVAL`.
 
-**سبد** — وزن پایه هر پروفایل/افق در `lib/engine/portfolio.ts` (قابل ویرایش)، ضریب ۰٫۴ تا ۱٫۶ بر اساس ریسک ورود همان افق، سقف هر دسته، کف درآمد ثابت، نوسان سبد با ماتریس همبستگی فرضی و VaR ۹۵٪.
+**سبد** — وزن پایه هر پروفایل/افق در `lib/engine/portfolio.ts` (قابل ویرایش)، ضریب ۰٫۴ تا ۱٫۶ بر اساس ریسک ورود همان افق، سقف هر دسته، کف درآمد ثابت.
+
+**ریسک سبد** (`lib/engine/portfolio-risk.ts`) — به‌جای ماتریس همبستگی فرضی، سری بازده روزانهٔ خودِ سبد از تاریخچه واقعی بخش‌ها ساخته می‌شود؛ پس همبستگی از داده می‌آید، نه از فرض. افق با نسبت واریانس AR(1) و دُم با Cornish–Fisher تنظیم می‌شود و هرجا بازه‌های هم‌پوشان کافی باشد با توزیع تجربی ترکیب می‌شود. دو عدد گزارش می‌شود:
+
+- **VaR ۹۵٪** — افتی که فقط در ۵٪ حالت‌ها بدتر می‌شود.
+- **Expected Shortfall** — میانگین افت در همان ۵٪ بد. در سطح ۹۵٪ جملهٔ کشیدگیِ Cornish–Fisher تقریباً خنثی است، پس VaR به دُم پهن بی‌اعتناست و برای بازاری که جهش ارزی دارد ES عدد معنادارتری است.
+
+همچنین میانگین همبستگی اندازه‌گیری‌شدهٔ بخش‌های پرریسک نمایش داده می‌شود. روی داده زنده این عدد ۶۳–۷۸٪ درمی‌آید: یعنی دلار، طلا، سهام و کریپتوی یک سبد ریالی عملاً یک شرط واحد روی تضعیف ریال‌اند و تنوع سبد کمتر از چیزی است که به‌نظر می‌رسد. اگر تاریخچهٔ هم‌زمان کمتر از ۶۰ روز باشد، همان ماتریس فرضی قبلی استفاده و با برچسب «فرضی» علامت‌گذاری می‌شود.
+
+**اندازه موقعیت** (`lib/engine/sizing.ts`، در صفحه `/risk`) — اول تصمیم می‌گیرید چند درصد سرمایه را در یک معامله ریسک می‌کنید، بعد فاصله تا حد ضرر حجم را تعیین می‌کند. کارمزد هر دو طرف در زیان هر واحد حساب می‌شود (حد ضرر ۵٪ با کارمزد ۰٫۴٪ هر طرف در عمل ۵٫۸٪ است)، سقف ۲۵٪ سرمایه برای یک موقعیت اعمال می‌شود، و سه چیز سنجیده می‌شود: نسبت سود به زیان و نرخ برد لازم برای سر‌به‌سر، مقایسه با نصف کِلی، و اینکه حد ضرر داخل نوسان معمول همان دارایی نیفتاده باشد.
 
 ---
 
@@ -321,6 +330,20 @@ https://YOUR-APP.vercel.app/api/swing-live/tick?secret=ADMIN_SECRET
 
 **صادقانه:** در دو بازار از سه بازار آزمون بهتر شده و نرخ برد و بیشینه افت در همه‌جا بهتر است، ولی در روند صعودی قوی کمتر از موتور قبلی می‌گیرد چون سخت‌گیرانه‌تر وارد می‌شود. در هیچ‌کدام از این سه حالت هنوز سودده نیست و در روند صعودی از «بخر و نگه دار» عقب می‌ماند. این‌ها سری‌های مصنوعی‌اند، نه بازار واقعی. با کارمزد صفر نتیجه بازار نوسانی به ‎−۱٪ می‌رسد، یعنی بخش بزرگی از ضرر هزینه معامله است.
 
+### بازده تومانی واقعی و بنچمارک‌ها
+
+قبلاً کل بک‌تست با **یک نرخ تتر ثابت** (نرخ همان لحظه) تبدیل می‌شد. نتیجه این بود که عدد «تومان» در واقع بازده دلاری بود و پای ریالی معامله — که برای دارنده ایرانی اغلب نصف ماجراست — اصلاً دیده نمی‌شد. حالا هر کندل با نرخ تتر **روز خودش** تبدیل می‌شود (`usdtRialByDate`، از همان تاریخچه روزانه‌ای که بقیه سایت استفاده می‌کند). اگر این تاریخچه در دسترس نباشد، نتیجه با `fixedFx` علامت می‌خورد و صریحاً هشدار می‌دهد که ارقام دلاری‌اند.
+
+سه بنچمارک کنار بازده استراتژی می‌آید، چون «مثبت بودن» به‌تنهایی معنایی ندارد:
+
+- **خرید و نگه‌داری همان ارز** (با همان پای ریالی)
+- **فقط تتر نگه می‌داشتید** — اگر نوسان‌گیری از نشستن روی تتر بهتر نبوده، کل زحمت بی‌فایده بوده
+- **صندوق درآمد ثابت در همان بازه** — نرخ بدون ریسک واقعی این بازار (`FIXED_INCOME_YIELD`)
+
+معیارهای ریسک‌تعدیل‌شده هم اضافه شد: شارپ و سورتینو (هر دو مازاد بر نرخ بدون ریسک)، ضریب سود، امید ریاضی هر معامله، نسبت سود به زیان و بدترین رشته باخت. امتیاز غربال خودکار هم دیگر بازده خام را رتبه نمی‌دهد: **مازاد بر درآمد ثابت** تقسیم بر بیشینه افت، به‌علاوه ضریب سود — تا ارزی که کل بازده‌اش از یک معامله خوش‌شانس آمده بالاتر از ارزی با مزیت تکرارپذیر ننشیند.
+
+غربال خودکار حالا فقط ارزهایی را بررسی می‌کند که **بازار ریالی باز روی نوبیتکس** دارند. قبلاً کاندیداها فقط با حجم جهانی CoinGecko انتخاب می‌شدند، یعنی ممکن بود کل بودجه تاریخچه صرف ارزهایی شود که کاربر اصلاً نمی‌تواند در ایران بخرد.
+
 ## ۶-ز) حافظه و یادگیری دو موتور
 
 **معامله‌گر (برخط و گذشته‌نگر):** بعد از هر جلسه، پارامترها از نتیجه همان جلسه تنظیم می‌شوند. برای اینکه بدانیم این یادگیری واقعاً کمک می‌کند یا فقط به گذشته برازش می‌شود، `npm run test:walkfwd` تاریخچه را به پنجره‌های پیاپی می‌شکند و در هر پنجره موتور آموخته را با موتور با تنظیمات ثابت مقایسه می‌کند — همیشه روی پنجره‌ای که موتور آموخته هنوز ندیده:
@@ -351,16 +374,16 @@ https://YOUR-APP.vercel.app/api/swing-live/tick?secret=ADMIN_SECRET
 app/               صفحه‌ها: / · scenarios · simulator · live · swing · charts · risk · stocks · crypto · portfolio · bot
 app/api/           snapshot · diag · ingest · chart · simulate · paper/{,tick} · learning · swing · holdings · cron/* · telegram/{webhook,setup,broadcast}
 lib/sources/       tgju · goldapi · nobitex · brsapi · coingecko · history · news · cache
-lib/engine/        stats · risk · crypto · tse · portfolio · scenario · simulator · live · learning · swing · swing-portfolio · swing-scan · holdings-analysis
+lib/engine/        stats · risk · crypto · tse · portfolio · portfolio-risk · scenario · simulator · live · learning · swing · swing-portfolio · swing-scan · holdings-analysis · sizing
 lib/telegram/      api · format · handler · paper
 lib/               snapshot · series · history · simulate · paper · learning · intraday · holdings · jalali · store · auth · num · http
-components/        Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart · Sparkline · RollingNumber · HoldingsPanel
+components/        Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart · Sparkline · RollingNumber · HoldingsPanel · PositionSizer
 components/views/  Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks · Crypto · Portfolio · Bot
-scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · swing-portfolio-test · swing-scan-test · jalali-test · holdings-test · backfill_tse.py
+scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · swing-portfolio-test · swing-scan-test · jalali-test · holdings-test · portfolio-risk-test · swing-fx-test · sizing-test · backfill_tse.py
 .github/workflows/ paper-tick.yml (ضربان‌ساز معامله برخط)
 ```
 
-تست‌ها: `npm run typecheck` · `npm run smoke` · `npm run smoke:sim` · `npm run test:jalali` · `npm run test:holdings` · `npm run test:swingpf` · `npm run test:swingscan` · `npm run test:swinghist` · `npm run test:walkfwd` · `npm run test:activity` · `npx tsx scripts/sim-regression.ts` · `npx tsx scripts/learn-live-test.ts` · `npx tsx scripts/swing-validate.ts`
+تست‌ها: `npm run typecheck` · `npm run smoke` · `npm run smoke:sim` · `npm run test:jalali` · `npm run test:holdings` · `npm run test:swingpf` · `npm run test:swingscan` · `npm run test:swinghist` · `npm run test:walkfwd` · `npm run test:activity` · `npm run test:pfrisk` · `npm run test:swingfx` · `npm run test:sizing` · `npx tsx scripts/sim-regression.ts` · `npx tsx scripts/learn-live-test.ts` · `npx tsx scripts/swing-validate.ts`
 
 ## محدودیت‌های واقعی
 - endpointهای TGJU، نوبیتکس، BrsApi و TSETMC ممکن است بدون اطلاع تغییر کنند یا IP خارجی را ببندند؛ `/api/diag` را بعد از هر خطا چک کنید.
