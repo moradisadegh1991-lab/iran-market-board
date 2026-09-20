@@ -1,68 +1,87 @@
-# Heartbeat for live paper trading (معامله برخط).
+# Heartbeat for live paper trading (معامله برخط) and live swing (نوسان‌گیری برخط).
 #
-# Vercel Hobby crons run at most once a day, so the tick endpoint is pinged from here.
+# Vercel Hobby crons run at most once a day, so both tick endpoints are pinged from here.
 #
-# IMPORTANT — GitHub does NOT honour a */10 schedule reliably. Under load it silently drops
-# runs, and in practice the gap between runs is often 50–90 minutes (and can exceed 4 hours).
-# Long gaps mean stops and targets are only checked once an hour, so the session logs
-# "قیمت‌ها پایش نشدند" and reacts late.
+# ⚠️ PREVIOUS VERSION OF THIS FILE EXHAUSTED A PRIVATE REPO'S FREE ACTIONS MINUTES IN ~2 DAYS.
+# It looped inside each run for 55 minutes, burning ~55 runner-minutes every single hour —
+# about 40,000 min/month. GitHub Actions is unlimited on a PUBLIC repository but only free
+# up to 2,000 min/month on a PRIVATE one (docs.github.com/billing, confirmed current as of
+# 2026-09). On a private repo that 55-minute loop blew through the entire monthly quota in
+# under two days, and every workflow in the repository (this one and any others, e.g. an
+# Android build) then fails instantly until the quota resets or the repo goes public.
 #
-# The fix: schedule HOURLY (which GitHub honours far more reliably) and have each run loop,
-# pinging every LOOP_EVERY_SEC until the hour is up. One scheduled run then produces ~12 ticks.
+# This version does ONE tick per scheduled run — no internal loop — which costs at most
+# ~1 billed minute per run. Hourly ⇒ ~720 min/month, safely under the free private-repo quota
+# even alongside other workflows. The tradeoff: only one check-in per hour from GitHub alone.
 #
-# COST: the loop keeps a runner busy ~55 min/hour ≈ 40,000 min/month.
-#   - public repository  → Actions minutes are free, no problem.
-#   - private repository → far beyond the 2,000 free min/month. Either make the repo public,
-#     lower LOOP_MINUTES, or use an external pinger instead (cron-job.org, every 5–10 min,
-#     hitting  https://YOUR-APP.vercel.app/api/paper/tick?secret=ADMIN_SECRET ).
+# FOR FREQUENT TICKS (every few minutes) WITHOUT SPENDING ANY GITHUB ACTIONS MINUTES, use a
+# free external cron service instead — it costs GitHub nothing, because it isn't GitHub:
+#   1. https://cron-job.org (or any free HTTP cron) → new job, every 5 minutes, GET:
+#        https://YOUR-APP.vercel.app/api/paper/tick?secret=ADMIN_SECRET
+#        https://YOUR-APP.vercel.app/api/swing-live/tick?secret=ADMIN_SECRET
+#      (both endpoints also accept an admin secret as a query param, not just Bearer auth)
+#   2. This GitHub workflow then only needs to exist as a once-an-hour fallback in case the
+#      external cron has downtime — which is exactly what it does by default below.
+#
+# If you'd rather keep everything inside GitHub and accept the cost, restore the loop by
+# setting `enable_loop: true` when running this workflow manually (Actions tab → Run workflow)
+# — see the loop step below. Do this only on a PUBLIC repository.
 #
 # Repository → Settings → Secrets and variables → Actions:
 #   BOARD_URL    = https://your-app.vercel.app
 #   CRON_SECRET  = same value as the Vercel env var
 # GitHub disables schedules after 60 days without repository activity.
 name: paper-tick
+
 on:
   schedule:
-    - cron: '0 * * * *'
-  workflow_dispatch: {}
+    - cron: '0 * * * *'   # hourly — see the cost note above before making this more frequent
+  workflow_dispatch:
+    inputs:
+      enable_loop:
+        description: 'Loop for ~55 min this run instead of ticking once (costly — public repos only, see file header)'
+        type: boolean
+        default: false
 
-# never let two heartbeat runs overlap
 concurrency:
   group: paper-tick
   cancel-in-progress: false
-
-env:
-  LOOP_MINUTES: 55
-  LOOP_EVERY_SEC: 300
 
 jobs:
   tick:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Tick repeatedly for the hour
+      - name: Single tick (default — cheap, runs every scheduled trigger)
+        if: github.event.inputs.enable_loop != 'true'
         env:
           BOARD_URL: ${{ secrets.BOARD_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$BOARD_URL" ] || [ -z "$CRON_SECRET" ]; then
-            echo "BOARD_URL / CRON_SECRET secrets are not set"; exit 1
+            echo "::error::BOARD_URL / CRON_SECRET secrets are not set"; exit 1
           fi
-          end=$(( $(date +%s) + LOOP_MINUTES * 60 ))
+          curl -sS --max-time 90 -H "Authorization: Bearer ${CRON_SECRET}" "${BOARD_URL%/}/api/swing-live/tick" || true
+          curl -sS --fail-with-body --max-time 90 -H "Authorization: Bearer ${CRON_SECRET}" "${BOARD_URL%/}/api/paper/tick"
+
+      - name: Loop for ~55 min (opt-in only — see cost warning in this file's header)
+        if: github.event.inputs.enable_loop == 'true'
+        env:
+          BOARD_URL: ${{ secrets.BOARD_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$BOARD_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::BOARD_URL / CRON_SECRET secrets are not set"; exit 1
+          fi
+          end=$(( $(date +%s) + 55 * 60 ))
           fails=0
           while [ "$(date +%s)" -lt "$end" ]; do
-            # both live engines share this heartbeat
             curl -sS --max-time 90 -H "Authorization: Bearer ${CRON_SECRET}" "${BOARD_URL%/}/api/swing-live/tick" || true
-            if curl -sS --fail-with-body --max-time 90 \
-                 -H "Authorization: Bearer ${CRON_SECRET}" \
-                 "${BOARD_URL%/}/api/paper/tick"; then
-              echo " ok $(date -u +%H:%M:%S)"
-              fails=0
+            if curl -sS --fail-with-body --max-time 90 -H "Authorization: Bearer ${CRON_SECRET}" "${BOARD_URL%/}/api/paper/tick"; then
+              echo " ok $(date -u +%H:%M:%S)"; fails=0
             else
-              fails=$(( fails + 1 ))
-              echo " FAILED ($fails) $(date -u +%H:%M:%S)"
-              # give up only if the endpoint is persistently unreachable
-              if [ "$fails" -ge 5 ]; then echo "endpoint failing repeatedly, stopping"; exit 1; fi
+              fails=$(( fails + 1 )); echo " FAILED ($fails) $(date -u +%H:%M:%S)"
+              if [ "$fails" -ge 5 ]; then echo "::error::endpoint failing repeatedly, stopping"; exit 1; fi
             fi
-            sleep "$LOOP_EVERY_SEC"
+            sleep 300
           done
