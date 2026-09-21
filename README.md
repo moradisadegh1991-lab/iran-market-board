@@ -2,7 +2,8 @@
 
 داشبورد Next.js روی Vercel + ربات تلگرام برای دلار، تتر، طلا و سکه، کریپتو و بورس تهران/فرابورس.
 
-- قیمت لحظه‌ای + حباب سکه و طلای ۱۸ + پرمیوم تتر
+- قیمت لحظه‌ای دلار، تتر، طلا، **نقره**، سکه امامی و **نیم/ربع سکه** + حباب هرکدام + پرمیوم تتر
+- مقایسه هزینه هر گرم طلای خالص بین سکه‌ها و طلای آب‌شده
 - ریسک خرید / نگهداری / فروش در ۶ افق (روزانه تا سالانه)
 - ۱۰ کوین + ۱۰ میم‌کوین (غربال مومنتوم هفتگی)
 - ۱۰ سهم بورس/فرابورس (غربال یک‌ماهه)
@@ -172,6 +173,8 @@ curl -s "https://api.nobitex.ir/market/stats?srcCurrency=usdt,btc,eth&dstCurrenc
 **سهام (ماه)** — قدرت نسبی ۲۰ روزه به شاخص، بازده ۶۰ روزه، جهش ارزش معاملات ۵ روز به ۴۰ روز، نزدیکی به سقف ۶۰ روزه، SMA20/50، ورود پول حقیقی؛ جریمه اشباع خرید، صف خرید، P/E بالا و زیان‌ده. فیلتر نقدشوندگی: `TSE_MIN_TVAL`.
 
 **سبد** — وزن پایه هر پروفایل/افق در `lib/engine/portfolio.ts` (قابل ویرایش)، ضریب ۰٫۴ تا ۱٫۶ بر اساس ریسک ورود همان افق، سقف هر دسته، کف درآمد ثابت.
+
+**ارزان‌ترین راه خرید طلا** — تابلو به «هر کدام چند است» جواب می‌دهد، که برای طلا سؤال غلطی است: ربع سکه کوچک‌ترین عدد صفحه را دارد و معمولاً گران‌ترین طلای آن. قیمت هر ابزار تقسیم بر طلای خالصی که دارد (سکه امامی ۷٫۳۲۲۴ گرم، نیم ۳٫۶۶۱۲، ربع ۱٫۸۳۰۶، طلای ۱۸ عیار ۰٫۷۵) روی یک محور می‌نشیند و اختلاف را نشان می‌دهد. روی داده زنده این فاصله معمولاً چند درصد است — بزرگ‌تر از بیشتر حرکت‌هایی که مردم تابلو را برایشان باز می‌کنند.
 
 **ریسک سبد** (`lib/engine/portfolio-risk.ts`) — به‌جای ماتریس همبستگی فرضی، سری بازده روزانهٔ خودِ سبد از تاریخچه واقعی بخش‌ها ساخته می‌شود؛ پس همبستگی از داده می‌آید، نه از فرض. افق با نسبت واریانس AR(1) و دُم با Cornish–Fisher تنظیم می‌شود و هرجا بازه‌های هم‌پوشان کافی باشد با توزیع تجربی ترکیب می‌شود. دو عدد گزارش می‌شود:
 
@@ -362,7 +365,25 @@ https://YOUR-APP.vercel.app/api/swing-live/tick?secret=ADMIN_SECRET
 
 ## ۶-ح) اپ اندروید (`android-app/`)
 
-پوسته Capacitor با رابط کاربری کاملاً آفلاین: تمام HTML/CSS/JS و فونت وزیرمتن داخل APK است (۱۱۶ کیلوبایت) و فقط داده‌ها از سرور گرفته می‌شوند. منوی کشویی مانند اپ‌های بازار ایرانی، و آخرین داده دریافتی در دستگاه ذخیره می‌شود تا بدون اینترنت هم — با ذکر زمان دریافت — چیزی برای دیدن باشد.
+پوسته Capacitor با رابط کاربری کاملاً آفلاین: تمام HTML/CSS/JS و فونت وزیرمتن داخل APK است و فقط داده‌ها از سرور گرفته می‌شوند. آخرین داده دریافتی در دستگاه ذخیره می‌شود تا بدون اینترنت هم — با ذکر زمان دریافت — چیزی برای دیدن باشد.
+
+**همه بخش‌های سایت در اپ هستند:** نمای کلی (کاشی‌های نرخ با نمودار کوچک و حباب)، ریسک، سناریوها، نمودار، کریپتو، میم‌کوین، بورس، سبد، نوسان‌گیری، معامله‌گر گذشته‌نگر و معامله برخط — به‌علاوه بخش‌های فقط-گوشی: دارایی‌های من، هزینه‌ها (با خواندن پیامک بانکی) و بازی. نوار پایین برای پنج صفحه پرکاربرد و منوی کشویی گروه‌بندی‌شده برای بقیه.
+
+### معامله برخط روی خود گوشی
+
+روی سایت یک جلسه معامله برخط در Redis هست — همه بازدیدکنندگان یک معامله‌گر را می‌بینند. برای گوشی این مدل غلط است: هر کسی جلسه خودش را با سرمایه خودش می‌خواهد.
+
+موتور از قبل pure بود، پس موتور دومی لازم نشد. `/api/live/local` **بدون‌حالت** است: دستگاه جلسه‌اش را می‌فرستد، سرور با همان کدی که سایت استفاده می‌کند قیمت زنده را روی آن اعمال می‌کند و جلسه را برمی‌گرداند. جلسه در `localStorage` همان گوشی می‌ماند و هرگز روی سرور ذخیره نمی‌شود. آنچه سرور همچنان می‌دهد چیزی است که گوشی نمی‌تواند: قیمت زنده، چند صد روز تاریخچه، اخبار امتیازدهی‌شده و پارامترهای آموخته — همه مشترک، کش‌شده و بدون هیچ داده کاربر.
+
+محدودیت صادقانه: جلسه فقط وقتی پیش می‌رود که اپ باز شود. برای ادامه‌دادن در پس‌زمینه سرویس بومی لازم است که هنوز وجود ندارد.
+
+### اعلان‌ها
+
+همه رویدادهای اپ از یک مرکز واحد رد می‌شوند (`app-notify.js`) با کلید جداگانه برای هر دسته: معاملات برخط، هشدار قیمتی که خودتان تعریف می‌کنید، جهش روزانه بیش از آستانه، پیامک بانکی، و مشکل داده. اولین اجرا بی‌صدا مقداردهی می‌شود تا لحظه نصب چند اعلان همزمان نیاید، و حرکت گسترده بازار بعد از سه مورد خلاصه می‌شود.
+
+کانال‌های اندروید صریحاً ساخته می‌شوند — نسخه قبلی به کانالی می‌فرستاد که هیچ‌وقت ساخته نشده بود و روی اندروید ۸ به بالا بی‌صدا دور انداخته می‌شد. اگر اجازه اعلان داده نشود یا اپ در پیش‌زمینه باشد، یک toast داخل اپ نمایش داده می‌شود تا هیچ رویدادی بی‌صدا گم نشود.
+
+**اعلان محلی گوشی خاموش را بیدار نمی‌کند** — این در خود UI نوشته شده، نه اینکه وانمود شود کار می‌کند.
 
 **نکته‌ای که بدون آن اپ کار نمی‌کند:** اپ Capacitor از مبدأ `https://localhost` بالا می‌آید، پس درخواست‌هایش cross-origin است. `middleware.ts` روی مسیرهای **فقط-خواندنی** (`/api/snapshot`, `/api/chart`, `/api/swing`, `/api/simulate`) هدر CORS می‌گذارد. مسیرهایی که وضعیت را تغییر می‌دهند عمداً باز نشده‌اند تا یک صفحه وب دلخواه نتواند از مرورگر به حساب شما دستور بدهد. **قبل از ساخت APK باید نسخه جدید روی Vercel دیپلوی شود.**
 
@@ -372,14 +393,14 @@ https://YOUR-APP.vercel.app/api/swing-live/tick?secret=ADMIN_SECRET
 
 ```
 app/               صفحه‌ها: / · scenarios · simulator · live · swing · charts · risk · stocks · crypto · portfolio · bot
-app/api/           snapshot · diag · ingest · chart · simulate · paper/{,tick} · learning · swing · holdings · cron/* · telegram/{webhook,setup,broadcast}
+app/api/           snapshot · diag · ingest · chart · simulate · paper/{,tick} · live/local · learning · swing · holdings · cron/* · telegram/{webhook,setup,broadcast}
 lib/sources/       tgju · goldapi · nobitex · brsapi · coingecko · history · news · cache
 lib/engine/        stats · risk · crypto · tse · portfolio · portfolio-risk · scenario · simulator · live · learning · swing · swing-portfolio · swing-scan · holdings-analysis · sizing
 lib/telegram/      api · format · handler · paper
 lib/               snapshot · series · history · simulate · paper · learning · intraday · holdings · jalali · store · auth · num · http
 components/        Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart · Sparkline · RollingNumber · HoldingsPanel · PositionSizer
 components/views/  Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks · Crypto · Portfolio · Bot
-scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · swing-portfolio-test · swing-scan-test · jalali-test · holdings-test · portfolio-risk-test · swing-fx-test · sizing-test · backfill_tse.py
+scripts/           smoke · sim-smoke · sim-regression · learn-live-test · swing-validate · swing-portfolio-test · swing-scan-test · jalali-test · holdings-test · portfolio-risk-test · swing-fx-test · sizing-test · live-local-test · backfill_tse.py
 .github/workflows/ paper-tick.yml (ضربان‌ساز معامله برخط)
 ```
 

@@ -501,6 +501,22 @@ ol.list { counter-reset: n; }
 .t tr.me th, .t tr.me td { background: var(--teal-soft); font-weight: 700; }
 .news-used h2 { margin-bottom: 4px; }
 
+/* ── Cheapest route into gold ── */
+.gold-routes .muted.small { margin: 2px 0 12px; }
+/* Two rows per entry: this panel sits in a narrow digest column, and a bar competing with the
+   name, the price and the gap on one line collapsed to a few pixels and said nothing. */
+.routes { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.routes li { display: grid; grid-template-columns: 1fr auto auto; align-items: baseline; gap: 2px 10px; }
+.rt-name { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rt-tag { font-size: 11px; font-weight: 700; color: #0c5a33; background: var(--up-soft); border-radius: 999px; padding: 1px 8px; }
+.rt-bar { grid-column: 1 / -1; grid-row: 2; height: 7px; border-radius: 999px; background: var(--line-soft); overflow: hidden; margin-top: 3px; }
+.rt-bar > span { display: block; height: 100%; background: var(--saffron); border-radius: 999px; }
+.routes .best .rt-bar > span { background: var(--teal); }
+.rt-val { font-weight: 700; font-size: 14.5px; white-space: nowrap; }
+.rt-val small { font-weight: 400; color: var(--muted); font-size: 11.5px; }
+.rt-gap { font-size: 13px; font-weight: 700; min-width: 3rem; text-align: left; }
+.gold-routes .small { margin: 12px 0 0; line-height: 1.9; }
+
 /* ── Position sizer (چقدر بخرم) ── */
 .sizer { margin-top: 22px; }
 .sizer h2 { margin: 0 0 4px; }

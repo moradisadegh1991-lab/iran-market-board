@@ -132,6 +132,22 @@ const tseIdxHist = gbm(300, 2_000_000, 0.0015, 0.011);
     const it = s.live.items.find((i) => i.key === k)!;
     assert.ok(it && typeof it.price === 'number' && it.price > 0, `${k} must have a live price`);
   }
+  // Cost per gram of pure gold: the comparison the board cannot make on price alone. A wrong
+  // purity constant shows up here as a route landing in the wrong place, not as a subtle error.
+  const routes = s.live.goldRoutes;
+  assert.ok(routes.length === 4, `expected four gold routes, got ${routes.length}`);
+  assert.deepEqual(
+    routes.map((r) => r.tomanPerGram),
+    [...routes.map((r) => r.tomanPerGram)].sort((a, b) => a - b),
+    'routes must be ordered cheapest-first',
+  );
+  assert.equal(routes[0].vsBestPct, 0, 'the cheapest route is the baseline');
+  for (const r of routes) assert.ok(r.tomanPerGram > 0 && Number.isFinite(r.vsBestPct));
+  // same mock premiums as above: the quarter coin must come out dearest per gram
+  assert.equal(routes[routes.length - 1].key, 'rob', `quarter coin should be the dearest gram of gold, got ${routes[routes.length - 1].key}`);
+  const coinRoute = routes.find((r) => r.key === 'coin')!;
+  const nimRoute = routes.find((r) => r.key === 'nim')!;
+  assert.ok(nimRoute.tomanPerGram > coinRoute.tomanPerGram, 'half coin must cost more per gram than the full coin');
   for (const a of s.risk) {
     for (const [h, r] of Object.entries(a.horizons)) {
       if (!r) continue;

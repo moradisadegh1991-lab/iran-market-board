@@ -198,6 +198,18 @@
   .t-note { font-size: 11.5px; color: var(--muted); }
   .t-wait { font-size: 13px; color: var(--muted); padding: 6px 0; }
   .banner.info { background: #e7f3f3; border: 1px solid #b6dad8; }
+  /* name + price + gap on the first line, the bar on its own beneath: a bar sharing a line with
+     three other columns on a phone collapses to nothing. */
+  .route { display: grid; grid-template-columns: 1fr auto 3rem; align-items: baseline; gap: 2px 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  .route .rt-b { grid-column: 1 / -1; grid-row: 2; margin-top: 3px; }
+  .route:last-of-type { border-bottom: 0; }
+  .rt-n { font-weight: 700; font-size: 13.5px; }
+  .rt-n b { font-size: 10.5px; font-weight: 700; color: #0c5a33; background: #dcefe4; border-radius: 999px; padding: 1px 7px; margin-inline-start: 5px; }
+  .rt-b { height: 7px; border-radius: 999px; background: #eceff4; overflow: hidden; }
+  .rt-b > span { display: block; height: 100%; background: var(--saffron); border-radius: 999px; }
+  .route.best .rt-b > span { background: var(--teal); }
+  .rt-v { font-weight: 700; font-size: 13.5px; white-space: nowrap; }
+  .rt-g { font-size: 12.5px; font-weight: 700; text-align: left; }
 
   /* ── bottom tab bar ── */
   nav#tabbar {
@@ -498,17 +510,34 @@
         (it.note ? '<span class="t-note">' + esc(it.note) + '</span>' : '') +
         '</div>';
     }).join('');
-    var bub = snap.live || {};
-    var hint = '';
-    if (isNum(bub.coinBubblePct) && isNum(bub.robBubblePct)) {
-      var gap = bub.robBubblePct - bub.coinBubblePct;
-      if (Math.abs(gap) > 1) {
-        hint = '<div class="banner ' + (gap > 4 ? 'warn' : 'info') + '">حباب ربع سکه ' +
-          pct(Math.abs(gap)).replace('‎+', '') + ' واحد ' + (gap > 0 ? 'بیشتر' : 'کمتر') +
-          ' از سکه امامی است؛ ' + (gap > 0 ? 'برای همان مقدار طلا گران‌تر تمام می‌شود.' : 'وضعیت غیرمعمولی است.') + '</div>';
-      }
-    }
-    return '<div class="tiles">' + tiles + '</div>' + hint;
+    return '<div class="tiles">' + tiles + '</div>' + goldRoutesCard();
+  }
+
+  /**
+   * The board answers "what does each cost", which is the wrong question for gold: the quarter
+   * coin carries the smallest price tag on the page and is usually the dearest metal on it.
+   * Dividing by the pure gold each one holds is the only comparison that means anything.
+   */
+  function goldRoutesCard() {
+    var routes = (snap.live && snap.live.goldRoutes) || [];
+    if (routes.length < 2) return '';
+    var worst = routes[routes.length - 1];
+    // bar = gap to the cheapest, not the absolute price: from zero all four look identical
+    var maxGap = Math.max(0.01, worst.vsBestPct);
+    return '<div class="card"><h2>ارزان‌ترین راه خرید طلا</h2>' +
+      '<div class="row"><span class="label muted" style="font-size:12.5px">قیمت هر کدام تقسیم بر طلای خالصی که دارد. طول نوار یعنی چقدر از ارزان‌ترین گزینه گران‌تر است.</span></div>' +
+      routes.map(function (r, i) {
+        return '<div class="route' + (i === 0 ? ' best' : '') + '">' +
+          '<span class="rt-n">' + esc(r.label) + (i === 0 ? '<b>ارزان‌ترین</b>' : '') + '</span>' +
+          '<span class="rt-v num">' + fa(Math.round(r.tomanPerGram)) + '</span>' +
+          '<span class="rt-g num ' + (i === 0 ? 'up' : 'down') + '">' + (i === 0 ? '—' : '+' + fa(r.vsBestPct, 1) + '٪') + '</span>' +
+          '<span class="rt-b"><span style="width:' + ((r.vsBestPct / maxGap) * 100).toFixed(1) + '%"></span></span>' +
+          '</div>';
+      }).join('') +
+      (worst.vsBestPct > 1
+        ? '<div class="row"><span class="label">همین حالا ' + esc(worst.label) + ' برای هر گرم طلا ' + fa(worst.vsBestPct, 1) + '٪ گران‌تر از ' + esc(routes[0].label) + ' تمام می‌شود.</span></div>'
+        : '') +
+      '</div>';
   }
 
   /** Inline sparkline for a board tile. Deliberately colourless: the percentage beside it is a
@@ -1409,7 +1438,7 @@ function fa(n) {
         (plug ? '<div class="row"><button class="addbtn" id="sImport" style="flex:1 1 100%">خواندن پیامک‌های جدید</button></div>' : '') +
         (spendMsg ? '<div class="row"><span class="' + (spendMsg.err ? 'down' : 'muted') + '">' + esc(spendMsg.err || spendMsg.info) + '</span></div>' : '') +
         '<div class="row"><span class="label">اعلان تراکنش جدید<small>' +
-          (notifPlugin() ? 'بعد از هر دریافت، خلاصه‌ای اعلان می‌شود. مبلغ و نام بانک در اعلان نمی‌آید تا روی صفحه قفل دیده نشود.' : 'در نسخه اندروید فعال می‌شود.') +
+          'بعد از هر دریافت، خلاصه‌ای اعلان می‌شود. مبلغ و نام بانک در اعلان نمی‌آید تا روی صفحه قفل دیده نشود. تنظیم دسته‌ها در صفحه «اعلان‌ها».' +
         '</small></span><button class="chipbtn" id="notifToggle" aria-pressed="' + notifOn() + '">' + (notifOn() ? 'روشن' : 'خاموش') + '</button></div>' +
         (uncat.length ? '<div class="row"><span class="label" style="color:var(--down)">⚠️ ' + fa(uncat.length) + ' تراکنش دسته‌بندی‌نشده</span></div>' : '') +
         (pend.length ? '<div class="row"><span class="label muted">❓ ' + fa(pend.length) + ' پیامک نیازمند تأیید</span></div>' : '') +

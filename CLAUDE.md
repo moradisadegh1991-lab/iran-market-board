@@ -28,7 +28,8 @@
 app/                 صفحات: / (نمای کلی) · scenarios · simulator · live (معامله برخط)
                      · swing (نوسان‌گیری) · charts · risk · stocks · crypto · portfolio · bot
 app/api/             snapshot · diag · ingest · chart · simulate · paper/{,tick}
-                     · swing (backtest/portfolio/scan) · swing-live/{,tick} · learning
+                     · live/local (معامله برخط بدون‌حالت، برای اپ) · learning
+                     · swing (backtest/portfolio/scan) · swing-live/{,tick}
                      · holdings · cron/* · telegram/{webhook,setup,broadcast}
 lib/sources/         tgju · goldapi · nobitex · brsapi · coingecko · history · news · cache
 lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-risk · scenario
@@ -45,7 +46,9 @@ scripts/             تست‌های آفلاین همه با tsx اجرا می�
 .github/workflows/   paper-tick.yml (ضربان‌ساز معامله برخط) · build-android.yml (ساخت APK)
 middleware.ts        CORS فقط روی مسیرهای فقط-خواندنی، برای اپ اندرویدی
 
-android-app/www/     کل اپ اندروید: یک index.html خودبسند + game-engine.js + sms-parser.js
+android-app/www/     اپ اندروید: index.html (پوسته) + game-engine.js + sms-parser.js
+                     + app-trade.js (سناریو، نمودار، نوسان‌گیری، شبیه‌ساز، معامله برخط)
+                     + app-notify.js (مرکز اعلان‌ها و هشدار قیمت)
 android-app/native-plugin/   پلاگین Java خواندن پیامک (⚠️ تست‌نشده — بخش ۷ را ببین)
 android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پلاگین) + تست‌هایش
 ```
@@ -122,6 +125,23 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
     Expected Shortfall (میانگین زیان در بدترین ۵٪) هم گزارش می‌شود و برای ریسک جهشی بازار ایران
     عدد درست‌تری است. `scripts/portfolio-risk-test.ts` هر دو رفتار را قفل کرده.
 
+13. **‏معامله برخط اپ روی سرور ذخیره نمی‌شود.** `/api/paper` یک جلسه مشترک در Redis دارد —
+    همه بازدیدکنندگان سایت یک معامله‌گر می‌بینند. برای گوشی این غلط است، پس `/api/live/local`
+    **بدون‌حالت** است: دستگاه جلسه‌اش را می‌فرستد، سرور با همان موتور قیمت زنده را اعمال می‌کند و
+    جلسه را برمی‌گرداند. جلسه در `localStorage` گوشی می‌ماند. اگر چیزی به این مسیر اضافه می‌کنی که
+    در سرور می‌نویسد، این تفکیک را شکسته‌ای. `scripts/live-local-test.ts` جدا بودن دو دستگاه را
+    قفل کرده و تست مرورگر با دو context موازی هم همین را تأیید می‌کند.
+14. **‏هر کانال اعلان باید قبل از ارسال ساخته شود.** در اندروید ۸ به بالا اعلانی که به کانال
+    ساخته‌نشده فرستاده شود بی‌صدا دور انداخته می‌شود — نسخه قبلی دقیقاً همین ایراد را داشت
+    (`channelId: 'imb-tx'` که هیچ‌وقت ساخته نشده بود، به‌علاوه یک smallIcon که در منابع اپ نیست).
+    `app-notify.js` کانال‌ها را یک بار با `createChannel` می‌سازد. همه اعلان‌ها باید از همان
+    `notify(title, body, cat)` رد شوند، نه مستقیم از پلاگین.
+15. **‏اعلان محلی گوشی خاموش را بیدار نمی‌کند.** هر چیزی که «وقتی اپ بسته است خبرم کن» را وعده
+    بدهد دروغ است مگر اینکه سرویس پس‌زمینه بومی یا push سرور اضافه شود. متن UI همین را می‌گوید.
+16. **‏عددی که رقم و واژه فارسی را قاطی دارد، «عدد» نیست.** کلاس `.num` جهت را LTR می‌کند و
+    «۲۰٫۱ میلیون تومان» را «میلیون تومان ۲۰٫۱» نشان می‌دهد. برای چنین مقادیری از `.money`
+    استفاده کن.
+
 ## ۵) چک‌لیست تأیید قبل از هر تحویل
 
 ‏همه این‌ها همین امروز اجرا و سبز شدند. قبل از commit کردن هر تغییری، حداقل تست‌های مربوط
@@ -135,6 +155,7 @@ npm run test:jalali && npm run test:holdings
 npm run test:swingpf && npm run test:swingscan && npm run test:swinghist
 npm run test:activity
 npm run test:pfrisk && npm run test:swingfx && npm run test:sizing
+npx tsx scripts/live-local-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts
 npx tsx scripts/learn-live-test.ts

@@ -16,7 +16,7 @@ import { candidateSymbols, screenCrypto } from '@/lib/engine/crypto';
 import { screenTse } from '@/lib/engine/tse';
 import { buildPortfolios } from '@/lib/engine/portfolio';
 import { betaVs, buildScenario, returnCorrelation } from '@/lib/engine/scenario';
-import type { AssetRisk, AssetScenario, BoardItem, CryptoRow, Profile, RiskAssetKey, Snapshot, SourceStatus } from '@/lib/types';
+import type { AssetRisk, AssetScenario, BoardItem, CryptoRow, GoldRoute, Profile, RiskAssetKey, Snapshot, SourceStatus } from '@/lib/types';
 
 const SNAP_KEY = 'snapshot:v2';
 const LOCK_KEY = 'snapshot:lock';
@@ -107,6 +107,26 @@ async function buildSnapshot(): Promise<Snapshot> {
   const robBubblePct = bubble(tg.rob, robIntrinsic);
   const silverBubblePct = bubble(tg.silver, silverIntrinsic);
   const usdtPremiumPct = isNum(usdtR) && isNum(usdR) ? (usdtR / usdR - 1) * 100 : null;
+
+  /**
+   * The same question every gold buyer in Iran actually has: of the things on this board, which
+   * one gets me a gram of gold for the least money? Prices alone cannot answer it — a quarter
+   * coin is "cheaper" than a full one and usually the worse deal. Dividing each instrument by
+   * the pure gold it contains puts them on one axis.
+   */
+  const goldRoutes: GoldRoute[] = ([
+    { key: 'coin', label: 'سکه امامی', q: tg.coin, grams: COIN_PURE_GRAMS, bub: coinBubblePct },
+    { key: 'nim', label: 'نیم سکه', q: tg.nim, grams: NIM_PURE_GRAMS, bub: nimBubblePct },
+    { key: 'rob', label: 'ربع سکه', q: tg.rob, grams: ROB_PURE_GRAMS, bub: robBubblePct },
+    { key: 'g18', label: 'طلای ۱۸ عیار', q: tg.g18, grams: 0.75, bub: g18BubblePct },
+  ] as const)
+    .filter((r) => r.q && isNum(r.q.price) && r.q.price > 0)
+    .map((r) => ({ key: r.key, label: r.label, tomanPerGram: rialToToman(r.q!.price) / r.grams, premiumPct: r.bub, vsBestPct: 0 }))
+    .sort((a, b) => a.tomanPerGram - b.tomanPerGram);
+  if (goldRoutes.length) {
+    const best = goldRoutes[0].tomanPerGram;
+    for (const r of goldRoutes) r.vsBestPct = (r.tomanPerGram / best - 1) * 100;
+  }
   const cgFind = (id: string) => cgR.data?.find((c) => c.id === id);
   const btcUsd = nb.btcUsdt?.price ?? cgFind('bitcoin')?.current_price ?? null;
   const ethUsd = nb.ethUsdt?.price ?? cgFind('ethereum')?.current_price ?? null;
@@ -208,7 +228,7 @@ async function buildSnapshot(): Promise<Snapshot> {
     generatedAt: now.toISOString(),
     storeMode,
     sources,
-    live: { items: withSpark(items, seriesByKey), coinBubblePct, g18BubblePct, nimBubblePct, robBubblePct, silverBubblePct, usdtPremiumPct },
+    live: { items: withSpark(items, seriesByKey), goldRoutes, coinBubblePct, g18BubblePct, nimBubblePct, robBubblePct, silverBubblePct, usdtPremiumPct },
     risk,
     crypto: {
       ...crypto,
@@ -221,7 +241,7 @@ async function buildSnapshot(): Promise<Snapshot> {
     },
     portfolios: buildPortfolios(
       risk,
-      { items, coinBubblePct, g18BubblePct, nimBubblePct, robBubblePct, silverBubblePct, usdtPremiumPct },
+      { items, goldRoutes, coinBubblePct, g18BubblePct, nimBubblePct, robBubblePct, silverBubblePct, usdtPremiumPct },
       crypto.coins,
       new Map([...seriesByKey].map(([k, s]) => [k, { dates: s.dates, prices: s.prices }])),
     ),

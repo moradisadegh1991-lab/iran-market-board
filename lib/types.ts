@@ -25,8 +25,22 @@ export interface BoardItem {
   spark?: number[];
 }
 
+/** One way of buying gold, reduced to what it actually costs per gram of pure metal. */
+export interface GoldRoute {
+  key: string;
+  label: string;
+  /** toman paid per gram of pure gold at today's price */
+  tomanPerGram: number;
+  /** how much above melt value that is */
+  premiumPct: number | null;
+  /** percentage points dearer than the cheapest route on the board */
+  vsBestPct: number;
+}
+
 export interface LiveBoard {
   items: BoardItem[];
+  /** every gold instrument on the board, priced on the same basis so they can be compared */
+  goldRoutes: GoldRoute[];
   coinBubblePct: number | null;
   g18BubblePct: number | null;
   /** premium over melt value for the fractional coins — normally larger than the full coin's */
