@@ -15,7 +15,10 @@
     "test:swingscan": "tsx scripts/swing-scan-test.ts",
     "test:walkfwd": "tsx scripts/walk-forward-test.ts",
     "test:swinghist": "tsx scripts/swing-history-test.ts",
-    "test:activity": "tsx scripts/activity-test.ts"
+    "test:activity": "tsx scripts/activity-test.ts",
+    "test:pfrisk": "tsx scripts/portfolio-risk-test.ts",
+    "test:swingfx": "tsx scripts/swing-fx-test.ts",
+    "test:sizing": "tsx scripts/sizing-test.ts"
   },
   "dependencies": {
     "@fontsource-variable/vazirmatn": "^5.3.0",

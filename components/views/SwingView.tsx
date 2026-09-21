@@ -617,6 +617,34 @@ export default function SwingView() {
                 </dd>
               </div>
               <div>
+                <dt>فقط تتر نگه می‌داشتید</dt>
+                <dd>{isNum(m.usdtPct) ? <Pct v={m.usdtPct} digits={2} /> : <span className="num muted">—</span>}</dd>
+              </div>
+              <div>
+                <dt>صندوق درآمد ثابت در همین بازه</dt>
+                <dd>{isNum(m.fixedIncomePct) ? <Pct v={m.fixedIncomePct} digits={2} /> : <span className="num muted">—</span>}</dd>
+              </div>
+              <div>
+                <dt>شارپ / سورتینو (مازاد بر بدون‌ریسک)</dt>
+                <dd className="num">
+                  {isNum(m.sharpe) ? fmtNum(m.sharpe, 2) : '—'} / {isNum(m.sortino) ? fmtNum(m.sortino, 2) : '—'}
+                </dd>
+              </div>
+              <div>
+                <dt>ضریب سود (سود ناخالص ÷ زیان ناخالص)</dt>
+                <dd className="num">{isNum(m.profitFactor) ? fmtNum(m.profitFactor, 2) : '—'}</dd>
+              </div>
+              <div>
+                <dt>امید ریاضی هر معامله</dt>
+                <dd>{isNum(m.expectancyPct) ? <Pct v={m.expectancyPct} digits={2} /> : <span className="num muted">—</span>}</dd>
+              </div>
+              <div>
+                <dt>نسبت سود به زیان / بدترین رشته باخت</dt>
+                <dd className="num">
+                  {isNum(m.payoffRatio) ? fmtNum(m.payoffRatio, 2) : '—'} / {fmtInt(m.maxConsecLosses)}
+                </dd>
+              </div>
+              <div>
                 <dt>معاملات</dt>
                 <dd className="num">{fmtInt(m.trades)}</dd>
               </div>

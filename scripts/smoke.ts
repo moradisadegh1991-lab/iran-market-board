@@ -47,6 +47,10 @@ const tgjuHist: Record<string, unknown[]> = {
   sekee: tgjuRows(900_000_000, 0.0013, 0.016),
   geram18: tgjuRows(90_000_000, 0.0012, 0.014),
   ons: tgjuRows(2600, 0.0008, 0.009),
+  nim: tgjuRows(460_000_000, 0.0013, 0.017),
+  rob: tgjuRows(240_000_000, 0.0013, 0.019),
+  silver_999: tgjuRows(1_400_000, 0.0011, 0.021),
+  silver: tgjuRows(38, 0.0006, 0.014),
 };
 const tseIdxHist = gbm(300, 2_000_000, 0.0015, 0.011);
 (globalThis as any).fetch = async (input: string | URL) => {
@@ -62,7 +66,18 @@ const tseIdxHist = gbm(300, 2_000_000, 0.0015, 0.011);
     return json({ gold: [], currency: [], cryptocurrency: [{ symbol: 'USDT', name: 'تتر', price: 106500, change_percent: 0.2 }] });
   // Nobitex is blocked from Vercel in production — simulate that so every fallback path is exercised
   if (url.includes('nobitex')) return new Response('Forbidden', { status: 403 });
-  if (url.includes('tgju')) return json({ current: { price_dollar_rl: { p: '1,050,000', dp: '0.5', dt: 'high' }, sekee: { p: '980,000,000', dp: '1.1', dt: 'low' }, geram18: { p: '95,000,000', dp: '0.3', dt: 'high' }, ons: { p: '3,650.12', dp: '0.2', dt: 'low' } } });
+  // Live quotes. The fractional coins and silver carry deliberately larger premiums than the full
+  // coin here, matching how they really trade — the bubble assertions below depend on that ordering.
+  if (url.includes('tgju')) return json({ current: {
+    price_dollar_rl: { p: '1,050,000', dp: '0.5', dt: 'high' },
+    sekee: { p: '980,000,000', dp: '1.1', dt: 'low' },
+    nim: { p: '500,000,000', dp: '0.9', dt: 'low' },
+    rob: { p: '262,000,000', dp: '1.4', dt: 'high' },
+    geram18: { p: '95,000,000', dp: '0.3', dt: 'high' },
+    silver_999: { p: '1,520,000', dp: '0.7', dt: 'high' },
+    ons: { p: '3,650.12', dp: '0.2', dt: 'low' },
+    silver: { p: '42.50', dp: '0.6', dt: 'high' },
+  } });
   if (url.includes('gold-api')) return json({ price: 3650 });
   if (url.includes('Index.php')) return json({ data: [{ name: 'شاخص کل (هم وزن)', value: '800000' }, { name: 'شاخص کل', value: '2450000', change_percent: '0.8' }] });
   if (url.includes('AllSymbols.php')) return json(symbols);
@@ -102,8 +117,37 @@ const tseIdxHist = gbm(300, 2_000_000, 0.0015, 0.011);
   const s = await getSnapshot({ force: true });
   const ms = Date.now() - t0;
 
-  assert.equal(s.live.items.length, 10);
+  assert.equal(s.live.items.length, 14);
   assert.ok(s.live.coinBubblePct! > 5 && s.live.coinBubblePct! < 12, `coin bubble ${s.live.coinBubblePct}`);
+  // The fractional coins and silver are priced off the same melt value, each with its own premium.
+  // Getting the purity wrong would show up here as a wildly off bubble, not as a plausible one.
+  assert.ok(s.live.nimBubblePct! > 5 && s.live.nimBubblePct! < 20, `nim bubble ${s.live.nimBubblePct}`);
+  assert.ok(s.live.robBubblePct! > 8 && s.live.robBubblePct! < 30, `rob bubble ${s.live.robBubblePct}`);
+  assert.ok(s.live.silverBubblePct! > 0 && s.live.silverBubblePct! < 15, `silver bubble ${s.live.silverBubblePct}`);
+  assert.ok(
+    s.live.robBubblePct! > s.live.nimBubblePct! && s.live.nimBubblePct! > s.live.coinBubblePct!,
+    `smaller coins must carry the larger premium: rob ${s.live.robBubblePct} > nim ${s.live.nimBubblePct} > coin ${s.live.coinBubblePct}`,
+  );
+  for (const k of ['nim', 'rob', 'silver', 'silverOns']) {
+    const it = s.live.items.find((i) => i.key === k)!;
+    assert.ok(it && typeof it.price === 'number' && it.price > 0, `${k} must have a live price`);
+  }
+  // Cost per gram of pure gold: the comparison the board cannot make on price alone. A wrong
+  // purity constant shows up here as a route landing in the wrong place, not as a subtle error.
+  const routes = s.live.goldRoutes;
+  assert.ok(routes.length === 4, `expected four gold routes, got ${routes.length}`);
+  assert.deepEqual(
+    routes.map((r) => r.tomanPerGram),
+    [...routes.map((r) => r.tomanPerGram)].sort((a, b) => a - b),
+    'routes must be ordered cheapest-first',
+  );
+  assert.equal(routes[0].vsBestPct, 0, 'the cheapest route is the baseline');
+  for (const r of routes) assert.ok(r.tomanPerGram > 0 && Number.isFinite(r.vsBestPct));
+  // same mock premiums as above: the quarter coin must come out dearest per gram
+  assert.equal(routes[routes.length - 1].key, 'rob', `quarter coin should be the dearest gram of gold, got ${routes[routes.length - 1].key}`);
+  const coinRoute = routes.find((r) => r.key === 'coin')!;
+  const nimRoute = routes.find((r) => r.key === 'nim')!;
+  assert.ok(nimRoute.tomanPerGram > coinRoute.tomanPerGram, 'half coin must cost more per gram than the full coin');
   for (const a of s.risk) {
     for (const [h, r] of Object.entries(a.horizons)) {
       if (!r) continue;
@@ -117,7 +161,7 @@ const tseIdxHist = gbm(300, 2_000_000, 0.0015, 0.011);
   assert.ok(s.crypto.coins.length >= 10 && s.crypto.coins.length <= 25, `coins ${s.crypto.coins.length}`);
   assert.ok(s.crypto.memes.length >= 10, `memes ${s.crypto.memes.length}`);
   // no asset may be stuck on "1 day of data" even though Nobitex is blocked
-  for (const k of ['usd', 'usdt', 'g18', 'coin', 'ons', 'btc', 'eth', 'tse']) {
+  for (const k of ['usd', 'usdt', 'g18', 'coin', 'nim', 'rob', 'silver', 'silverOns', 'ons', 'btc', 'eth', 'tse']) {
     const a = s.risk.find((r) => r.key === k)!;
     assert.ok(a.points >= 200, `${k} history points ${a.points} (basis ${a.basis})`);
   }

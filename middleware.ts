@@ -8,8 +8,12 @@ import { NextResponse, type NextRequest } from 'next/server';
  * Only the read-only endpoints are opened up. Anything that changes state (paper trading,
  * holdings, telegram, ingest) still requires ADMIN_SECRET and is deliberately left out, so a
  * page on some other site cannot drive the account by silently calling these from a browser.
+ *
+ * `/api/live/local` is on this list because it is stateless: it advances a session the caller
+ * sends and hands it straight back, touching no stored session. The shared `/api/paper` — which
+ * does write to Redis — stays closed.
  */
-const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/swing', '/api/simulate'];
+const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/swing', '/api/simulate', '/api/live/local'];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

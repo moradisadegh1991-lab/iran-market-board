@@ -14,7 +14,7 @@ const UNIT: Record<string, string> = { toman: 'تومان', usd: 'دلار', poi
 const LEAD = new Set(['usd', 'coin', 'g18']);
 /** Board reading order: the lead trio, then the rest as listed, with not-yet-priced rows last
  *  so a missing feed leaves a gap at the end instead of a hole in the middle. */
-const ORDER = ['usd', 'coin', 'g18', 'usdt', 'ons', 'tse', 'btc', 'eth', 'oilBrent', 'dxy'];
+const ORDER = ['usd', 'coin', 'g18', 'usdt', 'nim', 'rob', 'silver', 'ons', 'silverOns', 'tse', 'btc', 'eth', 'oilBrent', 'dxy'];
 function boardOrder(items: Snapshot['live']['items']) {
   const rank = (k: string) => (ORDER.indexOf(k) < 0 ? ORDER.length : ORDER.indexOf(k));
   return [...items].sort((a, b) => {
@@ -84,6 +84,59 @@ function Board({ snap }: { snap: Snapshot }) {
   );
 }
 
+/**
+ * Which of these actually buys a gram of gold for the least money.
+ *
+ * The board answers "what does each cost", which is the wrong question: a quarter coin has the
+ * smallest price tag on the page and is usually the dearest gold on it. Dividing each instrument
+ * by the pure metal it holds is the only way to line them up, and the spread between the cheapest
+ * and dearest route is regularly several percent — larger than most of the moves people watch
+ * the board for.
+ */
+function GoldRoutes({ snap }: { snap: Snapshot }) {
+  const routes = snap.live.goldRoutes ?? [];
+  if (routes.length < 2) return null;
+  const worst = routes[routes.length - 1];
+  // The bar measures the gap to the cheapest route, not the absolute price. Drawn from zero the
+  // four bars are all ~95% full and the 9% that actually matters is invisible.
+  const maxGap = Math.max(0.01, worst.vsBestPct);
+  return (
+    <section className="panel pad gold-routes">
+      <header className="digest-head">
+        <h2>ارزان‌ترین راه خرید طلا</h2>
+        <Link href="/scenarios">سناریوی هرکدام</Link>
+      </header>
+      <p className="muted small">
+        قیمت هر کدام تقسیم بر طلای خالصی که دارد — تنها مقایسه‌ای که معنا دارد. طول نوار یعنی چقدر از ارزان‌ترین
+        گزینه گران‌تر است. کارمزد و اجرت خرید در این عدد نیست.
+      </p>
+      <ul className="routes">
+        {routes.map((r, i) => (
+          <li key={r.key} className={i === 0 ? 'best' : ''}>
+            <span className="rt-name">
+              {r.label}
+              {i === 0 ? <b className="rt-tag">ارزان‌ترین</b> : null}
+            </span>
+            <span className="rt-val num">
+              {fmtInt(r.tomanPerGram)}
+              <small> تومان/گرم</small>
+            </span>
+            <span className={`rt-gap num ${i === 0 ? 'up' : 'down'}`}>{i === 0 ? '—' : `+${fmtPct(r.vsBestPct, 1, false)}`}</span>
+            <span className="rt-bar" aria-hidden="true">
+              <span style={{ width: `${(r.vsBestPct / maxGap) * 100}%` }} />
+            </span>
+          </li>
+        ))}
+      </ul>
+      {worst.vsBestPct > 1 ? (
+        <p className="small">
+          همین حالا {worst.label} برای هر گرم طلا {fmtPct(worst.vsBestPct, 1, false)} گران‌تر از {routes[0].label} تمام می‌شود.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function Digest({ snap }: { snap: Snapshot }) {
   const core = snap.scenarios.assets.filter((a) => a.group !== 'alt' && a.rows.m1);
   const maxAbs = Math.max(1, ...core.map((a) => Math.max(-a.rows.m1!.worstPct, a.rows.m1!.bestPct)));
@@ -118,6 +171,8 @@ function Digest({ snap }: { snap: Snapshot }) {
           })}
         </ul>
       </section>
+
+      <GoldRoutes snap={snap} />
 
       <section className="panel pad">
         <header className="digest-head">

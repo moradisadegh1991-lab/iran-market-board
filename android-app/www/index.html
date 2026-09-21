@@ -47,6 +47,9 @@
     font-size: 15px; line-height: 1.8; -webkit-font-smoothing: antialiased;
   }
   .num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+  /* a value that mixes digits with Persian words is NOT a number: forcing LTR on it
+     reorders the words ("۲۰٫۱ میلیون تومان" renders as "میلیون تومان ۲۰٫۱"). */
+  .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
   /* ── top bar ── */
   header {
@@ -91,7 +94,8 @@
   .drawer-list button[aria-current='true'] { background: #eef6f6; color: var(--teal); font-weight: 700; }
 
   /* ── content ── */
-  main { padding: 14px 14px calc(var(--safe-bottom) + 28px); }
+  /* bottom padding clears the fixed tab bar */
+  main { padding: 14px 14px calc(var(--safe-bottom) + 86px); }
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }
   .card h2 { font-size: 15.5px; margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--line); }
   .row { display: flex; align-items: baseline; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
@@ -176,6 +180,95 @@
   .chipbtn { font: inherit; font-size: 12.5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 5px 10px; cursor: pointer; }
   .addbtn { font: inherit; font-weight: 700; color: #fff; background: var(--teal); border: 0; border-radius: 10px; padding: 11px; cursor: pointer; }
   .addbtn:active { background: #0a5f62; }
+  /* ── rate tiles (نمای کلی) ── */
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .tile {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 11px 12px 10px; display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  }
+  .tile.lead { grid-column: span 2; background: linear-gradient(180deg, #fff 0%, #fbfcfe 100%); }
+  .tile.lead .t-price { font-size: 27px; }
+  .tile.dead { opacity: .6; }
+  .t-label { font-size: 12.5px; color: var(--muted); }
+  .t-price { font-size: 20px; font-weight: 800; letter-spacing: -.3px; line-height: 1.35; }
+  .t-price small { font-size: 11px; color: var(--muted); font-weight: 400; margin-inline-start: 4px; }
+  .t-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); }
+  .t-chg { font-size: 12.5px; font-weight: 700; }
+  .t-spark { width: 62px; height: 18px; flex: 0 0 auto; }
+  .t-note { font-size: 11.5px; color: var(--muted); }
+  .t-wait { font-size: 13px; color: var(--muted); padding: 6px 0; }
+  .banner.info { background: #e7f3f3; border: 1px solid #b6dad8; }
+  /* name + price + gap on the first line, the bar on its own beneath: a bar sharing a line with
+     three other columns on a phone collapses to nothing. */
+  .route { display: grid; grid-template-columns: 1fr auto 3rem; align-items: baseline; gap: 2px 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  .route .rt-b { grid-column: 1 / -1; grid-row: 2; margin-top: 3px; }
+  .route:last-of-type { border-bottom: 0; }
+  .rt-n { font-weight: 700; font-size: 13.5px; }
+  .rt-n b { font-size: 10.5px; font-weight: 700; color: #0c5a33; background: #dcefe4; border-radius: 999px; padding: 1px 7px; margin-inline-start: 5px; }
+  .rt-b { height: 7px; border-radius: 999px; background: #eceff4; overflow: hidden; }
+  .rt-b > span { display: block; height: 100%; background: var(--saffron); border-radius: 999px; }
+  .route.best .rt-b > span { background: var(--teal); }
+  .rt-v { font-weight: 700; font-size: 13.5px; white-space: nowrap; }
+  .rt-g { font-size: 12.5px; font-weight: 700; text-align: left; }
+
+  /* ── bottom tab bar ── */
+  nav#tabbar {
+    position: fixed; inset-inline: 0; bottom: 0; z-index: 35;
+    display: flex; background: var(--surface); border-top: 1px solid var(--line);
+    padding-bottom: var(--safe-bottom);
+    box-shadow: 0 -4px 18px -12px rgba(16,26,48,.5);
+  }
+  nav#tabbar button {
+    flex: 1; background: none; border: 0; font: inherit; color: var(--muted);
+    padding: 7px 2px 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer;
+  }
+  nav#tabbar .ic { font-size: 18px; line-height: 1.2; }
+  nav#tabbar .tl { font-size: 10.5px; }
+  nav#tabbar button[aria-current='true'] { color: var(--teal); font-weight: 700; }
+  .drawer-group { padding: 12px 16px 4px; font-size: 11.5px; color: var(--muted); letter-spacing: .3px; }
+
+  /* ── toasts: the fallback that guarantees an event is never silently swallowed ── */
+  #toasts { position: fixed; inset-inline: 12px; bottom: calc(var(--safe-bottom) + 66px); z-index: 60; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+  .toast {
+    background: var(--lapis); color: #fff; border-radius: 12px; padding: 10px 13px;
+    box-shadow: 0 10px 26px -12px rgba(10,16,30,.8); font-size: 13.5px;
+    animation: toastIn .22s ease both;
+  }
+  .toast b { display: block; color: var(--saffron); font-size: 14px; }
+  .toast span { color: #cfd9ea; }
+  .toast.out { animation: toastOut .5s ease both; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } }
+  @keyframes toastOut { to { opacity: 0; transform: translateY(8px); } }
+
+  /* ── shared controls used by the trading pages ── */
+  .pad-x { padding: 0 2px 12px; display: grid; gap: 10px; }
+  .field-t { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row > * { flex: 1; }
+  .chipbtn.big { padding: 11px; font-size: 14px; border-radius: 10px; }
+  .chipbtn.big.danger { color: var(--down); border-color: #eebdb6; }
+  .wrapchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .wrapchips .chipbtn[aria-pressed='true'] { background: var(--teal); color: #fff; border-color: var(--teal); }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+  .stat-grid > div { background: var(--surface); padding: 10px 13px; }
+  .sg-k { display: block; font-size: 11.5px; color: var(--muted); }
+  .sg-v { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .chart-host { padding: 10px 6px 4px; }
+  .chart-host svg { width: 100%; height: 150px; display: block; }
+  .row.wrap { flex-wrap: wrap; gap: 8px; }
+  .row.wrap select, .row.wrap input { flex: 1 1 30%; }
+  .mini-num { width: 68px; text-align: center; }
+  tr.sel td { background: #eef6f6; font-weight: 700; }
+  .iconbtn.dark { color: var(--muted); font-size: 16px; }
+  /* switch */
+  .sw { width: 44px; height: 25px; border-radius: 999px; border: 0; background: #ccd4e0; position: relative; cursor: pointer; flex: 0 0 auto; transition: background .18s; }
+  /* the knob rests on the inline START (right, in RTL) when off and travels to the END when on;
+     anchoring it to the end instead sent it off the track in RTL */
+  .sw::after { content: ''; position: absolute; top: 3px; inset-inline-start: 3px; width: 19px; height: 19px; border-radius: 50%; background: #fff; transition: transform .18s; box-shadow: 0 1px 2px rgba(16,26,48,.3); }
+  .sw[aria-pressed='true'] { background: var(--teal); }
+  .sw[aria-pressed='true']::after { transform: translateX(19px); }
+  html[dir='rtl'] .sw[aria-pressed='true']::after { transform: translateX(-19px); }
+
   .center { text-align: center; padding: 40px 16px; color: var(--muted); }
   .spin { display: inline-block; width: 22px; height: 22px; border: 2px solid var(--line); border-top-color: var(--teal); border-radius: 50%; animation: sp .8s linear infinite; }
   @keyframes sp { to { transform: rotate(360deg); } }
@@ -203,7 +296,11 @@
 
 <script src="game-engine.js"></script>
 <script src="sms-parser.js"></script>
+<script src="app-notify.js"></script>
+<script src="app-trade.js"></script>
 <main id="view"><div class="center"><span class="spin"></span></div></main>
+<nav id="tabbar" aria-label="بخش‌های اصلی"></nav>
+<div id="toasts" aria-live="polite"></div>
 
 <script>
 (function () {
@@ -214,20 +311,24 @@
   var CACHE_KEY = 'imb.snapshot.v1';
 
   var PAGES = [
-    { id: 'board',     icon: '🏷', title: 'نمای کلی',      render: renderBoard },
-    { id: 'risk',      icon: '⚖', title: 'ریسک بازارها',   render: renderRisk },
-    { id: 'crypto',    icon: '₿', title: 'کریپتو',         render: renderCrypto },
-    { id: 'meme',      icon: '🐸', title: 'میم‌کوین‌ها',    render: renderMeme },
-    { id: 'stocks',    icon: '📈', title: 'بورس',           render: renderStocks },
-    { id: 'portfolio', icon: '🧺', title: 'سبد پیشنهادی',   render: renderPortfolio },
-    { id: 'mine',      icon: '💼', title: 'دارایی‌های من',   render: renderMine, offline: true },
-    { id: 'game',      icon: '🎮', title: 'واحد کنترل اقتصاد', render: renderGame, offline: true },
-    { id: 'spend',     icon: '🧾', title: 'هزینه‌ها',          render: renderSpend, offline: true },
-    { id: 'sources',   icon: '🔌', title: 'وضعیت منابع',    render: renderSources },
-    { id: 'about',     icon: 'ℹ', title: 'درباره',         render: renderAbout, offline: true }
+    { id: 'board',     icon: '🏷', title: 'نمای کلی',      group: 'بازار', render: renderBoard },
+    { id: 'risk',      icon: '⚖', title: 'ریسک بازارها',   group: 'بازار', render: renderRisk },
+    { id: 'crypto',    icon: '₿', title: 'کریپتو',         group: 'بازار', render: renderCrypto },
+    { id: 'meme',      icon: '🐸', title: 'میم‌کوین‌ها',    group: 'بازار', render: renderMeme },
+    { id: 'stocks',    icon: '📈', title: 'بورس',           group: 'بازار', render: renderStocks },
+    { id: 'portfolio', icon: '🧺', title: 'سبد پیشنهادی',   group: 'ابزار معامله', render: renderPortfolio },
+    { id: 'mine',      icon: '💼', title: 'دارایی‌های من',   group: 'شخصی', render: renderMine, offline: true },
+    { id: 'game',      icon: '🎮', title: 'واحد کنترل اقتصاد', group: 'شخصی', render: renderGame, offline: true },
+    { id: 'spend',     icon: '🧾', title: 'هزینه‌ها',          group: 'شخصی', render: renderSpend, offline: true },
+    { id: 'sources',   icon: '🔌', title: 'وضعیت منابع',    group: 'درباره', render: renderSources },
+    { id: 'about',     icon: 'ℹ', title: 'درباره',         group: 'درباره', render: renderAbout, offline: true }
   ];
+  /** The five the thumb should reach without opening the drawer. */
+  var TABS = ['board', 'charts', 'live', 'mine', 'notif'];
+  var GROUP_ORDER = ['بازار', 'ابزار معامله', 'شخصی', 'درباره'];
 
   var snap = null, cachedAt = 0, page = 'board', busy = false, lastError = null;
+  var notifyHub = null;
 
   var $ = function (id) { return document.getElementById(id); };
   var fa = function (n, d) {
@@ -239,15 +340,42 @@
     return new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 1, signDisplay: 'exceptZero' }).format(n) + '٪';
   };
   var isNum = function (n) { return typeof n === 'number' && isFinite(n); };
+  /** Toman at a readable scale: an eight-digit number tells a phone reader nothing. */
+  var tomanWords = function (v) {
+    if (!isNum(v)) return '—';
+    var a = Math.abs(v), sign = v < 0 ? '‎−' : '';
+    if (a >= 1e9) return sign + fa(a / 1e9, 2) + ' میلیارد تومان';
+    if (a >= 1e6) return sign + fa(a / 1e6, 1) + ' میلیون تومان';
+    return sign + fa(a) + ' تومان';
+  };
   var esc = function (s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var UNIT = { toman: 'تومان', usd: 'دلار', point: 'واحد' };
 
   // ── drawer ──
   function buildMenu() {
-    $('menu').innerHTML = PAGES.map(function (p) {
-      return '<button data-page="' + p.id + '" aria-current="' + (p.id === page) + '"><span class="ic">' + p.icon + '</span>' + esc(p.title) + '</button>';
+    var html = '';
+    GROUP_ORDER.forEach(function (g) {
+      var inGroup = PAGES.filter(function (p) { return (p.group || 'بازار') === g; });
+      if (!inGroup.length) return;
+      html += '<div class="drawer-group">' + esc(g) + '</div>' + inGroup.map(function (p) {
+        return '<button data-page="' + p.id + '" aria-current="' + (p.id === page) + '"><span class="ic">' + p.icon + '</span>' + esc(p.title) + '</button>';
+      }).join('');
+    });
+    $('menu').innerHTML = html;
+  }
+
+  /** Bottom bar: the handful of pages that are worth a thumb-reachable tap. */
+  function buildTabs() {
+    $('tabbar').innerHTML = TABS.map(function (id) {
+      var p = PAGES.filter(function (x) { return x.id === id; })[0];
+      if (!p) return '';
+      return '<button data-page="' + p.id + '" aria-current="' + (p.id === page) + '"><span class="ic">' + p.icon + '</span><span class="tl">' + esc(p.title) + '</span></button>';
     }).join('');
   }
+  $('tabbar').addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('button[data-page]');
+    if (b) go(b.getAttribute('data-page'));
+  });
   function setDrawer(open) {
     $('drawer').classList.toggle('open', open);
     $('scrim').classList.toggle('open', open);
@@ -269,8 +397,10 @@
   function go(id) {
     page = id;
     buildMenu();
+    buildTabs();
     var p = PAGES.filter(function (x) { return x.id === id; })[0] || PAGES[0];
     $('title').textContent = p.title;
+    if (p.onEnter) { try { p.onEnter(); } catch (e) { /* a page must still render if its warm-up fails */ } }
     draw();
     window.scrollTo(0, 0);
   }
@@ -299,6 +429,9 @@
       .then(function (j) {
         if (j && j.error) throw new Error(j.error);
         snap = j; cachedAt = Date.now(); saveCache();
+        // fresh prices are the only moment alerts can be judged, so watch them here
+        if (notifyHub) { try { notifyHub.check(snap); } catch (e) { /* never block a refresh */ } }
+        (MODS || []).forEach(function (m) { if (m.onAppOpen) { try { m.onAppOpen(); } catch (e) {} } });
       })
       .catch(function (e) {
         lastError = (e && e.name === 'AbortError') ? 'زمان انتظار تمام شد' : (e && e.message) || 'خطای نامشخص';
@@ -352,27 +485,73 @@
   }
 
   // ── pages ──
+  /** The three rates people open the app for get the large tile; the rest follow at half size. */
   var LEAD = { usd: 1, coin: 1, g18: 1 };
   function renderBoard() {
     var items = (snap.live && snap.live.items) || [];
-    var order = ['usd', 'coin', 'g18', 'usdt', 'ons', 'tse', 'btc', 'eth', 'oilBrent', 'dxy'];
+    var order = ['usd', 'coin', 'g18', 'usdt', 'nim', 'rob', 'silver', 'ons', 'silverOns', 'tse', 'btc', 'eth', 'oilBrent', 'dxy'];
     items = items.slice().sort(function (a, b) {
       var ad = (a.price === null) ? 1 : 0, bd = (b.price === null) ? 1 : 0;
       if (ad !== bd) return ad - bd;
       var ai = order.indexOf(a.key), bi = order.indexOf(b.key);
       return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
     });
-    return '<div class="card">' + items.map(function (it) {
+    var tiles = items.map(function (it) {
       var dir = (it.changePct > 0) ? 'up' : (it.changePct < 0 ? 'down' : '');
       var arrow = it.changePct > 0 ? '▲' : it.changePct < 0 ? '▼' : '';
-      return '<div class="row">' +
-        '<span class="label">' + esc(it.label) + (it.note ? '<small>' + esc(it.note) + '</small>' : '') + '</span>' +
-        (it.price === null
-          ? '<span class="muted">در انتظار داده</span>'
-          : '<span class="val num">' + fa(it.price, it.unit === 'usd' ? 2 : 0) + '<span class="unit">' + (UNIT[it.unit] || '') + '</span></span>' +
-            '<span class="chg num ' + dir + '">' + arrow + ' ' + pct(it.changePct) + '</span>') +
+      var dead = it.price === null;
+      return '<div class="tile' + (LEAD[it.key] ? ' lead' : '') + (dead ? ' dead' : '') + '">' +
+        '<span class="t-label">' + esc(it.label) + '</span>' +
+        (dead
+          ? '<span class="t-wait">در انتظار داده</span>'
+          : '<span class="t-price num">' + fa(it.price, it.unit === 'usd' ? 2 : 0) + '<small>' + (UNIT[it.unit] || '') + '</small></span>' +
+            '<span class="t-meta"><span class="t-chg num ' + dir + '">' + arrow + ' ' + pct(it.changePct) + '</span>' +
+            (it.spark && it.spark.length > 3 ? spark(it.spark) : '') + '</span>') +
+        (it.note ? '<span class="t-note">' + esc(it.note) + '</span>' : '') +
         '</div>';
-    }).join('') + '</div>';
+    }).join('');
+    return '<div class="tiles">' + tiles + '</div>' + goldRoutesCard();
+  }
+
+  /**
+   * The board answers "what does each cost", which is the wrong question for gold: the quarter
+   * coin carries the smallest price tag on the page and is usually the dearest metal on it.
+   * Dividing by the pure gold each one holds is the only comparison that means anything.
+   */
+  function goldRoutesCard() {
+    var routes = (snap.live && snap.live.goldRoutes) || [];
+    if (routes.length < 2) return '';
+    var worst = routes[routes.length - 1];
+    // bar = gap to the cheapest, not the absolute price: from zero all four look identical
+    var maxGap = Math.max(0.01, worst.vsBestPct);
+    return '<div class="card"><h2>ارزان‌ترین راه خرید طلا</h2>' +
+      '<div class="row"><span class="label muted" style="font-size:12.5px">قیمت هر کدام تقسیم بر طلای خالصی که دارد. طول نوار یعنی چقدر از ارزان‌ترین گزینه گران‌تر است.</span></div>' +
+      routes.map(function (r, i) {
+        return '<div class="route' + (i === 0 ? ' best' : '') + '">' +
+          '<span class="rt-n">' + esc(r.label) + (i === 0 ? '<b>ارزان‌ترین</b>' : '') + '</span>' +
+          '<span class="rt-v num">' + fa(Math.round(r.tomanPerGram)) + '</span>' +
+          '<span class="rt-g num ' + (i === 0 ? 'up' : 'down') + '">' + (i === 0 ? '—' : '+' + fa(r.vsBestPct, 1) + '٪') + '</span>' +
+          '<span class="rt-b"><span style="width:' + ((r.vsBestPct / maxGap) * 100).toFixed(1) + '%"></span></span>' +
+          '</div>';
+      }).join('') +
+      (worst.vsBestPct > 1
+        ? '<div class="row"><span class="label">همین حالا ' + esc(worst.label) + ' برای هر گرم طلا ' + fa(worst.vsBestPct, 1) + '٪ گران‌تر از ' + esc(routes[0].label) + ' تمام می‌شود.</span></div>'
+        : '') +
+      '</div>';
+  }
+
+  /** Inline sparkline for a board tile. Deliberately colourless: the percentage beside it is a
+   *  24-hour number while the line covers three months, and two coloured signals disagreeing
+   *  on the same row reads as a bug. */
+  function spark(vals) {
+    var n = vals.length, W = 62, H = 18;
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var dy = (hi - lo) || 1;
+    var d = vals.map(function (v, i) {
+      return (i ? 'L' : 'M') + ((i / (n - 1)) * W).toFixed(1) + ' ' + (H - ((v - lo) / dy) * H).toFixed(1);
+    }).join(' ');
+    return '<svg class="t-spark" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' +
+      '<path d="' + d + '" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" opacity=".55"/></svg>';
   }
 
   function renderRisk() {
@@ -990,36 +1169,16 @@ function fa(n) {
   function loadSenders() { var v = jget(SENDER_KEY, []); return Array.isArray(v) ? v : []; }
   function txMeta() { return jget(TXMETA_KEY, {}) || {}; }
 
-  function notifPlugin() {
-    var C = window.Capacitor;
-    return (C && C.Plugins && C.Plugins.LocalNotifications) ? C.Plugins.LocalNotifications : null;
-  }
   function notifOn() { return jget(NOTIF_KEY, true) !== false; }
 
   /**
-   * Fires a local notification after an import. Deliberately summary-only: putting the
-   * amount or the bank in a notification would show it on the lock screen, and this is the
-   * one place in the app where data leaves the app's own window.
+   * Bank-SMS notifications go through the shared hub like everything else, but stay
+   * summary-only: the amount and the bank would show on the lock screen, and this is the one
+   * place in the app where the user's own data would leave the app's own window.
    */
-  async function notify(title, body) {
-    var plug = notifPlugin();
-    if (!plug || !notifOn()) return;
-    try {
-      var perm = await plug.checkPermissions();
-      if (!perm || perm.display !== 'granted') {
-        var req = await plug.requestPermissions();
-        if (!req || req.display !== 'granted') return;
-      }
-      await plug.schedule({
-        notifications: [{
-          id: Date.now() % 2147483647,
-          title: title,
-          body: body,
-          smallIcon: 'ic_stat_icon_config_sample',
-          channelId: 'imb-tx'
-        }]
-      });
-    } catch (e) { /* a failed notification must never break the import */ }
+  function notify(title, body) {
+    if (!notifOn() || !notifyHub) return;
+    notifyHub.notify(title, body, 'sms');
   }
 
   function smsPlugin() { var C = window.Capacitor; return (C && C.Plugins && C.Plugins.SmsReader) ? C.Plugins.SmsReader : null; }
@@ -1279,7 +1438,7 @@ function fa(n) {
         (plug ? '<div class="row"><button class="addbtn" id="sImport" style="flex:1 1 100%">خواندن پیامک‌های جدید</button></div>' : '') +
         (spendMsg ? '<div class="row"><span class="' + (spendMsg.err ? 'down' : 'muted') + '">' + esc(spendMsg.err || spendMsg.info) + '</span></div>' : '') +
         '<div class="row"><span class="label">اعلان تراکنش جدید<small>' +
-          (notifPlugin() ? 'بعد از هر دریافت، خلاصه‌ای اعلان می‌شود. مبلغ و نام بانک در اعلان نمی‌آید تا روی صفحه قفل دیده نشود.' : 'در نسخه اندروید فعال می‌شود.') +
+          'بعد از هر دریافت، خلاصه‌ای اعلان می‌شود. مبلغ و نام بانک در اعلان نمی‌آید تا روی صفحه قفل دیده نشود. تنظیم دسته‌ها در صفحه «اعلان‌ها».' +
         '</small></span><button class="chipbtn" id="notifToggle" aria-pressed="' + notifOn() + '">' + (notifOn() ? 'روشن' : 'خاموش') + '</button></div>' +
         (uncat.length ? '<div class="row"><span class="label" style="color:var(--down)">⚠️ ' + fa(uncat.length) + ' تراکنش دسته‌بندی‌نشده</span></div>' : '') +
         (pend.length ? '<div class="row"><span class="label muted">❓ ' + fa(pend.length) + ' پیامک نیازمند تأیید</span></div>' : '') +
@@ -1581,9 +1740,44 @@ function fa(n) {
     }
   });
 
+  // ── modules ──
+  // app-notify.js and app-trade.js are given the shell's own helpers rather than re-implementing
+  // formatting and storage; in exchange they hand back pages and two event hooks.
+  var MODS = [];
+  (function initModules() {
+    var mkCard = function (title, body) { return '<div class="card">' + (title ? '<h2>' + title + '</h2>' : '') + body + '</div>'; };
+    var mkBanner = function (text, kind) { return '<div class="banner ' + (kind || 'warn') + '">' + text + '</div>'; };
+    var modCtx = {
+      API: API, fa: fa, pct: pct, esc: esc, isNum: isNum, jget: jget, jset: jset,
+      toman: tomanWords,
+      card: mkCard, banner: mkBanner,
+      redraw: function () { draw(); },
+      snapshot: function () { return snap; },
+      notify: function (t, b, c) { return notifyHub ? notifyHub.notify(t, b, c) : undefined; }
+    };
+    if (typeof window.IMB_NOTIFY === 'function') {
+      notifyHub = window.IMB_NOTIFY(modCtx);
+      MODS.push(notifyHub);
+    }
+    if (typeof window.IMB_TRADE === 'function') MODS.push(window.IMB_TRADE(modCtx));
+    MODS.forEach(function (m) { (m.pages || []).forEach(function (p) { PAGES.push(p); }); });
+  })();
+  // module event hooks run before the shell's own handlers and stop once one claims the event
+  document.addEventListener('click', function (e) {
+    for (var i = 0; i < MODS.length; i++) {
+      try { if (MODS[i].onClick && MODS[i].onClick(e)) return; } catch (err) { /* keep the app usable */ }
+    }
+  }, true);
+  document.addEventListener('change', function (e) {
+    for (var i = 0; i < MODS.length; i++) {
+      try { if (MODS[i].onChange && MODS[i].onChange(e)) { draw(); return; } } catch (err) { /* keep the app usable */ }
+    }
+  }, true);
+
   // ── start ──
   loadCache();
   buildMenu();
+  buildTabs();
   go('board');
   refresh();
   // refresh when the app comes back to the foreground, but only if the data is getting old

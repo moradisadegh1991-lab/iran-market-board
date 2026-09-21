@@ -86,7 +86,7 @@ console.log('class mapping OK');
 
 // ── 9. similarity math ──
 const pf: Portfolio = {
-  profile: 'balanced', horizon: 'm3', annualVolPct: 18, varPct: 9, notes: [],
+  profile: 'balanced', horizon: 'm3', annualVolPct: 18, varPct: 9, esPct: 12, riskBasis: 'assumed', avgCorrPct: null, notes: [],
   lines: [
     { cls: 'cash', label: 'درآمد ثابت', weight: 0.3, baseWeight: 0.3, instrument: '', rationale: '' },
     { cls: 'usd', label: 'دلار/تتر', weight: 0.2, baseWeight: 0.2, instrument: '', rationale: '' },

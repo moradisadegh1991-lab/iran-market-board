@@ -1,5 +1,5 @@
 export type HorizonKey = 'd1' | 'w1' | 'm1' | 'm3' | 'm6' | 'y1';
-export type AssetKey = 'usd' | 'usdt' | 'g18' | 'coin' | 'ons' | 'btc' | 'eth' | 'tse';
+export type AssetKey = 'usd' | 'usdt' | 'g18' | 'coin' | 'nim' | 'rob' | 'silver' | 'silverOns' | 'ons' | 'btc' | 'eth' | 'tse';
 export type RiskAssetKey = AssetKey | 'btc_irt';
 export type Profile = 'conservative' | 'balanced' | 'aggressive';
 export type PortfolioHorizon = 'm1' | 'm3' | 'm6' | 'y1';
@@ -25,10 +25,28 @@ export interface BoardItem {
   spark?: number[];
 }
 
+/** One way of buying gold, reduced to what it actually costs per gram of pure metal. */
+export interface GoldRoute {
+  key: string;
+  label: string;
+  /** toman paid per gram of pure gold at today's price */
+  tomanPerGram: number;
+  /** how much above melt value that is */
+  premiumPct: number | null;
+  /** percentage points dearer than the cheapest route on the board */
+  vsBestPct: number;
+}
+
 export interface LiveBoard {
   items: BoardItem[];
+  /** every gold instrument on the board, priced on the same basis so they can be compared */
+  goldRoutes: GoldRoute[];
   coinBubblePct: number | null;
   g18BubblePct: number | null;
+  /** premium over melt value for the fractional coins — normally larger than the full coin's */
+  nimBubblePct: number | null;
+  robBubblePct: number | null;
+  silverBubblePct: number | null;
   usdtPremiumPct: number | null;
 }
 
@@ -143,6 +161,12 @@ export interface Portfolio {
   lines: AllocationLine[];
   annualVolPct: number | null;
   varPct: number | null; // 95% horizon loss estimate (positive number)
+  /** expected shortfall: average loss across the worst 5% of outcomes (positive number) */
+  esPct: number | null;
+  /** whether varPct/esPct came from the sleeves' real joint history or the assumed matrix */
+  riskBasis: 'measured' | 'assumed';
+  /** measured average pairwise correlation among the risky sleeves */
+  avgCorrPct: number | null;
   notes: string[];
 }
 

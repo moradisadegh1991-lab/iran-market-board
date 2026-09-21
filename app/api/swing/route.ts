@@ -3,6 +3,8 @@ import { errMsg } from '@/lib/http';
 import { isNum } from '@/lib/num';
 import { cachedSource } from '@/lib/sources/cache';
 import { fetchCgHourly, fetchCgMarkets, type CgCoin } from '@/lib/sources/coingecko';
+import { fetchNobitexTradable } from '@/lib/sources/nobitex';
+import { dailyMap, loadDaily } from '@/lib/history';
 import { getSnapshot } from '@/lib/snapshot';
 import { SWING_PRESETS, runSwing, type SwingPreset } from '@/lib/engine/swing';
 import { runSwingPortfolio } from '@/lib/engine/swing-portfolio';
@@ -81,6 +83,24 @@ function toRecord(source: SwingRunRecord['source'], coin: { id: string; symbol: 
 
 const isCoinId = (v: string) => /^[a-z0-9][a-z0-9-]{1,60}$/.test(v);
 
+/**
+ * Everything the engine needs to report in real toman: the current tether rate for display,
+ * the DAILY tether rate so each bar converts at its own day's price, and the fixed-income rate
+ * the result has to beat to have been worth doing.
+ */
+async function fxContext() {
+  const [snap, daily] = await Promise.all([getSnapshot(), loadDaily().catch(() => null)]);
+  const usdtToman = snap.live.items.find((i) => i.key === 'usdt')?.price ?? null;
+  const usdtRial = isNum(usdtToman) ? usdtToman * 10 : null;
+  const usdtRialByDate = daily ? dailyMap(daily, 'usdt') : null;
+  return {
+    snap,
+    usdtRial,
+    usdtRialByDate: usdtRialByDate && usdtRialByDate.size >= 10 ? usdtRialByDate : null,
+    riskFreeAnnual: Number(process.env.FIXED_INCOME_YIELD || 0.3),
+  };
+}
+
 /** Hourly bars for one coin, shared between visitors via the same cache key as the single run. */
 async function barsFor(coinId: string, days: number) {
   const cached = await cachedSource(`swingBars:${coinId}:${days}`, 30 * 60, () => fetchCgHourly(coinId, days), 6 * 3600);
@@ -123,15 +143,33 @@ export async function POST(req: Request) {
         const cur = bySym.get(k);
         if (!cur || (c.total_volume ?? 0) > (cur.total_volume ?? 0)) bySym.set(k, c);
       }
-      const cands = [...bySym.values()]
-        .sort((a, b) => (b.total_volume ?? 0) - (a.total_volume ?? 0))
+      const ranked = [...bySym.values()].sort((a, b) => (b.total_volume ?? 0) - (a.total_volume ?? 0));
+
+      // A coin the user cannot buy in Iran is not a candidate, however good its backtest looks.
+      // The screen was ranking on global CoinGecko volume alone, so the scan could spend its
+      // whole history budget on names with no open rial market on Nobitex.
+      const scanNotes: string[] = [];
+      const tradable = await cachedSource<string[]>(
+        'nobitexSwingScan',
+        1800,
+        () => fetchNobitexTradable(ranked.slice(0, 80).map((c) => String(c.symbol))),
+        3 * 24 * 3600,
+      ).catch(() => ({ data: null as string[] | null }));
+      const tradableSet = tradable.data?.length ? new Set(tradable.data) : null;
+      const eligible = tradableSet ? ranked.filter((c) => tradableSet.has(String(c.symbol ?? '').toLowerCase())) : ranked;
+      if (!tradableSet) {
+        scanNotes.push('فهرست بازارهای نوبیتکس در دسترس نبود؛ ممکن است بعضی ارزهای این فهرست در ایران قابل معامله نباشند.');
+      } else {
+        scanNotes.push(`فقط ارزهایی بررسی شدند که بازار ریالی باز روی نوبیتکس دارند (${eligible.length.toLocaleString('fa-IR')} ارز از ${ranked.length.toLocaleString('fa-IR')}).`);
+      }
+
+      const cands = (eligible.length ? eligible : ranked)
         .slice(0, MAX_SCAN)
         .map((c) => ({ id: c.id, symbol: String(c.symbol).toUpperCase(), name: c.name, meme: memeIds.has(c.id) }));
       if (!cands.length) throw new Error('فهرست ارزها در دسترس نبود.');
 
-      const snap = await getSnapshot();
-      const usdtToman = snap.live.items.find((i) => i.key === 'usdt')?.price ?? null;
-      const usdtRial = isNum(usdtToman) ? usdtToman * 10 : null;
+      const { usdtRial, usdtRialByDate, riskFreeAnnual } = await fxContext();
+      const swingCfg = { capitalToman, preset, feePct, usdtRial, usdtRialByDate, riskFreeAnnual };
 
       const inputs = await Promise.all(
         cands.map(async (coin) => {
@@ -144,14 +182,12 @@ export async function POST(req: Request) {
         }),
       );
       const priors = buildPriors(await getSwingRuns());
-      const scan = scanSwing(inputs, { capitalToman, preset, feePct, usdtRial }, pick, priors);
+      const scan = scanSwing(inputs, swingCfg, pick, priors);
+      scan.warnings.unshift(...scanNotes);
 
       // and run the selected basket over the whole window, as a normal portfolio
       const selIds = new Set(scan.selected.map((c) => c.coin.id));
-      const portfolio = runSwingPortfolio(
-        inputs.filter((i) => selIds.has(i.coin.id)),
-        { capitalToman, preset, feePct, usdtRial },
-      );
+      const portfolio = runSwingPortfolio(inputs.filter((i) => selIds.has(i.coin.id)), swingCfg);
       // remember what happened, so later scans have evidence to work from
       await recordSwingRuns(
         portfolio.sleeves
@@ -175,9 +211,7 @@ export async function POST(req: Request) {
       if (!unique.length) throw new Error('شناسه ارزها نامعتبر است.');
       if (unique.length > MAX_COINS) throw new Error(`حداکثر ${MAX_COINS.toLocaleString('fa-IR')} ارز همزمان قابل محاسبه است.`);
 
-      const snap = await getSnapshot();
-      const usdtToman = snap.live.items.find((i) => i.key === 'usdt')?.price ?? null;
-      const usdtRial = isNum(usdtToman) ? usdtToman * 10 : null;
+      const { usdtRial, usdtRialByDate, riskFreeAnnual } = await fxContext();
 
       const inputs = await Promise.all(
         unique.map(async (coin) => {
@@ -189,7 +223,7 @@ export async function POST(req: Request) {
           }
         }),
       );
-      const portfolio = runSwingPortfolio(inputs, { capitalToman, preset, feePct, usdtRial });
+      const portfolio = runSwingPortfolio(inputs, { capitalToman, preset, feePct, usdtRial, usdtRialByDate, riskFreeAnnual });
       if (!isNum(usdtRial)) portfolio.warnings.push('قیمت تتر در دسترس نبود؛ محاسبه‌ها بر پایه دلار انجام شد.');
       await recordSwingRuns(
         portfolio.sleeves.filter((sl) => sl.ok && sl.result).map((sl) => toRecord('basket', sl.coin, preset, days, feePct, sl.result!)),
@@ -205,16 +239,18 @@ export async function POST(req: Request) {
     const preset = (Object.keys(SWING_PRESETS).includes(body?.preset) ? body.preset : 'normal') as SwingPreset;
     const feePct = isNum(Number(body?.feePct)) ? Math.max(0, Math.min(2, Number(body.feePct))) : 0.4;
 
-    const snap = await getSnapshot();
-    const usdtToman = snap.live.items.find((i) => i.key === 'usdt')?.price ?? null;
-    const usdtRial = isNum(usdtToman) ? usdtToman * 10 : null;
+    const { usdtRial, usdtRialByDate, riskFreeAnnual } = await fxContext();
 
     // hourly history is heavy and shared between visitors → cache per coin+window
     const cached = await cachedSource(`swingBars:${coinId}:${days}`, 30 * 60, () => fetchCgHourly(coinId, days), 6 * 3600);
     if (!cached.data) throw new Error(`دریافت تاریخچه ساعتی این ارز ممکن نشد: ${cached.status.error ?? 'پاسخ خالی'}`);
 
     const bars = cached.data.map(([t, p]) => ({ t, p }));
-    const result = runSwing(bars, { id: coinId, symbol: String(body?.symbol ?? coinId).toUpperCase(), name: String(body?.name ?? coinId) }, { capitalToman, preset, feePct, usdtRial });
+    const result = runSwing(
+      bars,
+      { id: coinId, symbol: String(body?.symbol ?? coinId).toUpperCase(), name: String(body?.name ?? coinId) },
+      { capitalToman, preset, feePct, usdtRial, usdtRialByDate, riskFreeAnnual },
+    );
 
     if (!isNum(usdtRial)) result.warnings.push('قیمت تتر در دسترس نبود؛ محاسبه‌ها بر پایه دلار انجام شد و تغییر نرخ تتر در بازده لحاظ نشده است.');
     if (cached.status.stale) result.warnings.push('تاریخچه از کش خوانده شد و ممکن است چند ساعت قدیمی باشد.');
