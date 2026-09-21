@@ -66,7 +66,7 @@ async function loadActive(): Promise<StoredSession | null> {
 const save = (s: StoredSession) => kv.set(sessionKey(s.id), s, 120 * 86400);
 
 /** Real quotes (rial per unit; TSE in index points like the backtest) + daily history + recent news. */
-async function buildContext(now: number, assets: SimAsset[], useNews: boolean): Promise<TickContext & { dataNote: string | null }> {
+export async function buildContext(now: number, assets: SimAsset[], useNews: boolean): Promise<TickContext & { dataNote: string | null }> {
   const [snap, all] = await Promise.all([getSnapshot(), loadAllSeries()]);
   const item = (k: string) => snap.live.items.find((i) => i.key === k)?.price ?? null;
   const usdRial = isNum(item('usd')) ? item('usd')! * 10 : null;
