@@ -4,7 +4,7 @@ import { isNum, msToTehranDate, normSymbol } from '@/lib/num';
 import type { AssetKey } from '@/lib/types';
 import type { TseSymbol } from '@/lib/sources/brsapi';
 
-export const ASSET_KEYS: AssetKey[] = ['usd', 'usdt', 'g18', 'coin', 'ons', 'btc', 'eth', 'tse'];
+export const ASSET_KEYS: AssetKey[] = ['usd', 'usdt', 'g18', 'coin', 'nim', 'rob', 'silver', 'silverOns', 'ons', 'btc', 'eth', 'tse'];
 const DAILY_KEY = 'hist:daily:v1';
 const TSE_KEY = 'hist:tse:v1';
 const MAX_DAILY = 420;

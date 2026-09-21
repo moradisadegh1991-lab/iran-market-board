@@ -23,9 +23,15 @@ export function parseTgju(json: any) {
   return {
     usd: quote(cur, 'price_dollar_rl'),
     coin: quote(cur, 'sekee'),
+    nim: quote(cur, 'nim'),
+    rob: quote(cur, 'rob'),
     g18: quote(cur, 'geram18'),
     g24: quote(cur, 'geram24'),
     ons: quote(cur, 'ons'),
+    // TGJU names these the other way round to how they read: `silver_999` is the rial price of a
+    // gram of 999 silver, while the bare `silver` key is the global USD/ounce quote.
+    silver: quote(cur, 'silver_999'),
+    silverOns: quote(cur, 'silver'),
     // exact key unconfirmed — see /api/diag's tgju.matchedKeys; falls back gracefully to null
     oilBrent: firstQuote(cur, ['oil_brent', 'brent_oil', 'crude_oil_brent', 'oil-brent', 'energy_brent_oil', 'anrژی-نفت-برنت', 'oil_energy_brent', 'oil']),
     dxy: firstQuote(cur, ['dxy', 'usdx', 'dollar_index', 'us_dollar_index', 'usd_index', 'shakhes_dollar']),

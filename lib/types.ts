@@ -1,5 +1,5 @@
 export type HorizonKey = 'd1' | 'w1' | 'm1' | 'm3' | 'm6' | 'y1';
-export type AssetKey = 'usd' | 'usdt' | 'g18' | 'coin' | 'ons' | 'btc' | 'eth' | 'tse';
+export type AssetKey = 'usd' | 'usdt' | 'g18' | 'coin' | 'nim' | 'rob' | 'silver' | 'silverOns' | 'ons' | 'btc' | 'eth' | 'tse';
 export type RiskAssetKey = AssetKey | 'btc_irt';
 export type Profile = 'conservative' | 'balanced' | 'aggressive';
 export type PortfolioHorizon = 'm1' | 'm3' | 'm6' | 'y1';
@@ -29,6 +29,10 @@ export interface LiveBoard {
   items: BoardItem[];
   coinBubblePct: number | null;
   g18BubblePct: number | null;
+  /** premium over melt value for the fractional coins — normally larger than the full coin's */
+  nimBubblePct: number | null;
+  robBubblePct: number | null;
+  silverBubblePct: number | null;
   usdtPremiumPct: number | null;
 }
 

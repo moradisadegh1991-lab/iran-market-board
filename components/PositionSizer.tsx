@@ -12,7 +12,13 @@ const digitsOnly = (v: string) => v.replace(/[^\d]/g, '');
 const decimal = (v: string) => v.replace(/[^\d.]/g, '');
 
 /** Assets whose live price is a sane default entry, with the fee they actually cost to trade. */
-const FEE_HINT: Record<string, number> = { usd: 0.6, usdt: 0.4, g18: 0.8, coin: 0.6, btc: 0.4, eth: 0.4, tse: 0.5 };
+const FEE_HINT: Record<string, number> = {
+  usd: 0.6, usdt: 0.4, g18: 0.8, coin: 0.6,
+  // small coins and silver trade on wider spreads than the full coin — the smaller and less
+  // liquid the piece, the more of the move the dealer keeps
+  nim: 0.9, rob: 1.2, silver: 1.5,
+  btc: 0.4, eth: 0.4, tse: 0.5,
+};
 
 export default function PositionSizer({ assets }: { assets: AssetRisk[] }) {
   const usable = assets.filter((a) => !a.hidden && isNum(a.price) && a.price! > 0);

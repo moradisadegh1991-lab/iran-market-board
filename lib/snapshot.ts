@@ -20,7 +20,13 @@ import type { AssetRisk, AssetScenario, BoardItem, CryptoRow, Profile, RiskAsset
 
 const SNAP_KEY = 'snapshot:v2';
 const LOCK_KEY = 'snapshot:lock';
-const COIN_PURE_GRAMS = 7.3224; // Emami coin: 8.136 g × 0.900
+// Pure gold in each coin: nominal weight × 0.900. The fractional coins are exact fractions of the
+// full one by weight, but NOT by price — their bubble is consistently larger, which is the whole
+// reason it is worth showing each one separately.
+const COIN_PURE_GRAMS = 7.3224; // Emami: 8.136 g × 0.900
+const NIM_PURE_GRAMS = 3.6612; // نیم سکه: 4.068 g × 0.900
+const ROB_PURE_GRAMS = 1.8306; // ربع سکه: 2.034 g × 0.900
+const SILVER_999 = 0.999;
 const OZ = 31.1035;
 
 export async function getSnapshot(opts: { force?: boolean } = {}): Promise<Snapshot> {
@@ -86,10 +92,20 @@ async function buildSnapshot(): Promise<Snapshot> {
   const brsTether = gcR.data ? parseBrsTetherRial(gcR.data, usdR) : null;
   const usdtR = nb.usdtRls?.price ?? brsTether?.price ?? null;
   const usdtChangePct = nb.usdtRls?.changePct ?? brsTether?.changePct ?? null;
-  const g18Intrinsic = isNum(ons) && isNum(usdR) ? (ons / OZ) * 0.75 * usdR : null;
-  const coinIntrinsic = isNum(ons) && isNum(usdR) ? (ons / OZ) * COIN_PURE_GRAMS * usdR : null;
-  const coinBubblePct = tg.coin && coinIntrinsic ? (tg.coin.price / coinIntrinsic - 1) * 100 : null;
-  const g18BubblePct = tg.g18 && g18Intrinsic ? (tg.g18.price / g18Intrinsic - 1) * 100 : null;
+  const goldRialPerGram = isNum(ons) && isNum(usdR) ? (ons / OZ) * usdR : null;
+  const g18Intrinsic = isNum(goldRialPerGram) ? goldRialPerGram * 0.75 : null;
+  const coinIntrinsic = isNum(goldRialPerGram) ? goldRialPerGram * COIN_PURE_GRAMS : null;
+  const nimIntrinsic = isNum(goldRialPerGram) ? goldRialPerGram * NIM_PURE_GRAMS : null;
+  const robIntrinsic = isNum(goldRialPerGram) ? goldRialPerGram * ROB_PURE_GRAMS : null;
+  const silverOns = tg.silverOns?.price ?? null;
+  const silverIntrinsic = isNum(silverOns) && isNum(usdR) ? (silverOns / OZ) * SILVER_999 * usdR : null;
+  const bubble = (q: { price: number } | null | undefined, intrinsic: number | null) =>
+    q && isNum(intrinsic) && intrinsic > 0 ? (q.price / intrinsic - 1) * 100 : null;
+  const coinBubblePct = bubble(tg.coin, coinIntrinsic);
+  const g18BubblePct = bubble(tg.g18, g18Intrinsic);
+  const nimBubblePct = bubble(tg.nim, nimIntrinsic);
+  const robBubblePct = bubble(tg.rob, robIntrinsic);
+  const silverBubblePct = bubble(tg.silver, silverIntrinsic);
   const usdtPremiumPct = isNum(usdtR) && isNum(usdR) ? (usdtR / usdR - 1) * 100 : null;
   const cgFind = (id: string) => cgR.data?.find((c) => c.id === id);
   const btcUsd = nb.btcUsdt?.price ?? cgFind('bitcoin')?.current_price ?? null;
@@ -99,8 +115,12 @@ async function buildSnapshot(): Promise<Snapshot> {
     { key: 'usd', label: 'دلار آزاد', price: rialToToman(usdR) || null, unit: 'toman', changePct: tg.usd?.changePct ?? null },
     { key: 'usdt', label: 'تتر', price: rialToToman(usdtR) || null, unit: 'toman', changePct: usdtChangePct, note: isNum(usdtPremiumPct) ? `پرمیوم نسبت به دلار ${fmtPct(usdtPremiumPct)}` : undefined },
     { key: 'coin', label: 'سکه امامی', price: rialToToman(tg.coin?.price) || null, unit: 'toman', changePct: tg.coin?.changePct ?? null, note: isNum(coinBubblePct) ? `حباب ${fmtPct(coinBubblePct, 1, false)}` : undefined },
+    { key: 'nim', label: 'نیم سکه', price: rialToToman(tg.nim?.price) || null, unit: 'toman', changePct: tg.nim?.changePct ?? null, note: isNum(nimBubblePct) ? `حباب ${fmtPct(nimBubblePct, 1, false)}` : undefined },
+    { key: 'rob', label: 'ربع سکه', price: rialToToman(tg.rob?.price) || null, unit: 'toman', changePct: tg.rob?.changePct ?? null, note: isNum(robBubblePct) ? `حباب ${fmtPct(robBubblePct, 1, false)}` : undefined },
     { key: 'g18', label: 'طلای ۱۸ عیار (گرم)', price: rialToToman(tg.g18?.price) || null, unit: 'toman', changePct: tg.g18?.changePct ?? null, note: isNum(g18BubblePct) ? `حباب ${fmtPct(g18BubblePct, 1, false)}` : undefined },
+    { key: 'silver', label: 'نقره ۹۹۹ (گرم)', price: rialToToman(tg.silver?.price) || null, unit: 'toman', changePct: tg.silver?.changePct ?? null, note: isNum(silverBubblePct) ? `حباب ${fmtPct(silverBubblePct, 1, false)}` : undefined },
     { key: 'ons', label: 'انس جهانی طلا', price: ons, unit: 'usd', changePct: tg.ons?.changePct ?? null },
+    { key: 'silverOns', label: 'انس جهانی نقره', price: silverOns, unit: 'usd', changePct: tg.silverOns?.changePct ?? null },
     { key: 'btc', label: 'بیت‌کوین', price: btcUsd, unit: 'usd', changePct: nb.btcUsdt?.changePct ?? cgFind('bitcoin')?.price_change_percentage_24h_in_currency ?? null },
     { key: 'eth', label: 'اتریوم', price: ethUsd, unit: 'usd', changePct: nb.ethUsdt?.changePct ?? cgFind('ethereum')?.price_change_percentage_24h_in_currency ?? null },
     { key: 'tse', label: 'شاخص کل بورس', price: idx?.value ?? null, unit: 'point', changePct: idx?.changePct ?? null },
@@ -111,7 +131,9 @@ async function buildSnapshot(): Promise<Snapshot> {
   // ── rolling history (daily every 10 min at most, TSE symbols every 20 min, intraday every 10 min) ──
   const today = tehranDate(now);
   const livePoint = {
-    usd: usdR, usdt: usdtR, g18: tg.g18?.price, coin: tg.coin?.price, ons, btc: btcUsd, eth: ethUsd,
+    usd: usdR, usdt: usdtR, g18: tg.g18?.price, coin: tg.coin?.price,
+    nim: tg.nim?.price, rob: tg.rob?.price, silver: tg.silver?.price, silverOns,
+    ons, btc: btcUsd, eth: ethUsd,
     tse: isTseTradingDay(now) ? idx?.value : null,
   };
   upsertDailyPoint(daily, today, livePoint);
@@ -138,7 +160,11 @@ async function buildSnapshot(): Promise<Snapshot> {
     { key: 'usdt', label: 'تتر', unit: 'toman', price: rialToToman(usdtR) || null },
     { key: 'g18', label: 'طلای ۱۸', unit: 'toman', price: rialToToman(tg.g18?.price) || null, addOn: isNum(g18BubblePct) ? clamp(g18BubblePct * 1.5, -8, 12) : 0 },
     { key: 'coin', label: 'سکه امامی', unit: 'toman', price: rialToToman(tg.coin?.price) || null, addOn: isNum(coinBubblePct) ? clamp(coinBubblePct * 1.5, -10, 15) : 0 },
-    { key: 'ons', label: 'انس جهانی', unit: 'usd', price: ons },
+    { key: 'nim', label: 'نیم سکه', unit: 'toman', price: rialToToman(tg.nim?.price) || null, addOn: isNum(nimBubblePct) ? clamp(nimBubblePct * 1.5, -10, 18) : 0 },
+    { key: 'rob', label: 'ربع سکه', unit: 'toman', price: rialToToman(tg.rob?.price) || null, addOn: isNum(robBubblePct) ? clamp(robBubblePct * 1.5, -10, 22) : 0 },
+    { key: 'silver', label: 'نقره ۹۹۹', unit: 'toman', price: rialToToman(tg.silver?.price) || null, addOn: isNum(silverBubblePct) ? clamp(silverBubblePct * 1.5, -8, 12) : 0 },
+    { key: 'ons', label: 'انس جهانی طلا', unit: 'usd', price: ons },
+    { key: 'silverOns', label: 'انس جهانی نقره', unit: 'usd', price: silverOns },
     { key: 'btc', label: 'بیت‌کوین', unit: 'usd', price: btcUsd },
     { key: 'eth', label: 'اتریوم', unit: 'usd', price: ethUsd },
     { key: 'tse', label: 'شاخص کل بورس', unit: 'point', price: idx?.value ?? null },
@@ -163,7 +189,11 @@ async function buildSnapshot(): Promise<Snapshot> {
   const stocks = screenTse(symbols, tseStore, tseSeries.prices);
 
   // ── scenarios ──
-  const scenarios = await buildScenarios({ inputs, seriesByKey, defs, crypto: crypto.coins, symbols, usdR, usdtPremiumPct, coinBubblePct, g18BubblePct, g18Intrinsic, coinIntrinsic });
+  const scenarios = await buildScenarios({
+    inputs, seriesByKey, defs, crypto: crypto.coins, symbols, usdR, usdtPremiumPct,
+    coinBubblePct, g18BubblePct, nimBubblePct, robBubblePct, silverBubblePct,
+    g18Intrinsic, coinIntrinsic, nimIntrinsic, robIntrinsic, silverIntrinsic,
+  });
 
   const defaultProfile = (['conservative', 'balanced', 'aggressive'].includes(process.env.DEFAULT_RISK_PROFILE ?? '')
     ? process.env.DEFAULT_RISK_PROFILE
@@ -178,7 +208,7 @@ async function buildSnapshot(): Promise<Snapshot> {
     generatedAt: now.toISOString(),
     storeMode,
     sources,
-    live: { items: withSpark(items, seriesByKey), coinBubblePct, g18BubblePct, usdtPremiumPct },
+    live: { items: withSpark(items, seriesByKey), coinBubblePct, g18BubblePct, nimBubblePct, robBubblePct, silverBubblePct, usdtPremiumPct },
     risk,
     crypto: {
       ...crypto,
@@ -191,10 +221,11 @@ async function buildSnapshot(): Promise<Snapshot> {
     },
     portfolios: buildPortfolios(
       risk,
-      { items, coinBubblePct, g18BubblePct, usdtPremiumPct },
+      { items, coinBubblePct, g18BubblePct, nimBubblePct, robBubblePct, silverBubblePct, usdtPremiumPct },
       crypto.coins,
       new Map([...seriesByKey].map(([k, s]) => [k, { dates: s.dates, prices: s.prices }])),
     ),
+
     defaultProfile,
   };
 }
@@ -209,8 +240,14 @@ interface ScenarioCtx {
   usdtPremiumPct: number | null;
   coinBubblePct: number | null;
   g18BubblePct: number | null;
+  nimBubblePct: number | null;
+  robBubblePct: number | null;
+  silverBubblePct: number | null;
   g18Intrinsic: number | null;
   coinIntrinsic: number | null;
+  nimIntrinsic: number | null;
+  robIntrinsic: number | null;
+  silverIntrinsic: number | null;
 }
 
 const mapOf = (s: { dates: string[]; prices: number[] }) => new Map(s.dates.map((d, i) => [d, s.prices[i]]));
@@ -242,8 +279,33 @@ async function buildScenarios(c: ScenarioCtx): Promise<AssetScenario[]> {
   core('coin', 'gold', lines(
     isNum(c.coinIntrinsic) && `ارزش ذاتی سکه (۷٫۳۲ گرم طلای خالص): ${fmtPrice(rialToToman(c.coinIntrinsic))} تومان؛ حباب ${fmtPct(c.coinBubblePct, 1)}. حباب بالا در بازار آرام معمولاً کم می‌شود.`,
   ), c.coinBubblePct);
+
+  // The fractional coins are the same metal with a different premium. Saying so explicitly is the
+  // useful part: their bubble is almost always the larger one, so the "cheap" small coin is the
+  // expensive way to buy gold — and the gap is the thing to compare, not the price.
+  const smallCoin = (key: RiskAssetKey, label: string, grams: string, intrinsic: number | null, bub: number | null) =>
+    core(key, 'gold', lines(
+      isNum(intrinsic) && `ارزش ذاتی ${label} (${grams} گرم طلای خالص): ${fmtPrice(rialToToman(intrinsic))} تومان؛ حباب ${fmtPct(bub, 1)}.`,
+      isNum(bub) && isNum(c.coinBubblePct) && Math.abs(bub - c.coinBubblePct) > 1
+        ? bub > c.coinBubblePct
+          ? `حباب این سکه ${fmtPct(bub - c.coinBubblePct, 1, false)} واحد درصد بیشتر از سکه امامی است؛ یعنی برای همان مقدار طلا گران‌تر تمام می‌شود. سکه‌های خرد معمولاً همین‌طورند چون تقاضای خرد و هدیه دارند.`
+          : `حباب این سکه ${fmtPct(c.coinBubblePct - bub, 1, false)} واحد درصد کمتر از سکه امامی است — وضعیت غیرمعمولی که معمولاً دوام نمی‌آورد.`
+        : null,
+      'نقدشوندگی سکه خرد از سکه تمام کمتر است و موقع فروش، فاصله خرید و فروش بیشتری می‌پردازید.',
+    ), bub);
+  smallCoin('nim', 'نیم سکه', '۳٫۶۶', c.nimIntrinsic, c.nimBubblePct);
+  smallCoin('rob', 'ربع سکه', '۱٫۸۳', c.robIntrinsic, c.robBubblePct);
+
   core('ons', 'gold', lines(
     'انس جهانی دلاری است و به نرخ بهره آمریکا، قدرت دلار جهانی و خرید بانک‌های مرکزی حساس است؛ نوسانش معمولاً از دارایی‌های ریالی و کریپتو کمتر است.',
+  ));
+  core('silver', 'gold', lines(
+    isNum(c.silverIntrinsic) && `ارزش ذاتی هر گرم نقره ۹۹۹ بر پایه انس جهانی و دلار آزاد: ${fmtPrice(rialToToman(c.silverIntrinsic))} تومان؛ حباب ${fmtPct(c.silverBubblePct, 1)}.`,
+    'نقره هم فلز گران‌بهاست و هم کالای صنعتی، پس علاوه بر تقاضای سرمایه‌ای به چرخه صنعت هم وابسته است؛ به همین دلیل نوسانش معمولاً از طلا بیشتر است.',
+    corrTxt(corr('silver', 'g18'), 'طلای ۱۸'),
+  ), c.silverBubblePct);
+  core('silverOns', 'gold', lines(
+    'انس جهانی نقره دلاری است. نسبت طلا به نقره (اونس طلا ÷ اونس نقره) شاخصی است که معامله‌گران فلزات برای سنجش ارزانی نسبی نقره به کار می‌برند.',
   ));
 
   const btcS = S('btc');

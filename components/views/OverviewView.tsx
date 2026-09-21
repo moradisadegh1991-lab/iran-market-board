@@ -14,7 +14,7 @@ const UNIT: Record<string, string> = { toman: 'تومان', usd: 'دلار', poi
 const LEAD = new Set(['usd', 'coin', 'g18']);
 /** Board reading order: the lead trio, then the rest as listed, with not-yet-priced rows last
  *  so a missing feed leaves a gap at the end instead of a hole in the middle. */
-const ORDER = ['usd', 'coin', 'g18', 'usdt', 'ons', 'tse', 'btc', 'eth', 'oilBrent', 'dxy'];
+const ORDER = ['usd', 'coin', 'g18', 'usdt', 'nim', 'rob', 'silver', 'ons', 'silverOns', 'tse', 'btc', 'eth', 'oilBrent', 'dxy'];
 function boardOrder(items: Snapshot['live']['items']) {
   const rank = (k: string) => (ORDER.indexOf(k) < 0 ? ORDER.length : ORDER.indexOf(k));
   return [...items].sort((a, b) => {

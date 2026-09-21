@@ -26,7 +26,7 @@ export interface Instrument {
   label: string;
   unit: string;
   brs?: string;
-  fallback?: 'usd' | 'usdt' | 'g18' | 'coin' | 'btc' | 'eth';
+  fallback?: 'usd' | 'usdt' | 'g18' | 'coin' | 'nim' | 'rob' | 'silver' | 'btc' | 'eth';
   /** crypto only: CoinGecko id, priced in USD from the snapshot screener */
   cg?: string;
   step: number;
@@ -38,9 +38,10 @@ export const INSTRUMENTS: Instrument[] = [
   { key: 'gmelted', kind: 'gold', label: 'طلای آب‌شده (گرم)', unit: 'گرم', brs: 'IR_GOLD_MELTED', step: 0.01 },
   { key: 'coin_emami', kind: 'coin', label: 'سکه امامی', unit: 'سکه', brs: 'IR_COIN_EMAMI', fallback: 'coin', step: 0.1 },
   { key: 'coin_bahar', kind: 'coin', label: 'سکه بهار آزادی', unit: 'سکه', brs: 'IR_COIN_BAHAR', step: 0.1 },
-  { key: 'coin_half', kind: 'coin', label: 'نیم‌سکه', unit: 'نیم‌سکه', brs: 'IR_COIN_HALF', step: 1 },
-  { key: 'coin_quarter', kind: 'coin', label: 'ربع‌سکه', unit: 'ربع‌سکه', brs: 'IR_COIN_QUARTER', step: 1 },
+  { key: 'coin_half', kind: 'coin', label: 'نیم‌سکه', unit: 'نیم‌سکه', brs: 'IR_COIN_HALF', fallback: 'nim', step: 1 },
+  { key: 'coin_quarter', kind: 'coin', label: 'ربع‌سکه', unit: 'ربع‌سکه', brs: 'IR_COIN_QUARTER', fallback: 'rob', step: 1 },
   { key: 'coin_gram', kind: 'coin', label: 'سکه گرمی', unit: 'سکه', brs: 'IR_COIN_1G', step: 1 },
+  { key: 'silver', kind: 'gold', label: 'نقره ۹۹۹ (گرم)', unit: 'گرم', brs: 'IR_SILVER_999', fallback: 'silver', step: 0.1 },
   { key: 'usd', kind: 'currency', label: 'دلار آمریکا', unit: 'دلار', brs: 'USD', fallback: 'usd', step: 1 },
   { key: 'eur', kind: 'currency', label: 'یورو', unit: 'یورو', brs: 'EUR', step: 1 },
   { key: 'aed', kind: 'currency', label: 'درهم امارات', unit: 'درهم', brs: 'AED', step: 1 },

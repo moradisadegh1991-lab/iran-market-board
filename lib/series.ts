@@ -16,8 +16,12 @@ export interface SeriesInputs {
   maps: {
     tgjuUsd: Map<string, number>;
     tgjuCoin: Map<string, number>;
+    tgjuNim: Map<string, number>;
+    tgjuRob: Map<string, number>;
     tgjuG18: Map<string, number>;
     tgjuOns: Map<string, number>;
+    tgjuSilver: Map<string, number>;
+    tgjuSilverOns: Map<string, number>;
     usdtUdf: Map<string, number>;
     paxg: Map<string, number>;
     btc: Map<string, number>;
@@ -29,11 +33,15 @@ export interface SeriesInputs {
 }
 
 export async function loadSeriesInputs(daily?: DailyStore): Promise<SeriesInputs> {
-  const [usd, coin, g18, ons, udf, paxg, btc, eth, tse, store] = await Promise.all([
+  const [usd, coin, nim, rob, g18, ons, silver, silverOns, udf, paxg, btc, eth, tse, store] = await Promise.all([
     cachedSource<DatedPairs>('tgjuHistUsd', H12, () => fetchTgjuHistory(TGJU_SLUGS.usd), D10),
     cachedSource<DatedPairs>('tgjuHistCoin', H12, () => fetchTgjuHistory(TGJU_SLUGS.coin), D10),
+    cachedSource<DatedPairs>('tgjuHistNim', H12, () => fetchTgjuHistory(TGJU_SLUGS.nim), D10),
+    cachedSource<DatedPairs>('tgjuHistRob', H12, () => fetchTgjuHistory(TGJU_SLUGS.rob), D10),
     cachedSource<DatedPairs>('tgjuHistG18', H12, () => fetchTgjuHistory(TGJU_SLUGS.g18), D10),
     cachedSource<DatedPairs>('tgjuHistOns', H12, () => fetchTgjuHistory(TGJU_SLUGS.ons), D10),
+    cachedSource<DatedPairs>('tgjuHistSilver', H12, () => fetchTgjuHistory(TGJU_SLUGS.silver), D10),
+    cachedSource<DatedPairs>('tgjuHistSilverOns', H12, () => fetchTgjuHistory(TGJU_SLUGS.silverOns), D10),
     cachedSource<[number, number][]>('histUsdt', H12, () => fetchNobitexDaily('USDTIRT'), D10),
     cachedSource<[number, number][]>('histPaxg', H12, () => fetchCgDaily('pax-gold'), D10),
     cachedSource<[number, number][]>('histBtc', H12, () => fetchCgDaily('bitcoin'), D10),
@@ -46,8 +54,12 @@ export async function loadSeriesInputs(daily?: DailyStore): Promise<SeriesInputs
     maps: {
       tgjuUsd: pairsFromDated(usd.data),
       tgjuCoin: pairsFromDated(coin.data),
+      tgjuNim: pairsFromDated(nim.data),
+      tgjuRob: pairsFromDated(rob.data),
       tgjuG18: pairsFromDated(g18.data),
       tgjuOns: pairsFromDated(ons.data),
+      tgjuSilver: pairsFromDated(silver.data),
+      tgjuSilverOns: pairsFromDated(silverOns.data),
       usdtUdf: pairsToMap(udf.data),
       paxg: pairsToMap(paxg.data),
       btc: pairsToMap(btc.data),
@@ -55,7 +67,7 @@ export async function loadSeriesInputs(daily?: DailyStore): Promise<SeriesInputs
       tseIdx: pairsFromDated(tse.data?.pairs),
     },
     tseVia: tse.data?.via ?? null,
-    statuses: [usd, coin, g18, ons, udf, paxg, btc, eth, tse].map((r) => r.status),
+    statuses: [usd, coin, nim, rob, g18, ons, silver, silverOns, udf, paxg, btc, eth, tse].map((r) => r.status),
   };
 }
 
@@ -110,6 +122,31 @@ export function buildSeries(inp: SeriesInputs, key: RiskAssetKey): AssetSeries {
       actual = own('coin');
       proxy = first([{ map: m.tgjuCoin, label: 'TGJU' }, goldIrr]);
       reconstructed = proxy.label !== 'TGJU';
+      break;
+    // The fractional coins have their own TGJU history. Gold is only the fallback, and a poor one:
+    // their premium over melt moves on its own (small coins carry the biggest and most variable
+    // bubble in this market), so a gold-derived series would hide exactly what matters about them.
+    case 'nim':
+      actual = own('nim');
+      proxy = first([{ map: m.tgjuNim, label: 'TGJU' }, goldIrr]);
+      reconstructed = proxy.label !== 'TGJU';
+      break;
+    case 'rob':
+      actual = own('rob');
+      proxy = first([{ map: m.tgjuRob, label: 'TGJU' }, goldIrr]);
+      reconstructed = proxy.label !== 'TGJU';
+      break;
+    case 'silver':
+      actual = own('silver');
+      proxy = first([
+        { map: m.tgjuSilver, label: 'TGJU' },
+        { map: productMap(m.tgjuSilverOns, usdLong.map), label: `انس نقره × ${usdLong.label}` },
+      ]);
+      reconstructed = proxy.label !== 'TGJU';
+      break;
+    case 'silverOns':
+      actual = own('silverOns');
+      proxy = { map: m.tgjuSilverOns, label: 'TGJU' };
       break;
     case 'ons':
       actual = own('ons');
