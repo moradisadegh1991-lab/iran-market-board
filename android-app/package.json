@@ -2,10 +2,9 @@
   "name": "iran-market-board-android",
   "version": "1.0.0",
   "private": true,
-  "description": "اپ اندروید «مالی من» — کل سایت داخل APK (dist/) + ابزارهای گوشی (www/ → dist/classic/)",
+  "description": "اپ اندروید «مالی من» — کل اپ (خروجی ایستای Next) داخل APK؛ www/ فقط موتورهای مشترک (پارسر پیامک، بازی)",
   "scripts": {
     "build:web": "node ../scripts/build-app-web.mjs",
-    "set-url": "node set-url.mjs",
     "sync": "cap sync android",
     "open": "cap open android",
     "test:sms": "node scripts/sms-parser-test.mjs",

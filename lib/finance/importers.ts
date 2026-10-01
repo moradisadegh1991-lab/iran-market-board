@@ -579,6 +579,7 @@ const CAT_HINTS: [RegExp, string, 'out' | 'in' | null][] = [
 
 /** Suggests a category: the user's own earlier choice for the same description first, then keywords. */
 export function suggestCategory(d: FinanceData, s: Staged): string | null {
+  if (s.categoryId && d.categories.some((c) => c.id === s.categoryId)) return s.categoryId;
   const mem = d.catMemory[memoryKey(s.description)];
   if (mem && d.categories.some((c) => c.id === mem)) return mem;
   const text = norm(`${s.description} ${s.raw}`);
@@ -603,6 +604,13 @@ export const CHOICE_LABEL: Record<StagedChoice, string> = {
   'transfer-out': 'انتقال به حساب دیگرم',
   'transfer-in': 'انتقال از حساب دیگرم',
 };
+
+/** What the queue pre-selects: the source's own direction, as a transfer when the source said so. */
+export function defaultChoice(s: Staged): StagedChoice | undefined {
+  if (s.direction === 'out') return s.transfer ? 'transfer-out' : 'expense';
+  if (s.direction === 'in') return s.transfer ? 'transfer-in' : 'income';
+  return undefined;
+}
 
 /** The choices that agree with what the source said; all four when it said nothing. */
 export function choicesFor(s: Staged): StagedChoice[] {

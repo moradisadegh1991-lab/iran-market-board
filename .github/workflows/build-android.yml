@@ -1,5 +1,5 @@
-# Builds the Android APK: the whole website (مالی من + market + advisor) bundled as static files,
-# plus the earlier phone-only app under /classic/ — see scripts/build-app-web.mjs.
+# Builds the Android APK: the whole app (مالی من — finance book, market, trading, alerts, game)
+# bundled as static files — see scripts/build-app-web.mjs.
 #
 # Output, on every run:
 #   • a GitHub Release «اپ اندروید — ساخت N» with the APK attached (open it on the phone, tap the .apk)
@@ -77,10 +77,6 @@ jobs:
 
       - name: Install the web app's dependencies
         run: npm ci --no-audit --no-fund
-
-      - name: Point the classic section at the deployment
-        working-directory: android-app
-        run: node set-url.mjs "${{ steps.url.outputs.board_url }}"
 
       - name: Build the whole website as static files for the APK
         run: node scripts/build-app-web.mjs "${{ steps.url.outputs.board_url }}"
@@ -182,7 +178,7 @@ jobs:
           body: |
             فایل `${{ steps.apk.outputs.name }}` را روی گوشی باز کنید و «نصب» بزنید.
 
-            - همه بخش‌های سایت: دفتر مالی (تراکنش، ورود از بانک، بودجه، وام/چک/قبض، اهداف، حساب و دارایی، ماشین‌حساب‌ها، مشاور) و بازار.
-            - «گوشی» در بالای صفحه: ابزارهای قبلی اپ (هزینه‌ها با خواندن خودکار پیامک، هشدار قیمت، معامله برخط روی گوشی، بازی).
+            - یک اپ با همه امکانات: دفتر مالی (تراکنش، ورود از بانک و پیامک، بودجه، وام/چک/قبض، اهداف، حساب و دارایی، ماشین‌حساب‌ها، مشاور)، بازار، معامله برخط روی گوشی، هشدار قیمت و بازی.
+            - داده‌های نسخه‌های قبلی (هزینه‌ها و دارایی‌ها) از کارت «داده‌های نسخه قبلی اپ» در خانه به دفتر منتقل می‌شوند.
             - داده‌های مالی فقط روی گوشی می‌ماند. سرور: ${{ steps.url.outputs.board_url }}
             - commit: ${{ github.sha }}

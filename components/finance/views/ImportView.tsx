@@ -4,11 +4,11 @@ import { accountBalances } from '@/lib/finance/calc';
 import {
   CHOICE_LABEL,
   choicesFor,
+  defaultChoice,
   commitStaged,
   dismissStaged,
   enqueue,
   isDuplicate,
-  rowsFromMessages,
   rowsFromSms,
   rowsFromTable,
   suggestCategory,
@@ -18,38 +18,15 @@ import {
 } from '@/lib/finance/importers';
 import { readStatement, ReadError } from '@/lib/finance/readers';
 import { smsParser } from '@/lib/finance/sms';
+import { autoReadOn, FIRST_READ_DAYS, lastPhoneRead, readInbox, setAutoRead, useSmsPlugin } from '@/lib/finance/phone-sms';
 import { tomanToRial, type FinanceData, type Staged } from '@/lib/finance/model';
-import { Chips, Empty, PageHead } from '../../ui';
+import { Chips, Empty, PageHead, Toggle } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
 import { Card, confirmDelete, Field, fmtDateFa, JalaliDate, Money, parseAmount, SelectBox, TomanInput } from '../kit';
 
 const faN = (n: number) => n.toLocaleString('fa-IR');
 const faDigits = (t: string) => t.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[+d]);
-// ── the Android SMS plugin (android-app/native-plugin), present only inside the APK ──
-interface SmsPlugin {
-  requestPermission(): Promise<{ granted?: boolean }>;
-  read(o: { sinceMs: number; limit: number }): Promise<{ messages?: { body?: string; date?: number }[] }>;
-}
-function useSmsPlugin(): SmsPlugin | null {
-  const [p, setP] = useState<SmsPlugin | null>(null);
-  // read after mount: the bridge object does not exist during the static render
-  useEffect(() => {
-    const c = (window as { Capacitor?: { Plugins?: { SmsReader?: SmsPlugin } } }).Capacitor;
-    setP(c?.Plugins?.SmsReader ?? null);
-  }, []);
-  return p;
-}
-const PHONE_READ_KEY = 'imf.smsread.v1';
-const FIRST_READ_DAYS = 60;
-function lastPhoneRead(): number | null {
-  try {
-    const v = Number(localStorage.getItem(PHONE_READ_KEY));
-    return v > 0 ? v : null;
-  } catch {
-    return null;
-  }
-}
-
+const SOURCE_LABEL: Record<Staged['source'], string> = { sms: 'پیامک', statement: 'گردش حساب', classic: 'نسخه قبلی اپ' };
 const ROLE_LABEL: Record<string, string> = { date: 'تاریخ', time: 'زمان', desc: 'شرح', out: 'برداشت', in: 'واریز', amount: 'مبلغ', balance: 'مانده', ref: 'پیگیری' };
 
 interface FileReport {
@@ -239,6 +216,8 @@ function SmsCard({ d }: { d: FinanceData }) {
   const plugin = useSmsPlugin();
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneErr, setPhoneErr] = useState<string | null>(null);
+  const [auto, setAuto] = useState(false);
+  useEffect(() => setAuto(autoReadOn()), []);
 
   function queue(r: SmsResult, listIgnored: boolean) {
     let added = 0;
@@ -261,18 +240,8 @@ function SmsCard({ d }: { d: FinanceData }) {
     setResult(null);
     setPhoneBusy(true);
     try {
-      const perm = await plugin.requestPermission();
-      if (!perm?.granted) throw new Error('اجازه خواندن پیامک داده نشد. از تنظیمات اندروید، مجوز «پیامک» را برای این اپ روشن کنید.');
-      const since = lastPhoneRead() ?? Date.now() - FIRST_READ_DAYS * 86_400_000;
-      const res = await plugin.read({ sinceMs: since, limit: 1000 });
-      const msgs = (res?.messages ?? []).map((m) => ({ body: String(m.body ?? ''), at: Number(m.date) || undefined }));
-      queue(rowsFromMessages(msgs, smsParser, today, { accountId: accountId || null }), false);
-      const newest = Math.max(since, ...msgs.map((m) => m.at ?? 0));
-      try {
-        localStorage.setItem(PHONE_READ_KEY, String(newest));
-      } catch {
-        // without it the next read starts from the same point; ids keep the queue free of repeats
-      }
+      const r = await readInbox(plugin, today, accountId || null, true);
+      if (r) queue(r, false);
     } catch (e) {
       setPhoneErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -298,6 +267,17 @@ function SmsCard({ d }: { d: FinanceData }) {
             {lastPhoneRead() ? `از آخرین خواندن (${fmtDateFa(new Date(lastPhoneRead()!).toISOString().slice(0, 10))}) به بعد` : `پیامک‌های ${faN(FIRST_READ_DAYS)} روز اخیر`}؛ پیامک‌ها از گوشی بیرون نمی‌روند.
           </span>
         </div>
+      ) : null}
+      {plugin ? (
+        <Toggle
+          checked={auto}
+          onChange={(v) => {
+            setAuto(v);
+            setAutoRead(v);
+          }}
+        >
+          هر بار که اپ باز می‌شود، پیامک‌های بانکی تازه را بخوان و به صف بررسی ببر
+        </Toggle>
       ) : null}
       {phoneErr ? (
         <p className="fin-err" role="alert">
@@ -350,7 +330,6 @@ interface Draft {
   amount?: string;
 }
 
-const defaultChoice = (s: Staged): StagedChoice | undefined => (s.direction === 'out' ? 'expense' : s.direction === 'in' ? 'income' : undefined);
 
 type QueueFilter = 'all' | 'decide' | 'dup';
 
@@ -475,12 +454,12 @@ function Queue({ d }: { d: FinanceData }) {
             <li key={s.id} className={`fin-list-block${dup ? ' dup' : ''}`} data-testid="staged">
               <div className="fin-list-row">
                 <span className="fin-list-main">
-                  <b>{s.description || (s.source === 'sms' ? 'پیامک بانکی' : 'ردیف گردش حساب')}</b>
+                  <b>{s.description || SOURCE_LABEL[s.source]}</b>
                   <small>
                     {s.date ? fmtDateFa(s.date) : 'بدون تاریخ'}
                     {s.time ? ` · ${s.time}` : ''}
                     {s.ref ? ` · پیگیری ${faDigits(s.ref)}` : ''}
-                    {` · ${s.source === 'sms' ? 'پیامک' : 'گردش حساب'}`}
+                    {` · ${SOURCE_LABEL[s.source]}`}
                   </small>
                 </span>
                 <span className="fin-list-nums">

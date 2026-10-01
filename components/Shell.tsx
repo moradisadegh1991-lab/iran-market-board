@@ -1,79 +1,112 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useSnapshot } from './SnapshotProvider';
 import { fmtDateTimeFa } from '@/lib/num';
-import { IN_APP } from '@/lib/api';
+import { BOTTOM_TABS, NAV_GROUPS, pageOf } from './nav';
 
-/** Personal finance first: this is a money app for one household that also watches the market. */
-export const FIN_PAGES = [
-  { href: '/', label: 'داشبورد' },
-  { href: '/transactions', label: 'تراکنش‌ها' },
-  { href: '/import', label: 'ورود از بانک' },
-  { href: '/budget', label: 'بودجه' },
-  { href: '/debts', label: 'وام، چک و قبض' },
-  { href: '/goals', label: 'اهداف' },
-  { href: '/accounts', label: 'حساب و دارایی' },
-  { href: '/tools', label: 'ماشین‌حساب‌ها' },
-  { href: '/advisor', label: 'مشاور' },
-];
+/**
+ * One app: on a phone a compact header, a bottom bar for the four places used every day and a
+ * «بیشتر» sheet with every page; on a wide screen the same list as a sidebar. All navigation is
+ * client-side <Link> — inside the APK an <a href="/x"> would always land on the dashboard
+ * (CLAUDE.md rule 35).
+ */
 
-export const PAGES = [
-  { href: '/market', label: 'نمای بازار' },
-  { href: '/scenarios', label: 'سناریوها' },
-  { href: '/simulator', label: 'معامله‌گر' },
-  { href: '/live', label: 'معامله برخط' },
-  { href: '/swing', label: 'نوسان‌گیری' },
-  { href: '/charts', label: 'نمودار' },
-  { href: '/risk', label: 'ریسک' },
-  { href: '/stocks', label: 'بورس' },
-  { href: '/crypto', label: 'کریپتو' },
-  { href: '/portfolio', label: 'سبد' },
-  { href: '/bot', label: 'ربات و منابع' },
-];
+const ICONS: Record<string, React.ReactNode> = {
+  '/': <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z" />,
+  '/transactions': (
+    <>
+      <path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" />
+      <path d="M9 8h6M9 12h6M9 16h3" />
+    </>
+  ),
+  '/market': (
+    <>
+      <path d="M4 19h16" />
+      <path d="m5 15 4-5 4 3 6-7" />
+      <path d="M15 6h4v4" />
+    </>
+  ),
+  '/advisor': <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-7l-4.5 3.5V16H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01" />,
+  more: (
+    <>
+      <rect x="4" y="4" width="6.5" height="6.5" rx="1.6" />
+      <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" />
+      <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" />
+      <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6" />
+    </>
+  ),
+};
+const Icon = ({ k }: { k: string }) => (
+  <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+    {ICONS[k]}
+  </svg>
+);
+const BOTTOM_LABEL: Record<string, string> = { '/': 'خانه', '/transactions': 'تراکنش‌ها', '/market': 'بازار', '/advisor': 'مشاور' };
+
+function Tiles({ path, onPick }: { path: string; onPick?: () => void }) {
+  return (
+    <>
+      {NAV_GROUPS.map((g) => (
+        <section key={g.title} className="nav-group">
+          <h3>{g.title}</h3>
+          <div className="tiles">
+            {g.items.map((p) => (
+              <Link key={p.href} href={p.href} className={`tile tone-${g.tone}`} aria-current={path === p.href ? 'page' : undefined} onClick={onPick}>
+                <span className="tile-ic" aria-hidden="true">
+                  {p.icon}
+                </span>
+                <span className="tile-t">{p.label}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { snap, busy, error, refresh } = useSnapshot();
-  const tabsRef = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
   const failing = snap?.sources.filter((s) => !s.ok && s.ageSec === null).length ?? 0;
-  const inFinance = FIN_PAGES.some((p) => p.href === path);
-  const tabs = inFinance ? FIN_PAGES : PAGES;
+  const here = pageOf(path);
+  const inBottom = (BOTTOM_TABS as readonly string[]).includes(path);
 
+  // the sheet closes on navigation and on Escape, and the page behind it does not scroll
+  useEffect(() => setMore(false), [path]);
   useEffect(() => {
-    tabsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
-  }, [path]);
+    if (!more) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMore(false);
+    document.addEventListener('keydown', onKey);
+    document.body.classList.add('sheet-open');
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.classList.remove('sheet-open');
+    };
+  }, [more]);
 
   return (
-    <>
-      <header className="topbar">
-        <div className="wrap topbar-inner">
-          <div className="brand">
-            <Link href="/" className="wordmark" aria-label="مالی من، صفحه اصلی">
-              مالی من
-            </Link>
-            <nav className="section-switch" aria-label="بخش">
-              <Link href="/" aria-current={inFinance ? 'true' : undefined}>
-                مالی شخصی
-              </Link>
-              <Link href="/market" aria-current={!inFinance ? 'true' : undefined}>
-                بازار
-              </Link>
-              {IN_APP ? (
-                // the phone-only tools (automatic SMS expenses, price alerts, per-device live
-                // trading, the game) are the earlier app, bundled at /classic/. A file path, not
-                // a route: the app's local server answers every extension-less path with /index.html.
-                <a href="/classic/index.html">گوشی</a>
-              ) : null}
-            </nav>
-          </div>
+    <div className="app">
+      <header className="appbar">
+        <div className="appbar-inner">
+          <Link href="/" className="wordmark" aria-label="مالی من، خانه">
+            مالی من
+          </Link>
+          <span className="appbar-title">{here && path !== '/' ? here.label : ''}</span>
           <div className="status" aria-live="polite">
             {snap ? (
               <span className={`dot ${error ? 'bad' : failing ? 'warn' : 'ok'}`} title={error ?? (failing ? `${failing} منبع در دسترس نیست` : 'همه منابع در دسترس')} />
             ) : null}
             <span className="when">{snap ? fmtDateTimeFa(snap.generatedAt) : 'در حال دریافت…'}</span>
-            <button className="icon-btn" onClick={refresh} disabled={busy} aria-label="به‌روزرسانی داده‌ها">
+            <Link href="/alerts" className="icon-btn" aria-label="هشدار و اعلان‌ها">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0" />
+              </svg>
+            </Link>
+            <button className="icon-btn" onClick={refresh} disabled={busy} aria-label="به‌روزرسانی قیمت‌ها">
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" className={busy ? 'spin' : ''}>
                 <path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -81,28 +114,56 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <nav className="tabs" aria-label="صفحه‌ها">
-        <div className="wrap tabs-inner" ref={tabsRef}>
-          {tabs.map((p) => (
-            <Link key={p.href} href={p.href} aria-current={path === p.href ? 'page' : undefined}>
-              {p.label}
-            </Link>
-          ))}
+
+      <div className="frame">
+        <aside className="sidebar" aria-label="همه صفحه‌ها">
+          <Tiles path={path} />
+        </aside>
+        <div className="content">
+          {error && snap ? (
+            <div className="wrap">
+              <p className="banner warn" role="alert">
+                آخرین به‌روزرسانی قیمت‌ها ناموفق بود ({error}). اعداد مربوط به آخرین دریافت موفق است.
+              </p>
+            </div>
+          ) : null}
+          <main className="page">{children}</main>
+          <footer className="foot">
+            <div className="wrap">
+              دفتر مالی شما فقط روی همین دستگاه ذخیره می‌شود و به سرور نمی‌رود. قیمت‌ها: TGJU، Gold API، نوبیتکس، BrsApi، TSETMC و CoinGecko. تحلیل‌ها و پاسخ‌های مشاور الگوریتمی‌اند و
+              توصیه قطعی خرید یا فروش نیستند.
+            </div>
+          </footer>
         </div>
+      </div>
+
+      <nav className="bottombar" aria-label="بخش‌های اصلی">
+        {BOTTOM_TABS.map((href) => (
+          <Link key={href} href={href} aria-current={path === href ? 'page' : undefined}>
+            <Icon k={href} />
+            <span>{BOTTOM_LABEL[href]}</span>
+          </Link>
+        ))}
+        <button type="button" onClick={() => setMore(true)} aria-expanded={more} aria-current={!inBottom ? 'page' : undefined} aria-haspopup="dialog">
+          <Icon k="more" />
+          <span>{!inBottom && here ? here.label : 'بیشتر'}</span>
+        </button>
       </nav>
-      {error && snap ? (
-        <div className="wrap">
-          <p className="banner warn" role="alert">
-            آخرین به‌روزرسانی قیمت‌ها ناموفق بود ({error}). اعداد مربوط به آخرین دریافت موفق است.
-          </p>
+
+      {more ? (
+        <div className="sheet-wrap" onClick={() => setMore(false)}>
+          <div className="sheet" role="dialog" aria-modal="true" aria-label="همه بخش‌ها" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-handle" aria-hidden="true" />
+            <div className="sheet-head">
+              <b>همه بخش‌ها</b>
+              <button type="button" className="sheet-close" onClick={() => setMore(false)} aria-label="بستن">
+                ✕
+              </button>
+            </div>
+            <Tiles path={path} onPick={() => setMore(false)} />
+          </div>
         </div>
       ) : null}
-      <main className="page">{children}</main>
-      <footer className="foot">
-        <div className="wrap">
-          دفتر مالی شما فقط در همین مرورگر ذخیره می‌شود و به سرور نمی‌رود. قیمت‌ها: TGJU، Gold API، نوبیتکس، BrsApi، TSETMC و CoinGecko. تحلیل‌ها و پاسخ‌های مشاور الگوریتمی‌اند و توصیه قطعی خرید یا فروش نیستند.
-        </div>
-      </footer>
-    </>
+    </div>
   );
 }

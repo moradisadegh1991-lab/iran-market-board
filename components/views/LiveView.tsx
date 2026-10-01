@@ -7,6 +7,8 @@ import { ACTIVITY_LABEL, PROFILES, SIM_ASSETS, type Activity, type SimAsset, typ
 import type { LiveSession, LiveTrade } from '@/lib/engine/live';
 import { AdminActions, Chips, MultiChips, PageHead, Pct } from '../ui';
 import TradeEntry, { tomanWords } from '../TradeEntry';
+import { useNotify } from '../NotifyProvider';
+import { callLocal, loadLivePrefs, loadLocalSession, saveLivePrefs, tradeNote } from '@/lib/live-local';
 import type { EquityLine } from '../EquityChart';
 
 const EquityChart = dynamic(() => import('../EquityChart'), { ssr: false, loading: () => <div className="chart-host equity-host skeleton" /> });
@@ -37,10 +39,16 @@ function EventRow({ e }: { e: LiveSession['events'][number] }) {
   );
 }
 
+type Mode = 'device' | 'shared';
+
 export default function LiveView() {
+  const { notify } = useNotify();
+  const [mode, setMode] = useState<Mode>('device');
   const [state, setState] = useState<PaperState | null>(null);
+  const [local, setLocal] = useState<LiveSession | null>(null);
+  const [localLoaded, setLocalLoaded] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-  const [capital, setCapital] = useState('500000000');
+  const [capital, setCapital] = useState('100000000');
   const [profile, setProfile] = useState<SimProfile>('balanced');
   const [assets, setAssets] = useState<SimAsset[]>(['usd', 'g18', 'coin', 'btc']);
   const [days, setDays] = useState<'7' | '30' | '90'>('30');
@@ -49,6 +57,18 @@ export default function LiveView() {
   const [busy, setBusy] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // the device's own session (and the form defaults it was last started with)
+  useEffect(() => {
+    setLocal(loadLocalSession());
+    const p = loadLivePrefs();
+    setCapital(String(p.capital));
+    setProfile(p.profile);
+    setAssets(p.liveAssets.filter((k) => SIM_ASSETS.some((a) => a.key === k)) as SimAsset[]);
+    setDays(p.liveDays === 7 ? '7' : p.liveDays === 90 ? '90' : '30');
+    setActivity(p.activity);
+    setLocalLoaded(true);
+  }, []);
 
   const load = useCallback(() => {
     fetch(api('/api/paper'), { cache: 'no-store' })
@@ -62,14 +82,37 @@ export default function LiveView() {
   }, []);
 
   useEffect(() => {
+    if (mode !== 'shared') return;
     load();
     pollRef.current = setInterval(load, 20_000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [load]);
+  }, [load, mode]);
+
+  async function deviceCall(action: 'start' | 'tick' | 'stop') {
+    setBusy(true);
+    setActionErr(null);
+    try {
+      const prefs = { capital: Number(capital), profile, liveAssets: assets, liveDays: Number(days), activity };
+      if (action === 'start') saveLivePrefs(prefs);
+      const r = await callLocal(action, prefs, local);
+      setLocal(r.session);
+      r.newTrades.forEach((t) => {
+        const n = tradeNote(t);
+        notify(n.title, n.body, 'trade');
+      });
+      if (action === 'start') notify('معامله برخط شروع شد', `سرمایه ${tomanWords(prefs.capital)} · فقط روی همین دستگاه`, 'trade');
+      else if (r.finished) notify('معامله برخط پایان یافت', 'گزارش نهایی آماده است.', 'trade');
+    } catch (e) {
+      setActionErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function start() {
+    if (mode === 'device') return deviceCall('start');
     setBusy(true);
     setActionErr(null);
     try {
@@ -91,6 +134,7 @@ export default function LiveView() {
 
   async function stop() {
     if (!confirm('معامله برخط الان با قیمت روز بسته شود؟')) return;
+    if (mode === 'device') return deviceCall('stop');
     setBusy(true);
     setActionErr(null);
     try {
@@ -109,12 +153,15 @@ export default function LiveView() {
     }
   }
 
-  const active = state?.active ?? null;
-  const shown = active ?? state?.lastFinished ?? null;
+  const device = mode === 'device';
+  const ready = device ? localLoaded : !!state;
+  const active = device ? (local?.status === 'running' ? local : null) : (state?.active ?? null);
+  const shown = active ?? (device ? (local?.status === 'finished' ? local : null) : (state?.lastFinished ?? null));
+  const nowMs = device ? Date.now() : (state?.serverNow ?? Date.now());
   const lastEq = shown?.equity[shown.equity.length - 1];
   const equityToman = lastEq?.equity ?? shown?.config.capitalToman ?? null;
   const returnPct = isNum(equityToman) && shown ? (equityToman / shown.config.capitalToman - 1) * 100 : null;
-  const daysLeft = active ? Math.max(0, Math.ceil((active.endsAt - (state?.serverNow ?? Date.now())) / 86400000)) : null;
+  const daysLeft = active ? Math.max(0, Math.ceil((active.endsAt - nowMs) / 86400000)) : null;
 
   const lines: EquityLine[] = shown
     ? [{ key: 'live', label: 'ارزش سبد', color: 'var(--teal)', width: 2, points: shown.equity.map((p) => ({ date: p.date, value: p.equity, t: p.at })) }]
@@ -122,15 +169,30 @@ export default function LiveView() {
   const markers = (shown?.trades ?? []).map((t: LiveTrade) => ({ date: t.at ? new Date(t.at).toISOString().slice(0, 10) : '', side: t.side, text: `${META[t.asset].label} ${t.side === 'buy' ? 'خرید' : 'فروش'}`, at: t.at }));
 
   return (
-    <>
+    <div className="wrap">
       <PageHead title="معامله برخط">
-        معامله کاغذی روی قیمت واقعی بازار، تیک به تیک — بدون پول واقعی. همان موتور و قواعد شبیه‌ساز، این‌بار روی داده زنده. هر معامله در تلگرام هم اطلاع داده می‌شود
-        (<code>/live_on ADMIN_SECRET</code> نزد ربات).
+        معامله کاغذی روی قیمت واقعی بازار — بدون پول واقعی. همان موتور و قواعد شبیه‌ساز، این‌بار روی داده زنده.
       </PageHead>
+      <div className="filterbar">
+        <Chips<Mode>
+          label="کدام جلسه"
+          value={mode}
+          onChange={setMode}
+          options={[
+            { key: 'device', label: 'جلسه من (روی همین دستگاه)' },
+            { key: 'shared', label: 'جلسه مشترک سایت' },
+          ]}
+        />
+      </div>
+      <p className="muted small">
+        {device
+          ? 'این جلسه فقط روی همین دستگاه ذخیره می‌شود و به سرور نمی‌رود. فقط وقتی اپ باز است پیش می‌رود: هر بار که اپ را باز کنید قیمت‌ها بررسی می‌شوند.'
+          : 'یک جلسه مشترک روی سرور که همه بازدیدکنندگان سایت می‌بینند؛ شروع و پایانش با رمز مدیر است و هر معامله در تلگرام هم اعلام می‌شود.'}
+      </p>
 
-      {loadErr ? <p className="empty">دریافت وضعیت ممکن نشد: {loadErr}</p> : null}
+      {!device && loadErr ? <p className="empty">دریافت وضعیت ممکن نشد: {loadErr}</p> : null}
 
-      {!state ? (
+      {!ready ? (
         <p className="empty">در حال دریافت وضعیت…</p>
       ) : active ? (
         <div className="sim-result">
@@ -195,14 +257,30 @@ export default function LiveView() {
           ) : null}
 
           <div className="ticket panel pad">
-            <h2>پایان معامله</h2>
-            <p className="lede">با قیمت لحظه‌ای بسته می‌شود و گزارش نهایی به تلگرام‌های ثبت‌شده ارسال می‌شود.</p>
-            <AdminActions>
-              <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
-              <button className="btn run danger" disabled={busy || !secret} onClick={stop}>
-                {busy ? 'در حال بستن…' : 'پایان معامله'}
-              </button>
-            </AdminActions>
+            <h2>{device ? 'بررسی و پایان' : 'پایان معامله'}</h2>
+            {device ? (
+              <>
+                <p className="lede">هر بار که اپ باز شود خودکار بررسی می‌شود؛ هر وقت خواستید همین الان هم می‌توانید قیمت‌ها را بررسی کنید.</p>
+                <div className="admin">
+                  <button className="btn run" disabled={busy} onClick={() => void deviceCall('tick')}>
+                    {busy ? 'در حال بررسی…' : 'بررسی حالا'}
+                  </button>
+                  <button className="btn run danger" disabled={busy} onClick={stop}>
+                    پایان دادن
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="lede">با قیمت لحظه‌ای بسته می‌شود و گزارش نهایی به تلگرام‌های ثبت‌شده ارسال می‌شود.</p>
+                <AdminActions>
+                  <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
+                  <button className="btn run danger" disabled={busy || !secret} onClick={stop}>
+                    {busy ? 'در حال بستن…' : 'پایان معامله'}
+                  </button>
+                </AdminActions>
+              </>
+            )}
             {actionErr ? <p className="empty">{actionErr}</p> : null}
           </div>
         </div>
@@ -260,16 +338,24 @@ export default function LiveView() {
                 <MultiChips label="دارایی‌های مجاز" value={assets} onChange={setAssets} options={SIM_ASSETS.map((a) => ({ key: a.key, label: a.label }))} />
               </div>
             </div>
-            <AdminActions>
-              <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
-              <button className="btn run" disabled={busy || !secret} onClick={start}>
-                {busy ? 'در حال شروع…' : 'شروع معامله برخط'}
-              </button>
-            </AdminActions>
+            {device ? (
+              <div className="admin">
+                <button className="btn run" disabled={busy || !assets.length || !(Number(capital) >= 1_000_000)} onClick={start}>
+                  {busy ? 'در حال شروع…' : 'شروع معامله برخط من'}
+                </button>
+              </div>
+            ) : (
+              <AdminActions>
+                <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
+                <button className="btn run" disabled={busy || !secret} onClick={start}>
+                  {busy ? 'در حال شروع…' : 'شروع معامله برخط'}
+                </button>
+              </AdminActions>
+            )}
             {actionErr ? <p className="empty">{actionErr}</p> : null}
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

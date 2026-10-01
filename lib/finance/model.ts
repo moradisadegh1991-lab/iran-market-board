@@ -49,7 +49,7 @@ export interface Txn {
   /** set when the transaction was created by paying a loan installment / bill / cheque */
   link?: { type: 'loan' | 'bill' | 'cheque'; id: string; n?: number } | null;
   /** where it came from; absent = typed in by hand */
-  src?: 'statement' | 'sms';
+  src?: 'statement' | 'sms' | 'classic';
   /** bank tracking / document number, when the statement or SMS had one */
   ref?: string | null;
 }
@@ -62,7 +62,8 @@ export interface Txn {
  */
 export interface Staged {
   id: string;
-  source: 'statement' | 'sms';
+  /** 'classic' = moved over from the earlier Android app's expenses */
+  source: 'statement' | 'sms' | 'classic';
   /** null when the source carried no usable date — the user must pick one */
   date: Iso | null;
   time?: string | null;
@@ -77,6 +78,10 @@ export interface Staged {
   fee?: boolean;
   /** the parser could only half-read the source: the user should check the amount */
   uncertainAmount?: boolean;
+  /** a category already chosen at the source (the earlier app), pre-filled in the queue */
+  categoryId?: string | null;
+  /** the source marked it as money moved between the user's own accounts */
+  transfer?: boolean;
   /** the original SMS text / statement row, for the user to check */
   raw: string;
   /** account the file or SMS belongs to, when known */
@@ -162,6 +167,9 @@ export interface Asset {
   valueRial?: number;
   /** manual only: does it count as liquid (sellable within a week)? */
   liquid?: boolean;
+  /** market only, optional: what was paid in total and when — shows the gain or loss */
+  costRial?: number | null;
+  boughtOn?: Iso | null;
 }
 
 export interface Settings {

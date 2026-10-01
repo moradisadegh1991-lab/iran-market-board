@@ -8,6 +8,7 @@ import DueList from '../DueList';
 import { useFinance, WithBook } from '../FinanceProvider';
 import { Bar, Card, fmtDateFa, fmtPctFa, Money, Stat } from '../kit';
 import TxnForm from '../TxnForm';
+import ClassicMigrate from '../ClassicMigrate';
 
 export const QUICK_QUESTIONS = [
   'وضعیت مالی این ماهم را خلاصه کن؛ کجا باید خرجم را کم کنم؟',
@@ -81,6 +82,7 @@ function Home({ d }: { d: FinanceData }) {
         {fmtDateFa(today)} — همه مبالغ به تومان. قیمت طلا، سکه و ارزِ دارایی‌ها از تابلوی زنده بازار گرفته می‌شود.
       </PageHead>
 
+      <ClassicMigrate d={d} />
       {fresh ? <Onboarding /> : null}
 
       <dl className="fin-kpis">

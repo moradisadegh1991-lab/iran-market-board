@@ -24,15 +24,16 @@
 
 ```
 /                    ← اپ اصلی Next.js (این را روی Vercel دیپلوی می‌کنید)
-/android-app/        ← پوسته Capacitor اندروید؛ از مهر ۱۴۰۵ کل سایت را هم (خروجی ایستا) در خود دارد — بخش ۴-ه
+/android-app/        ← پوسته Capacitor اندروید؛ از مهر ۱۴۰۵ کل اپ (خروجی ایستای همین Next) را در خود دارد — بخش ۴-ه و ۴-و
 ```
 
 ## ۲) نقشه پوشه‌ها
 
 ```
-app/                 مالی: / (داشبورد) · transactions · import (ورود از بانک) · budget · debts · goals · accounts · tools · advisor
-                     بازار: market (نمای کلی) · scenarios · simulator · live (معامله برخط)
-                     · swing (نوسان‌گیری) · charts · risk · stocks · crypto · portfolio · bot
+app/                 یک اپ، چهار گروه (components/nav.ts): مالی من: / · transactions · import · budget · debts · goals · accounts · tools · advisor
+                     بازار: market · charts · scenarios · risk · stocks · crypto · portfolio
+                     معامله: live (جلسه من روی دستگاه + جلسه مشترک) · swing · simulator
+                     ابزار: alerts (هشدار قیمت و اعلان) · game (بازی اقتصاد) · bot
 app/api/             advisor (مشاور Claude، stream) · snapshot · diag · ingest · chart · simulate · paper/{,tick}
                      · live/local (معامله برخط بدون‌حالت، برای اپ) · learning
                      · swing (backtest/portfolio/scan) · swing-live/{,tick}
@@ -44,9 +45,12 @@ lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-ri
 lib/telegram/        api · format · handler · paper
 lib/finance/         model (نوع داده، همه به ریال) · calc (محاسبات خالص) · actions (تسویه/حذف چندجدولی)
                      · importers (گردش حساب/پیامک → صف) · readers (اکسل/CSV/PDF در مرورگر) · sms (همان پارسر اندروید)
-lib/                 advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
+                     · phone-sms (خواندن صندوق پیامک گوشی) · migrate (انتقال داده‌های اپ قبلی اندروید)
+lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت، خالص) · live-local (جلسه برخط روی دستگاه)
+                     · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
-components/          Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
+components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · NotifyProvider · AppStartup
+                     · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
                      · Sparkline · RollingNumber · HoldingsPanel · PositionSizer
 components/finance/  FinanceProvider (localStorage) · kit · TxnForm · DueList · Markdown · views/*
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
@@ -56,11 +60,10 @@ scripts/eval/        ارزیابی روی داده واقعی (نیاز به ی
 .github/workflows/   paper-tick.yml (ضربان‌ساز معامله برخط) · build-android.yml (ساخت APK)
 middleware.ts        CORS فقط روی مسیرهای فقط-خواندنی، برای اپ اندرویدی
 
-android-app/dist/    (git-ignored) خروجی scripts/build-app-web.mjs = webDir: کل سایت + www/ زیر /classic/
+android-app/dist/    (git-ignored) خروجی scripts/build-app-web.mjs = webDir: کل اپ
 android-app/ci/      ci-release.jks — کلید ثابت امضای بیلد CI (بخش ۴-ه)
-android-app/www/     اپ قبلی اندروید (بخش «گوشی»): index.html (پوسته) + game-engine.js + sms-parser.js
-                     + app-trade.js (سناریو، نمودار، نوسان‌گیری، شبیه‌ساز، معامله برخط)
-                     + app-notify.js (مرکز اعلان‌ها و هشدار قیمت)
+android-app/www/     فقط JS مشترک: sms-parser.js (پارسر پیامک، تست‌شده) و game-engine.js (موتور بازی). اپ قبلی
+                     (index.html، app-trade.js، app-notify.js) در مهر ۱۴۰۵ در اپ واحد ادغام و حذف شد — تاریخچه git را ببین
 android-app/native-plugin/   پلاگین Java خواندن پیامک (⚠️ تست‌نشده — بخش ۷ را ببین)
 android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پلاگین) + تست‌هایش
 ```
@@ -84,9 +87,8 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
 | `UPSTASH_REDIS_REST_URL/TOKEN` یا `KV_REST_API_URL/TOKEN` | بدون این، storeMode روی `memory` می‌افتد و همه‌چیز بین cold start پاک می‌شود |
 
 ### متغیرهای محیطی اپ اندروید
-‏هیچ‌کدام! اپ اندروید کاملاً بدون سرور بخش‌هایی دارد (دارایی‌ها، بازی، هزینه‌ها) که فقط
-`localStorage` گوشی را می‌خوانند. تنها چیزی که لازم است `BOARD_URL` است که با
-`node set-url.mjs https://...` داخل `www/index.html` نوشته می‌شود (بخش ۷).
+‏فقط `BOARD_URL` (secret اختیاری workflow؛ پیش‌فرض `https://iran-market-board.vercel.app`) که موقع ساخت در
+`NEXT_PUBLIC_API_BASE` جاسازی می‌شود (`scripts/build-app-web.mjs`).
 
 ## ۴) قواعدی که نباید بدون خواندن این‌جا شکسته شوند
 
@@ -148,8 +150,8 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
 14. **‏هر کانال اعلان باید قبل از ارسال ساخته شود.** در اندروید ۸ به بالا اعلانی که به کانال
     ساخته‌نشده فرستاده شود بی‌صدا دور انداخته می‌شود — نسخه قبلی دقیقاً همین ایراد را داشت
     (`channelId: 'imb-tx'` که هیچ‌وقت ساخته نشده بود، به‌علاوه یک smallIcon که در منابع اپ نیست).
-    `app-notify.js` کانال‌ها را یک بار با `createChannel` می‌سازد. همه اعلان‌ها باید از همان
-    `notify(title, body, cat)` رد شوند، نه مستقیم از پلاگین.
+    `components/NotifyProvider.tsx` کانال‌ها را یک بار با `createChannel` می‌سازد. همه اعلان‌ها باید از همان
+    `notify(title, body, cat)` (هوک `useNotify`) رد شوند، نه مستقیم از پلاگین.
 15. **‏اعلان محلی گوشی خاموش را بیدار نمی‌کند.** هر چیزی که «وقتی اپ بسته است خبرم کن» را وعده
     بدهد دروغ است مگر اینکه سرویس پس‌زمینه بومی یا push سرور اضافه شود. متن UI همین را می‌گوید.
 16. **‏عددی که رقم و واژه فارسی را قاطی دارد، «عدد» نیست.** کلاس `.num` جهت را LTR می‌کند و
@@ -200,7 +202,7 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
 ## ۴-ه) کل سایت داخل APK (مهر ۱۴۰۵)
 
 ‏`scripts/build-app-web.mjs <BOARD_URL>` سایت را روی یک کپی (`.app-build/`) بدون `app/api`، بدون middleware و با layout بدون
-snapshot سمت سرور، با `output: 'export'` می‌سازد و در `android-app/dist/` می‌گذارد (`www/` زیر `/classic/`). هر تغییر در
+snapshot سمت سرور، با `output: 'export'` می‌سازد و در `android-app/dist/` می‌گذارد. هر تغییر در
 layout با جایگزینی دقیق رشته است و اگر layout عوض شده باشد ساخت با خطا می‌ایستد — اسکریپت را هم‌گام کن.
 `NEXT_PUBLIC_API_BASE` و `NEXT_PUBLIC_IN_APP=1` در ساخت جاسازی می‌شوند (`lib/api.ts`). workflow `build-android.yml`
 همین را می‌سازد، APK را امضا و در یک GitHub Release منتشر می‌کند.
@@ -208,8 +210,7 @@ layout با جایگزینی دقیق رشته است و اگر layout عوض ش
 34. **‏همه fetchهای سمت کاربر از `api()` در `lib/api.ts`** — مسیر نسبی `/api/...` در اپ به `https://localhost` می‌رود و خالی برمی‌گردد.
 35. **‏ناوبری فقط با `Link`.** سرور محلی کپاسیتور هر مسیر بدون پسوند را با `/index.html` (HTML داشبورد) جواب می‌دهد؛ `<a href="/x">`
     در اپ همیشه داشبورد را باز می‌کند. شروع سرد روی مسیر عمیق با یک اسکریپت کوچک در layout ساخت اپ به `/` می‌رود.
-    پیوند به `/classic/` باید مسیر فایل باشد (`/classic/index.html`) و برگشت از آن `../` (نه `../index.html` که روتر Next
-    نمی‌شناسد و خطای hydration #418 می‌دهد).
+    هر صفحه HTML جدا داخل bundle باید با مسیر فایل باز شود؛ و `/index.html` را روتر Next نمی‌شناسد (خطای hydration #418).
 36. **‏قاعده ۶ در اپ هم برقرار است:** فرم‌های `ADMIN_SECRET` (جلسه مشترک `/api/paper`، شروع/پایان `/api/swing-live`، دارایی‌های
     سرور، ارسال تلگرام) در اپ با `AdminActions` به یک یادداشت تبدیل می‌شوند. CORS برای `paper`/`swing-live`/`holdings` فقط
     GET و فقط مسیر دقیق است (`/tick`ها بسته‌اند).
@@ -221,7 +222,28 @@ layout با جایگزینی دقیق رشته است و اگر layout عوض ش
 
 ‏تست مرورگری این بخش: `dist/` را با سروری که رفتار کپاسیتور را تقلید می‌کند (مسیر بدون نقطه → `/index.html`) سرو کن و
 API را به یک `next start` محلی بده (`build-app-web.mjs http://localhost:3111` برای همین مجاز است)؛ همه صفحه‌ها با
-کلیک روی زبانه‌ها، بخش «گوشی» و برگشت، و شروع آفلاین (کش snapshot) را بسنج.
+نوار پایین و برگه «بیشتر»، انتقال داده اپ قبلی، شروع آفلاین (کش snapshot) و جلسه برخط روی دستگاه را بسنج.
+
+## ۴-و) یک اپ واحد (مهر ۱۴۰۵) — قواعد
+
+‏به درخواست کاربر «مالی شخصی» و «گوشی» (اپ قبلی اندروید) یکی شدند: یک Shell موبایل‌محور (`components/Shell.tsx`،
+فهرست صفحه‌ها فقط در `components/nav.ts`) — زیر ۱۰۲۴px نوار پایین با چهار زبانه + «بیشتر» (برگه کاشی‌ها)، بالاتر سایدبار.
+تست: `npm run test:app` (هشدار قیمت و انتقال داده‌ها).
+
+40. **‏صفحه جدید = یک خط در `components/nav.ts`** (+ `app/<route>/page.tsx`)؛ نوار پایین، برگه «بیشتر»، سایدبار و عنوان سربرگ همه از
+    همان‌جا می‌خوانند. هر صفحه باید `.wrap` داشته باشد (LiveView نداشت و لبه‌به‌لبه بود). در ۳۴۴px (صفحه بیرونی Fold) هم تست کن.
+41. **‏کلیدهای localStorage اپ قبلی عمداً حفظ شدند** تا داده خودش منتقل شود: هشدار و اعلان `imb.notif.*`، جلسه برخط
+    `imb.live.session.v1` و `imb.trade.prefs.v1`، بازی `imb.game.v1`. اسمشان را عوض نکن.
+42. **‏هزینه‌ها و دارایی‌های اپ قبلی** (`imb.tx.v1`, `imb.pending.v1`, `imb.holdings.v1`) با تأیید کاربر از کارت «داده‌های نسخه قبلی
+    اپ» (`ClassicMigrate`، خانه و حساب و دارایی) با `migrateClassic` به **صف** «ورود از بانک» می‌روند، نه مستقیم به دفتر: جهت و دسته‌ای
+    که کاربر آن‌جا داده بود پیش‌فرض است، جهت نامعلوم نامعلوم می‌ماند (قاعده ۳). داده قدیمی پاک نمی‌شود و تکرار انتقال ردیف تکراری
+    نمی‌سازد (`ref = classic:<id>`). دارایی‌ها با هزینه خرید (`costRial`، `boughtOn`) منتقل می‌شوند.
+43. **‏معامله برخط دو حالت دارد:** «جلسه من» (پیش‌فرض، `lib/live-local.ts` + `/api/live/local`، روی دستگاه — قاعده ۱۳) و «جلسه
+    مشترک سایت» (`/api/paper`، رمز مدیر؛ در اپ فقط‌خواندنی). `AppStartup` هر بار باز شدن اپ (و برگشت به پیش‌زمینه) جلسه من را اگر
+    ۵ دقیقه گذشته باشد یک تیک جلو می‌برد و، فقط در اپ و با روشن بودن کلید کاربر، پیامک‌های تازه را بدون نمایش دیالوگ مجوز به صف
+    می‌برد؛ اعلانش فقط تعداد را می‌گوید (روی صفحه قفل دیده می‌شود).
+44. **‏هشدار قیمت** (`lib/alerts.ts`، خالص) با هر snapshot تازه در `NotifyProvider` بررسی می‌شود؛ یک بار شلیک و خاموش می‌شود؛ جهش
+    روزانه اولین بار بی‌صدا ثبت می‌شود و بیش از سه مورد خلاصه می‌شود. مقدار هشدار به واحد خود آیتم تابلو است (تومان، یا دلار برای BTC/ETH).
 
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
@@ -284,7 +306,7 @@ npm run test:swingpf && npm run test:swingscan && npm run test:swinghist
 npm run test:activity
 npm run test:pfrisk && npm run test:swingfx && npm run test:sizing
 npx tsx scripts/live-local-test.ts
-npm run test:finance && npm run test:advisor && npm run test:import
+npm run test:finance && npm run test:advisor && npm run test:import && npm run test:app
 npx tsx scripts/swing-v2-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts

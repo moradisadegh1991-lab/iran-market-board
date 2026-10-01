@@ -6,3 +6,6 @@ declare module '@/android-app/www/sms-parser.js' {
 
 // pdf.js worker module, loaded into the page so pdf.js runs without a separate Worker file
 declare module 'pdfjs-dist/legacy/build/pdf.worker.mjs';
+
+// the game engine (sets window.ECU), shared with the earlier Android app
+declare module '@/android-app/www/game-engine.js';

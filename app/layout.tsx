@@ -6,6 +6,8 @@ import './finance.css';
 import SnapshotProvider from '@/components/SnapshotProvider';
 import Shell from '@/components/Shell';
 import FinanceProvider from '@/components/finance/FinanceProvider';
+import NotifyProvider from '@/components/NotifyProvider';
+import AppStartup from '@/components/AppStartup';
 import { getSnapshot } from '@/lib/snapshot';
 import type { Snapshot } from '@/lib/types';
 
@@ -17,7 +19,7 @@ export const metadata: Metadata = {
   description: 'مدیریت مالی شخصی برای ایرانی‌ها: تراکنش‌ها، بودجه، اقساط و چک، اهداف پس‌انداز، دارایی با قیمت روز طلا و ارز، و مشاور مالی هوشمند',
 };
 
-export const viewport: Viewport = { themeColor: '#1A2848', width: 'device-width', initialScale: 1 };
+export const viewport: Viewport = { themeColor: '#1A2848', width: 'device-width', initialScale: 1, viewportFit: 'cover' };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   let initial: Snapshot | null = null;
@@ -30,9 +32,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="fa" dir="rtl">
       <body>
         <SnapshotProvider initial={initial}>
-          <FinanceProvider>
-            <Shell>{children}</Shell>
-          </FinanceProvider>
+          <NotifyProvider>
+            <FinanceProvider>
+              <AppStartup />
+              <Shell>{children}</Shell>
+            </FinanceProvider>
+          </NotifyProvider>
         </SnapshotProvider>
       </body>
     </html>

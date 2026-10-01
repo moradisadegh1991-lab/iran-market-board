@@ -4,11 +4,10 @@
  *
  *   node scripts/build-app-web.mjs https://your-app.vercel.app
  *
- * Output: android-app/dist/  (Capacitor's webDir)
- *   /            the whole website — مالی من, the market pages, the advisor — exported as static
- *                HTML/JS, calling the API at the given deployment (lib/api.ts)
- *   /classic/    the earlier phone-only app from android-app/www/ (automatic SMS expenses, price
- *                alerts, per-device live trading, the game), reached from the header link «گوشی»
+ * Output: android-app/dist/  (Capacitor's webDir) — the whole app, exported as static HTML/JS,
+ *   calling the API at the given deployment (lib/api.ts). Since Mehr 1405 there is one app: the
+ *   earlier phone-only screens (price alerts, per-device live trading, the game, automatic SMS
+ *   reading) are pages of it, and their data is carried over (lib/finance/migrate.ts).
  *
  * The site itself is server-rendered and has API routes, neither of which a static export can
  * hold. So the export runs on a copy of the sources in .app-build/ with three changes: no
@@ -47,9 +46,9 @@ for (const p of ['app', 'components', 'lib', 'types', 'public', 'package.json', 
   if (existsSync(join(ROOT, p))) cpSync(join(ROOT, p), join(TMP, p), { recursive: true });
 }
 rmSync(join(TMP, 'app', 'api'), { recursive: true, force: true });
-// lib/finance/sms.ts imports the parser the Android app uses, by this path
+// the SMS parser and the game engine are plain JS shared with the Android tests, imported by path
 mkdirSync(join(TMP, 'android-app', 'www'), { recursive: true });
-cpSync(join(ROOT, 'android-app', 'www', 'sms-parser.js'), join(TMP, 'android-app', 'www', 'sms-parser.js'));
+for (const f of ['sms-parser.js', 'game-engine.js']) cpSync(join(ROOT, 'android-app', 'www', f), join(TMP, 'android-app', 'www', f));
 
 // 2) a layout without the server-side snapshot
 let layout = readFileSync(join(TMP, 'app', 'layout.tsx'), 'utf8');
@@ -63,11 +62,11 @@ layout = replaceExact(
 );
 // Capacitor's local server answers every extension-less path with /index.html — the dashboard's
 // HTML. A WebView that restarts on a deep path (/import) would then show the dashboard under the
-// wrong tab, so anything but "/" (and the bundled /classic/ files) starts over at "/" before React runs.
+// wrong tab, so anything but "/" starts over at "/" before React runs.
 layout = replaceExact(
   layout,
   '      <body>\n',
-  '      <body>\n        <script dangerouslySetInnerHTML={{ __html: "if(location.pathname!==\'/\'&&location.pathname.indexOf(\'/classic/\')!==0)location.replace(\'/\')" }} />\n',
+  '      <body>\n        <script dangerouslySetInnerHTML={{ __html: "if(location.pathname!==\'/\')location.replace(\'/\')" }} />\n',
   'the <body> tag',
 );
 writeFileSync(join(TMP, 'app', 'layout.tsx'), layout);
@@ -91,8 +90,7 @@ if (r.status !== 0) process.exit(r.status ?? 1);
 // 4) assemble android-app/dist
 rmSync(DIST, { recursive: true, force: true });
 cpSync(join(TMP, 'out'), DIST, { recursive: true });
-cpSync(join(ROOT, 'android-app', 'www'), join(DIST, 'classic'), { recursive: true });
-for (const f of ['index.html', 'import.html', 'classic/index.html', 'classic/sms-parser.js']) {
+for (const f of ['index.html', 'import.html', 'alerts.html', 'game.html', 'live.html']) {
   if (!existsSync(join(DIST, f))) {
     console.error(`build-app-web: ${f} missing from the bundle`);
     process.exit(1);

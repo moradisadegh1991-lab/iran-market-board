@@ -5,7 +5,8 @@ import { deleteAccount } from '@/lib/finance/actions';
 import { ACCOUNT_KIND_LABEL, emptyData, MARKET_ASSETS, newId, normalizeData, tomanToRial, type AccountKind, type FinanceData, type MarketKey } from '@/lib/finance/model';
 import { Empty, PageHead, Toggle } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
-import { Card, confirmDelete, Disclosure, Money, NumInput, parseAmount, SelectBox, TextInput, TomanInput } from '../kit';
+import ClassicMigrate from '../ClassicMigrate';
+import { Card, confirmDelete, Disclosure, fmtDateFa, fmtPctFa, Money, NumInput, parseAmount, SelectBox, TextInput, TomanInput } from '../kit';
 import { download } from './TransactionsView';
 
 function Accounts({ d }: { d: FinanceData }) {
@@ -136,6 +137,13 @@ function Assets({ d }: { d: FinanceData }) {
                 <span className="fin-list-main">
                   <b>{a.name}</b>
                   <small>{a.kind === 'market' ? `${(a.qty ?? 0).toLocaleString('fa-IR', { maximumFractionDigits: 6 })} ${m?.unit ?? ''} · قیمت لحظه‌ای` : a.liquid ? 'قابل نقد شدن سریع' : 'غیرنقد'}</small>
+                  {a.costRial && v !== null ? (
+                    <small>
+                      خرید <Money rial={a.costRial} short />
+                      {a.boughtOn ? ` در ${fmtDateFa(a.boughtOn)}` : ''} · سود/زیان{' '}
+                      <Money rial={v - a.costRial} short signed className={v >= a.costRial ? 'up' : 'down'} /> ({fmtPctFa((v / a.costRial - 1) * 100, 1)})
+                    </small>
+                  ) : null}
                 </span>
                 <Money rial={v} />
                 <button className="fin-mini ghost" onClick={() => confirmDelete(`«${a.name}»`) && update((dr) => void (dr.assets = dr.assets.filter((x) => x.id !== a.id)))}>
@@ -292,6 +300,7 @@ function Page({ d }: { d: FinanceData }) {
       <Assets d={d} />
       <SettingsCard d={d} />
       <Backup d={d} />
+      <ClassicMigrate d={d} always />
     </>
   );
 }
