@@ -27,6 +27,7 @@ function alerts(d: FinanceData, items: ReturnType<typeof useFinance>['items'], t
   const dues = upcoming(d, today, 30);
   const overdue = dues.filter((x) => x.overdue);
   if (overdue.length) out.push({ tone: 'bad', text: `${overdue.length.toLocaleString('fa-IR')} قسط/چک/قبض سررسید گذشته و ثبت‌نشده دارید.`, href: '/debts' });
+  if (d.inbox.length) out.push({ tone: 'warn', text: `${d.inbox.length.toLocaleString('fa-IR')} تراکنش از گردش حساب یا پیامک منتظر تأیید شماست؛ تا تأیید نشوند در مانده‌ها حساب نمی‌شوند.`, href: '/import' });
   const fc = cashForecast(d, today, 30);
   if (fc.low.balanceRial < 0)
     out.push({ tone: 'bad', text: `با تعهدات ثبت‌شده، موجودی نقد شما در ${fmtDateFa(fc.low.date)} منفی می‌شود. اگر چک صادره دارید، قبل از آن تاریخ پول جابه‌جا کنید.`, href: '/debts' });

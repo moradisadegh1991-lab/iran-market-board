@@ -465,10 +465,6 @@ export const realValue = (amount: number, years: number, inflationPct: number) =
 /** Real (inflation-adjusted) annual return, percent — the number that says whether a choice beat inflation. */
 export const realReturnPct = (nominalPct: number, inflationPct: number) => ((1 + nominalPct / 100) / (1 + inflationPct / 100) - 1) * 100;
 
-/** خمس: one fifth of the year's surplus (income left after the year's expenses), floored at zero. */
-export const khumsRial = (yearIncomeRial: number, yearExpenseRial: number, alreadyTaxedRial = 0) =>
-  Math.max(0, (yearIncomeRial - yearExpenseRial - alreadyTaxedRial) * 0.2);
-
 // ── advisor summary (the ONLY thing that leaves the device) ────────────────
 
 const T = (rial: number) => Math.round(rial / 10); // → toman, rounded

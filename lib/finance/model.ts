@@ -48,6 +48,40 @@ export interface Txn {
   note?: string;
   /** set when the transaction was created by paying a loan installment / bill / cheque */
   link?: { type: 'loan' | 'bill' | 'cheque'; id: string; n?: number } | null;
+  /** where it came from; absent = typed in by hand */
+  src?: 'statement' | 'sms';
+  /** bank tracking / document number, when the statement or SMS had one */
+  ref?: string | null;
+}
+
+/**
+ * A transaction read from a bank statement or an SMS, waiting for the user to confirm it.
+ * `direction` is only set when the source states it (a debit/credit column, a sign, a change in
+ * the running balance, or an explicit verb in the SMS). Otherwise it stays null and the user
+ * decides — direction is never guessed (CLAUDE.md rule 3).
+ */
+export interface Staged {
+  id: string;
+  source: 'statement' | 'sms';
+  /** null when the source carried no usable date — the user must pick one */
+  date: Iso | null;
+  time?: string | null;
+  amountRial: number;
+  direction: 'out' | 'in' | null;
+  /** how the direction was established, shown to the user */
+  why: string;
+  balanceRial?: number | null;
+  description: string;
+  ref?: string | null;
+  card?: string | null;
+  fee?: boolean;
+  /** the parser could only half-read the source: the user should check the amount */
+  uncertainAmount?: boolean;
+  /** the original SMS text / statement row, for the user to check */
+  raw: string;
+  /** account the file or SMS belongs to, when known */
+  accountId?: string | null;
+  importedAt: number;
 }
 
 export interface Budget {
@@ -151,6 +185,10 @@ export interface FinanceData {
   goals: Goal[];
   assets: Asset[];
   settings: Settings;
+  /** imported transactions not yet confirmed */
+  inbox: Staged[];
+  /** description key → category the user chose last time, so the next import pre-fills it */
+  catMemory: Record<string, string>;
 }
 
 export const DEFAULT_CATEGORIES: Category[] = [
@@ -188,6 +226,8 @@ export function emptyData(today: Iso): FinanceData {
     goals: [],
     assets: [],
     settings: { ...DEFAULT_SETTINGS },
+    inbox: [],
+    catMemory: {},
   };
 }
 
@@ -215,6 +255,8 @@ export function normalizeData(raw: unknown, today: Iso): FinanceData {
     bills: arr<Bill>(raw.bills).map((b) => ({ ...b, paidMonths: arr<string>(b.paidMonths) })),
     goals: arr<Goal>(raw.goals),
     assets: arr<Asset>(raw.assets),
+    inbox: arr<Staged>(raw.inbox).filter((x) => x && typeof x.amountRial === 'number' && x.amountRial > 0),
+    catMemory: isObj(raw.catMemory) ? (raw.catMemory as Record<string, string>) : {},
     settings: {
       inflationPct: finite(s.inflationPct, DEFAULT_SETTINGS.inflationPct),
       safeYieldPct: finite(s.safeYieldPct, DEFAULT_SETTINGS.safeYieldPct),

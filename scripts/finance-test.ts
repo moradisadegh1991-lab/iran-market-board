@@ -9,7 +9,6 @@ import {
   cashForecast,
   goalPlan,
   impliedAnnualRatePct,
-  khumsRial,
   loanSchedule,
   loanState,
   monthOf,
@@ -162,14 +161,15 @@ ok('goal planning applies inflation and the fixed-income hurdle', () => {
   assert.ok(pi.monthlyAtSafeYieldRial < pi.monthlyNoReturnRial, 'earning a yield needs less saving');
   assert.ok(pi.realSafeYieldPct < 0, '30% fund under 40% inflation is a real loss');
   near(realReturnPct(30, 40), (1.3 / 1.4 - 1) * 100, 1e-9, 'real return');
-  assert.equal(khumsRial(1000, 600), 80);
-  assert.equal(khumsRial(500, 600), 0);
 });
 
-ok('advisor summary is numbers-only: no notes, no cheque counterparties, no account names', () => {
+ok('advisor summary is numbers-only: no notes, no cheque counterparties, no account names, no SMS/statement text', () => {
   const d = sample();
   d.cheques.push({ id: 'c', direction: 'issued', amountRial: 5_000, dueDate: jalaliToIso(1405, 7, 20), counterparty: 'آقای احمدی', status: 'pending' });
+  d.inbox.push({ id: 'i', source: 'sms', date: TODAY, amountRial: 9_000, direction: 'out', why: '', description: 'کارت 4417', raw: 'برداشت 9,000 ریال کارت *4417 مانده 77,000,000', importedAt: 0 });
+  d.catMemory['فروشگاه رفاه'] = 'c-food';
   const s = JSON.stringify(advisorSummary(d, [], TODAY));
+  assert.ok(!s.includes('4417') && !s.includes('77,000,000') && !s.includes('رفاه'), 'import queue / category memory leaked');
   assert.ok(!s.includes('احمدی'), 'counterparty leaked');
   assert.ok(!s.includes('رستوران با علی'), 'note leaked');
   assert.ok(!s.includes('ملت'), 'account name leaked');

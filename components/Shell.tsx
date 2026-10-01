@@ -9,6 +9,7 @@ import { fmtDateTimeFa } from '@/lib/num';
 export const FIN_PAGES = [
   { href: '/', label: 'داشبورد' },
   { href: '/transactions', label: 'تراکنش‌ها' },
+  { href: '/import', label: 'ورود از بانک' },
   { href: '/budget', label: 'بودجه' },
   { href: '/debts', label: 'وام، چک و قبض' },
   { href: '/goals', label: 'اهداف' },

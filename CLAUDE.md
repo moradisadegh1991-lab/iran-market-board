@@ -30,7 +30,7 @@
 ## ۲) نقشه پوشه‌ها
 
 ```
-app/                 مالی: / (داشبورد) · transactions · budget · debts · goals · accounts · tools · advisor
+app/                 مالی: / (داشبورد) · transactions · import (ورود از بانک) · budget · debts · goals · accounts · tools · advisor
                      بازار: market (نمای کلی) · scenarios · simulator · live (معامله برخط)
                      · swing (نوسان‌گیری) · charts · risk · stocks · crypto · portfolio · bot
 app/api/             advisor (مشاور Claude، stream) · snapshot · diag · ingest · chart · simulate · paper/{,tick}
@@ -43,6 +43,7 @@ lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-ri
                      · holdings-analysis · sizing
 lib/telegram/        api · format · handler · paper
 lib/finance/         model (نوع داده، همه به ریال) · calc (محاسبات خالص) · actions (تسویه/حذف چندجدولی)
+                     · importers (گردش حساب/پیامک → صف) · readers (اکسل/CSV/PDF در مرورگر) · sms (همان پارسر اندروید)
 lib/                 advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
@@ -170,6 +171,30 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
     `fallbacks: "default"`. تست شبکه‌ای واقعی با کلید انجام نشده — با سرور mock هم‌شکل API (SSE)
     کل مسیر وب و اندروید تست شد.
 
+## ۴-ب۲) ورود از بانک (گردش حساب و پیامک) — قواعد (مهر ۱۴۰۵؛ ماشین‌حساب خمس به درخواست کاربر حذف شد)
+
+‏`/import`: فایل گردش حساب (اکسل با SheetJS، CSV، PDF با pdf.js) و متن پیامک بانکی → `data.inbox` (صف بررسی)
+→ فقط با تأیید کاربر `commitStaged` تراکنش می‌سازد. تست: `npm run test:import` (۲۲ بررسی، از جمله دو PDF واقعی در
+`scripts/fixtures/`).
+
+29. **‏فایل از مرورگر بیرون نمی‌رود.** خواندن فایل در `lib/finance/readers.ts` و فقط سمت کاربر است (قاعده ۷). کتابخانه‌ها با
+    `import()` پویا بار می‌شوند تا بقیه اپ سنگین نشود.
+30. **‏جهت از منبع می‌آید، نه حدس** (قاعده ۳): به ترتیب اعتماد ① تغییر مانده بین دو ردیف (حساب خود بانک)، ② ستون
+    برداشت/واریز، ③ علامت در ستون مبلغ واحد. اگر مانده با ستون نخواند → جهت null و هشدار. ترتیب زمانی فایل (صعودی/نزولی، حتی
+    ردیف‌های هم‌روز) از روی این‌که کدام ترتیب با مانده‌ها جور درمی‌آید انتخاب می‌شود؛ ردیف «مانده از قبل» مانده آغازین است.
+    پیامک: فقط فعل صریح جهت می‌دهد؛ «هم برداشت هم واریز» یا «بدون فعل» → null. `guessedWithdrawal` پارسر اندروید **حدس** است
+    و استفاده نمی‌شود. ثبت گروهی فقط ردیف‌هایی که جهت، تاریخ و حساب معلوم دارند و تکراری/انتقال نیستند.
+31. **‏واحد صریح** (قاعده ۱): گردش حساب ریال است مگر سرستون «تومان» بگوید یا کاربر انتخاب کند؛ اگر فایل هیچ واحدی نگفته،
+    هشدار داده می‌شود. پیامکی که فقط «تومان» دارد ×۱۰ می‌شود.
+32. **‏PDF:** pdf.js متن فارسی بسیاری از PDFها (از جمله PDF چاپ‌شده کروم) را **حرف‌به‌حرف، به ترتیب دیداری و با
+    presentation forms** (ﺎ ﺟ) می‌دهد. `mergeCells` + `flipRtl` آن را به متن منطقی برمی‌گرداند و `norm` با NFKC حروف را
+    پایه می‌کند. هر کلمه به ستونِ زیر سرستونش می‌رود (نه شمارش کلمه، چون خانه خالی کلمه ندارد)؛ خط بدون تاریخ و مبلغ ادامه شرح
+    ردیف هم‌جوارش است (بالا یا پایین، چون ابزارهای گزارش خانه‌ها را وسط‌چین می‌کنند) و متن دورتر (پانویس) جزو ردیف نیست.
+    **از build legacy pdf.js استفاده کن**: build عادی `Promise.try` می‌خواهد که در WebView/Samsung Internet قدیمی نیست.
+    PDF اسکن‌شده (تصویر) متن ندارد و پیام می‌دهد؛ OCR ساخته نشده.
+33. **‏فرمت واقعی بانک‌ها هنوز دیده نشده.** سرستون‌ها از واژه‌های رایج اینترنت‌بانک‌ها حدس زده شده‌اند (`HEADER_RULES`)؛ با اولین
+    فایل واقعی کاربر (ناشناس‌شده) بسنج و نمونه را به fixtureها اضافه کن.
+
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
 21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
@@ -231,7 +256,7 @@ npm run test:swingpf && npm run test:swingscan && npm run test:swinghist
 npm run test:activity
 npm run test:pfrisk && npm run test:swingfx && npm run test:sizing
 npx tsx scripts/live-local-test.ts
-npm run test:finance && npm run test:advisor
+npm run test:finance && npm run test:advisor && npm run test:import
 npx tsx scripts/swing-v2-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts

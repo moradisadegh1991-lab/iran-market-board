@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { effectiveAnnualPct, health, impliedAnnualRatePct, khumsRial, loanSchedule, realReturnPct, realValue } from '@/lib/finance/calc';
+import { effectiveAnnualPct, health, impliedAnnualRatePct, loanSchedule, realReturnPct, realValue } from '@/lib/finance/calc';
 import { tomanToRial, type FinanceData } from '@/lib/finance/model';
 import { isNum } from '@/lib/num';
 import { PageHead } from '../../ui';
@@ -136,36 +136,13 @@ function InflationCalc({ d }: { d: FinanceData }) {
   );
 }
 
-function Khums() {
-  const [inc, setInc] = useState('');
-  const [exp, setExp] = useState('');
-  const [prev, setPrev] = useState('');
-  const k = khumsRial(tomanToRial(parseAmount(inc) || 0), tomanToRial(parseAmount(exp) || 0), tomanToRial(parseAmount(prev) || 0));
-  return (
-    <Card title="خمس سالانه (محاسبه ساده)">
-      <p className="muted small">یک‌پنجم مازاد درآمد سال خمسی بر هزینه‌های سال. جزئیات (ارث، هدیه، سرمایه کسب، دارایی‌هایی که خمسشان داده شده) را از مرجع خود بپرسید؛ این فقط عدد پایه است.</p>
-      <div className="fin-grid">
-        <TomanInput label="درآمد سال خمسی (تومان)" value={inc} onChange={setInc} />
-        <TomanInput label="هزینه‌های زندگی همان سال (تومان)" value={exp} onChange={setExp} />
-        <TomanInput label="مبلغی از مازاد که قبلاً خمسش داده شده (تومان)" value={prev} onChange={setPrev} placeholder="۰" />
-      </div>
-      {inc ? (
-        <p>
-          خمس: <b>{<Money rial={k} />}</b>
-        </p>
-      ) : null}
-    </Card>
-  );
-}
-
 function Tools({ d }: { d: FinanceData }) {
   return (
     <>
-      <PageHead title="ماشین‌حساب‌ها">برای تصمیم‌های رایج: گرفتن وام، خرید قسطی، اثر تورم و خمس. عددهای درآمد و اقساط از دفتر خودتان خوانده می‌شود.</PageHead>
+      <PageHead title="ماشین‌حساب‌ها">برای تصمیم‌های رایج: گرفتن وام، خرید قسطی، و اثر تورم. عددهای درآمد و اقساط از دفتر خودتان خوانده می‌شود.</PageHead>
       <LoanCalc d={d} />
       <InstallmentOffer />
       <InflationCalc d={d} />
-      <Khums />
     </>
   );
 }
