@@ -5,8 +5,20 @@ import { useEffect, useRef } from 'react';
 import { useSnapshot } from './SnapshotProvider';
 import { fmtDateTimeFa } from '@/lib/num';
 
+/** Personal finance first: this is a money app for one household that also watches the market. */
+export const FIN_PAGES = [
+  { href: '/', label: 'داشبورد' },
+  { href: '/transactions', label: 'تراکنش‌ها' },
+  { href: '/budget', label: 'بودجه' },
+  { href: '/debts', label: 'وام، چک و قبض' },
+  { href: '/goals', label: 'اهداف' },
+  { href: '/accounts', label: 'حساب و دارایی' },
+  { href: '/tools', label: 'ماشین‌حساب‌ها' },
+  { href: '/advisor', label: 'مشاور' },
+];
+
 export const PAGES = [
-  { href: '/', label: 'نمای کلی' },
+  { href: '/market', label: 'نمای بازار' },
   { href: '/scenarios', label: 'سناریوها' },
   { href: '/simulator', label: 'معامله‌گر' },
   { href: '/live', label: 'معامله برخط' },
@@ -24,6 +36,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const { snap, busy, error, refresh } = useSnapshot();
   const tabsRef = useRef<HTMLDivElement>(null);
   const failing = snap?.sources.filter((s) => !s.ok && s.ageSec === null).length ?? 0;
+  const inFinance = FIN_PAGES.some((p) => p.href === path);
+  const tabs = inFinance ? FIN_PAGES : PAGES;
 
   useEffect(() => {
     tabsRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -33,9 +47,19 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     <>
       <header className="topbar">
         <div className="wrap topbar-inner">
-          <Link href="/" className="wordmark" aria-label="تابلوی بازار، صفحه اصلی">
-            تابلوی بازار
-          </Link>
+          <div className="brand">
+            <Link href="/" className="wordmark" aria-label="مالی من، صفحه اصلی">
+              مالی من
+            </Link>
+            <nav className="section-switch" aria-label="بخش">
+              <Link href="/" aria-current={inFinance ? 'true' : undefined}>
+                مالی شخصی
+              </Link>
+              <Link href="/market" aria-current={!inFinance ? 'true' : undefined}>
+                بازار
+              </Link>
+            </nav>
+          </div>
           <div className="status" aria-live="polite">
             {snap ? (
               <span className={`dot ${error ? 'bad' : failing ? 'warn' : 'ok'}`} title={error ?? (failing ? `${failing} منبع در دسترس نیست` : 'همه منابع در دسترس')} />
@@ -51,7 +75,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       </header>
       <nav className="tabs" aria-label="صفحه‌ها">
         <div className="wrap tabs-inner" ref={tabsRef}>
-          {PAGES.map((p) => (
+          {tabs.map((p) => (
             <Link key={p.href} href={p.href} aria-current={path === p.href ? 'page' : undefined}>
               {p.label}
             </Link>
@@ -61,13 +85,15 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       {error && snap ? (
         <div className="wrap">
           <p className="banner warn" role="alert">
-            آخرین به‌روزرسانی ناموفق بود ({error}). اعداد مربوط به آخرین دریافت موفق است.
+            آخرین به‌روزرسانی قیمت‌ها ناموفق بود ({error}). اعداد مربوط به آخرین دریافت موفق است.
           </p>
         </div>
       ) : null}
       <main className="page">{children}</main>
       <footer className="foot">
-        <div className="wrap">منابع: TGJU، Gold API، نوبیتکس، BrsApi، TSETMC و CoinGecko. همه تحلیل‌ها الگوریتمی‌اند و توصیه خرید یا فروش نیستند.</div>
+        <div className="wrap">
+          دفتر مالی شما فقط در همین مرورگر ذخیره می‌شود و به سرور نمی‌رود. قیمت‌ها: TGJU، Gold API، نوبیتکس، BrsApi، TSETMC و CoinGecko. تحلیل‌ها و پاسخ‌های مشاور الگوریتمی‌اند و توصیه قطعی خرید یا فروش نیستند.
+        </div>
       </footer>
     </>
   );

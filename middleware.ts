@@ -12,8 +12,12 @@ import { NextResponse, type NextRequest } from 'next/server';
  * `/api/live/local` is on this list because it is stateless: it advances a session the caller
  * sends and hands it straight back, touching no stored session. The shared `/api/paper` — which
  * does write to Redis — stays closed.
+ *
+ * `/api/advisor` is here for the same reason: it stores nothing the caller sends (only a per-day
+ * call counter). Because each call spends the Anthropic key, it additionally requires the
+ * `x-advisor-secret` header, which is why that header is allowed below.
  */
-const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/swing', '/api/simulate', '/api/live/local'];
+const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor'];
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -22,7 +26,7 @@ export function middleware(req: NextRequest) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, x-advisor-secret',
     'Access-Control-Max-Age': '86400',
   };
   // the browser sends a preflight before any POST with a JSON body

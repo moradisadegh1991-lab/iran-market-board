@@ -1589,52 +1589,65 @@ function fa(n) {
     var from = rangeStart('month');
     var txs = loadTx().filter(function (t) { return t.at >= from && !t.transfer && !t.fee; });
     var t = totals(loadTx(), from);
-    var lines = ['خلاصه مالی ماه جاری کاربر (مبالغ به ریال):'];
+    // the server-side advisor is told every amount is in toman, so convert here (stored values are rial)
+    var T = function (r) { return Math.round(r / 10); };
+    var lines = ['خلاصه مالی ماه جاری کاربر (مبالغ به تومان):'];
     var by = {};
     txs.filter(function (x) { return x.out && !x.typeUnknown; }).forEach(function (x) {
       var k = x.cat || '_'; by[k] = by[k] || { n: 0, sum: 0 }; by[k].n++; by[k].sum += x.amount;
     });
     Object.keys(by).forEach(function (k) {
       var c = k === '_' ? null : catById(k);
-      lines.push('- خرج ' + (c ? c.name : 'دسته‌بندی‌نشده') + ': ' + by[k].n + ' تراکنش، مجموع ' + by[k].sum);
+      lines.push('- خرج ' + (c ? c.name : 'دسته‌بندی‌نشده') + ': ' + by[k].n + ' تراکنش، مجموع ' + T(by[k].sum));
     });
-    lines.push('مجموع خرج: ' + t.out);
-    lines.push('مجموع واریزی: ' + t.in);
-    lines.push('کارمزد انتقال: ' + t.fee);
+    lines.push('مجموع خرج: ' + T(t.out));
+    lines.push('مجموع واریزی: ' + T(t.in));
+    lines.push('کارمزد انتقال: ' + T(t.fee));
     return lines.join('\n');
   }
 
+  // The advisor runs on the board's own server (Claude, with the ANTHROPIC_API_KEY kept in Vercel).
+  // The phone holds only the advisor password (ADVISOR_SECRET), which stops strangers spending the key.
   function spendAiTab() {
     var key = localStorage.getItem(AIKEY_KEY) || '';
     return '<div class="card"><h2>مشاور مالی</h2>' +
-      '<div class="row"><span class="label">خلاصه اعداد ماه جاری به سرویس هوش مصنوعی فرستاده می‌شود. <b>کلید API خودتان لازم است</b> و روی همین گوشی ذخیره می‌شود.<br>' +
-      'این تنها بخشی است که داده را بیرون می‌فرستد — فقط خلاصه اعداد، نه متن پیامک‌ها.</span></div>' +
+      '<div class="row"><span class="label">خلاصه اعداد ماه جاری به مشاور (Claude روی سرور تابلو) فرستاده می‌شود. فقط <b>رمز مشاور</b> لازم است — همان ADVISOR_SECRET در Vercel — که روی همین گوشی ذخیره می‌شود.<br>' +
+      'این تنها بخشی است که داده را بیرون می‌فرستد — فقط خلاصه اعداد، نه متن پیامک‌ها. سرور چیزی ذخیره نمی‌کند.</span></div>' +
       '<div class="row" style="flex-wrap:wrap;gap:8px">' +
-        '<input id="aiKey" type="password" placeholder="OpenRouter API key" value="' + esc(key) + '" style="flex:1 1 100%" />' +
+        '<input id="aiKey" type="password" placeholder="رمز مشاور (ADVISOR_SECRET)" value="' + esc(key) + '" style="flex:1 1 100%" />' +
         '<input id="aiQ" placeholder="مثلاً: کجا زیاد خرج می‌کنم؟" style="flex:1 1 100%" />' +
         '<button class="addbtn" id="aiAsk" style="flex:1 1 100%"' + (aiBusy ? ' disabled' : '') + '>' + (aiBusy ? 'در حال پرسیدن…' : 'بپرس') + '</button>' +
       '</div>' +
-      (aiAnswer ? '<div class="row"><span class="label" style="white-space:pre-wrap">' + esc(aiAnswer) + '</span></div>' : '') +
+      (aiAnswer ? '<div class="row"><span class="label" style="white-space:pre-wrap">' + aiHtml(aiAnswer) + '</span></div>' : '') +
       '</div>' +
       '<div class="card"><h2>خلاصه‌ای که فرستاده می‌شود</h2><div class="row"><span class="label muted" style="white-space:pre-wrap;font-size:12.5px">' + esc(aiSummary()) + '</span></div></div>';
+  }
+
+  /** The advisor answers in light Markdown: keep **bold**, drop table rule lines, escape everything else. */
+  function aiHtml(text) {
+    return esc(String(text).split('\n').filter(function (l) { return !/^\s*\|?\s*:?-{2,}/.test(l); }).join('\n'))
+      .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
   }
 
   async function askAi() {
     var key = String(($('aiKey') || {}).value || '').trim();
     var q = String(($('aiQ') || {}).value || '').trim();
-    if (!key) { aiAnswer = 'کلید API وارد نشده.'; draw(); return; }
+    if (!key) { aiAnswer = 'رمز مشاور وارد نشده.'; draw(); return; }
     if (!q) { aiAnswer = 'سوالت را بنویس.'; draw(); return; }
     localStorage.setItem(AIKEY_KEY, key);
     aiBusy = true; aiAnswer = null; draw();
     try {
-      var r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      var r = await fetch(API + '/api/advisor', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-        body: JSON.stringify({ model: 'deepseek/deepseek-chat:free', messages: [{ role: 'user', content: aiSummary() + '\n\nسوال کاربر: ' + q }] })
+        headers: { 'Content-Type': 'application/json', 'x-advisor-secret': key },
+        body: JSON.stringify({ summary: aiSummary(), messages: [{ role: 'user', content: q }] })
       });
-      var j = await r.json();
-      if (!r.ok || j.error) throw new Error((j.error && (j.error.message || j.error)) || ('خطای ' + r.status));
-      aiAnswer = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || 'پاسخی برنگشت.';
+      if (!r.ok) {
+        var j = await r.json().catch(function () { return {}; });
+        throw new Error(j.error || ('خطای ' + r.status));
+      }
+      // the answer streams as plain text; the WebView reads it whole
+      aiAnswer = (await r.text()).trim() || 'پاسخی برنگشت.';
     } catch (e) { aiAnswer = 'خطا: ' + ((e && e.message) || e); }
     aiBusy = false; draw();
   }

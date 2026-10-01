@@ -11,6 +11,11 @@
 
 ## ۱) این پروژه چیست
 
+‏**از مهر ۱۴۰۵:** اپ به «مالی من» تبدیل شد — اپ مالی شخصی برای یک فرد ایرانی (حساب، تراکنش، بودجه،
+وام/چک/قبض، اهداف، دارایی خالص، ماشین‌حساب‌ها) با مشاور Claude. صفحه اصلی `/` حالا داشبورد مالی است و
+نمای کلی بازار به `/market` رفت؛ بقیه صفحه‌های بازار همان آدرس‌های قبلی را دارند (Shell دو بخش دارد:
+«مالی شخصی» و «بازار»). بخش ۴-ب را ببین.
+
 ‏«تابلوی بازار ایران» (Iran Market Board): یک داشبورد Next.js روی Vercel + ربات تلگرام برای
 بازار طلا/ارز/کریپتو/بورس ایران، به‌همراه یک اپ اندرویدی آفلاین (Capacitor) که همان داده را
 نمایش می‌دهد و چند قابلیت کاملاً روی گوشی (بدون سرور) دارد.
@@ -25,9 +30,10 @@
 ## ۲) نقشه پوشه‌ها
 
 ```
-app/                 صفحات: / (نمای کلی) · scenarios · simulator · live (معامله برخط)
+app/                 مالی: / (داشبورد) · transactions · budget · debts · goals · accounts · tools · advisor
+                     بازار: market (نمای کلی) · scenarios · simulator · live (معامله برخط)
                      · swing (نوسان‌گیری) · charts · risk · stocks · crypto · portfolio · bot
-app/api/             snapshot · diag · ingest · chart · simulate · paper/{,tick}
+app/api/             advisor (مشاور Claude، stream) · snapshot · diag · ingest · chart · simulate · paper/{,tick}
                      · live/local (معامله برخط بدون‌حالت، برای اپ) · learning
                      · swing (backtest/portfolio/scan) · swing-live/{,tick}
                      · holdings · cron/* · telegram/{webhook,setup,broadcast}
@@ -36,10 +42,12 @@ lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-ri
                      · simulator · live · learning · swing · swing-portfolio · swing-scan
                      · holdings-analysis · sizing
 lib/telegram/        api · format · handler · paper
-lib/                 snapshot · series · history · simulate · paper · learning · intraday
+lib/finance/         model (نوع داده، همه به ریال) · calc (محاسبات خالص) · actions (تسویه/حذف چندجدولی)
+lib/                 advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
                      · Sparkline · RollingNumber · HoldingsPanel · PositionSizer
+components/finance/  FinanceProvider (localStorage) · kit · TxnForm · DueList · Markdown · views/*
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
                      · Crypto · Portfolio · Bot
 scripts/             تست‌های آفلاین همه با tsx اجرا می‌شوند — بخش ۵ را ببین
@@ -102,9 +110,11 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
    مسیرهای فقط-خواندنی (`snapshot`, `chart`, `swing`, `simulate`) را CORS باز کرده؛
    `paper`, `holdings`, `telegram`, `ingest` عمداً باز نشده‌اند.
 7. **‏دارایی‌های شخصی کاربر هرگز به سرور نمی‌روند.** دارایی‌های اپ اندروید، هزینه‌ها،
-   کارت‌ها و حساب‌ها همه فقط `localStorage` هستند. تنها استثنا: زبانه «مشاور» در بخش
-   هزینه‌ها که با کلید API خود کاربر به OpenRouter وصل می‌شود — و فقط خلاصه اعداد را
-   می‌فرستد، نه متن پیامک.
+   کارت‌ها و حساب‌ها همه فقط `localStorage` هستند — در اپ وب هم دفتر «مالی من» همین‌طور
+   (کلید `imf.finance.v1`). تنها استثنا: مشاور (`/api/advisor`، هم وب هم زبانه «مشاور» اندروید)
+   که فقط خلاصه اعداد را می‌فرستد، نه متن پیامک، یادداشت تراکنش، نام حساب یا طرف چک.
+   `advisorSummary()` در `lib/finance/calc.ts` تنها چیزی است که بیرون می‌رود و
+   `scripts/finance-test.ts` نشت نکردن این‌ها را قفل کرده.
 8. **‏گیت‌هاب اکشن‌ها روی ریپوی خصوصی ماهی ۲٬۰۰۰ دقیقه رایگان دارد، روی عمومی نامحدود.**
    `paper-tick.yml` قبلاً این را در دو روز تمام می‌کرد (بخش ۸).
 9. **‏هر عدد «تومانی» باید نرخ تتر روزِ خودش را داشته باشد.** موتور نوسان‌گیری قبلاً کل بازه را
@@ -142,6 +152,23 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
     «۲۰٫۱ میلیون تومان» را «میلیون تومان ۲۰٫۱» نشان می‌دهد. برای چنین مقادیری از `.money`
     استفاده کن.
 
+## ۴-ب) مالی شخصی و مشاور — قواعد
+
+17. **‏مبالغ دفتر مالی به ریال ذخیره می‌شوند**؛ فرم‌ها تومان می‌گیرند و `tomanToRial` دقیقاً یک بار
+    ضرب در ۱۰ می‌کند. نمایش با `Money`/`fmtToman` (کلاس `.fin-money`، نه `.num`) و علامت منفی با LRM
+    چسبیده به سمت چپ رقم‌ها.
+18. **‏ارزش دارایی بازاری از `unitPriceRial`** می‌آید: آیتم دلاری (BTC/ETH) با نرخ تتر خود تابلو به
+    ریال تبدیل می‌شود؛ اگر قیمت نباشد دارایی در `unpriced` می‌رود و از جمع حذف می‌شود، نه صفر.
+19. **‏اقساط به ترتیب تسویه می‌شوند** (`settleDue`) و حذف تراکنشی که قسط/قبض/چک را تسویه کرده،
+    آن تعهد را دوباره باز می‌کند (`deleteTxn`). قبض‌ها فقط از ماه جاری به بعد پیگیری می‌شوند — اپ
+    نمی‌داند ماه‌های قبل از شروع ثبت پرداخت شده‌اند یا نه.
+20. **‏مشاور کلید را خرج می‌کند**: بدون `ADVISOR_SECRET`/`ADMIN_SECRET` خاموش می‌ماند، سقف روزانه
+    دارد (`ADVISOR_DAILY_LIMIT`)، و در `middleware.ts` با هدر `x-advisor-secret` CORS باز شده تا اپ
+    اندروید هم بتواند صدایش کند. سرور هیچ داده‌ای از درخواست ذخیره نمی‌کند (فقط شمارنده روزانه).
+    مدل `ADVISOR_MODEL` (پیش‌فرض `claude-opus-5-5`) با SDK رسمی `@anthropic-ai/sdk`، effort متوسط،
+    `fallbacks: "default"`. تست شبکه‌ای واقعی با کلید انجام نشده — با سرور mock هم‌شکل API (SSE)
+    کل مسیر وب و اندروید تست شد.
+
 ## ۵) چک‌لیست تأیید قبل از هر تحویل
 
 ‏همه این‌ها همین امروز اجرا و سبز شدند. قبل از commit کردن هر تغییری، حداقل تست‌های مربوط
@@ -156,6 +183,7 @@ npm run test:swingpf && npm run test:swingscan && npm run test:swinghist
 npm run test:activity
 npm run test:pfrisk && npm run test:swingfx && npm run test:sizing
 npx tsx scripts/live-local-test.ts
+npm run test:finance && npm run test:advisor
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts
 npx tsx scripts/learn-live-test.ts

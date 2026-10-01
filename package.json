@@ -18,9 +18,12 @@
     "test:activity": "tsx scripts/activity-test.ts",
     "test:pfrisk": "tsx scripts/portfolio-risk-test.ts",
     "test:swingfx": "tsx scripts/swing-fx-test.ts",
-    "test:sizing": "tsx scripts/sizing-test.ts"
+    "test:sizing": "tsx scripts/sizing-test.ts",
+    "test:finance": "tsx scripts/finance-test.ts",
+    "test:advisor": "tsx scripts/advisor-test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@fontsource-variable/vazirmatn": "^5.3.0",
     "@fontsource/lalezar": "^5.3.0",
     "@upstash/redis": "^1.38.4",
