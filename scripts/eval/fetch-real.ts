@@ -53,3 +53,19 @@ async function main() {
 }
 
 if (process.argv[1]?.endsWith('fetch-real.ts')) main();
+
+/** BTC daily closes back to 2018 (for factors with long histories, e.g. Fear & Greed). */
+export async function fetchBtcDailyLong(): Promise<void> {
+  const f = path.join(CACHE, 'btc-daily-long.json');
+  if (fs.existsSync(f)) return;
+  const out = new Map<number, number>();
+  let end = Date.now();
+  for (let i = 0; i < 4; i++) {
+    const rows = await fetchJson<unknown[][]>(`https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000&endTime=${end}`, { timeoutMs: 20_000 });
+    if (!rows.length) break;
+    for (const r of rows) out.set(+r[0]!, +r[4]!);
+    end = +rows[0][0]! - 1;
+  }
+  fs.writeFileSync(f, JSON.stringify([...out.entries()].sort((a, b) => a[0] - b[0])));
+}
+if (process.argv.includes('--btc-long')) fetchBtcDailyLong().then(() => console.log('btc long ok'));

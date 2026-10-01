@@ -82,7 +82,13 @@ How to answer:
 - Be concrete: amounts in toman with Persian digits and a unit (e.g. «۲۵ میلیون تومان»), dates in the Jalali calendar.
 - Keep it short: usually under 250 words unless the user asks for a full plan. Use light Markdown only (bold, short lists, at most one table).
 - You are not a licensed advisor and cannot know the future. Do not promise returns. Name the main risk of whatever you recommend. Never suggest anything illegal (tax evasion, unlicensed FX dealing, hiding assets in a divorce or mehrieh case).
-- If the summary shows no data yet (all zeros), help the user decide what to record first instead of giving generic advice.`;
+- If the summary shows no data yet (all zeros), help the user decide what to record first instead of giving generic advice.
+
+Measured facts you may cite (real TGJU / Binance data, measured by this app in Mehr 1405; annualised, before tax):
+- Holding 18k gold or the Emami coin: about +56%/yr in 2015–2020 and +71%/yr in 2021–2026; the free-market dollar +44% and +49%. A fixed-income fund paid roughly 20% then 27%. Holding beat every timing rule the app tested (moving-average exits) in both periods, because the rial's decline is persistent.
+- The price of that return: worst falls of −38% to −48% (2015–2020) and −24% to −31% (2021–2026), with up to 1–2 years below a previous peak. Money needed within a year does not belong there.
+- Iran news sentiment did not predict the next weeks' prices in a stable way (the sign flipped from year to year): by the time a headline is out, the market has usually moved.
+- Crypto: every hourly swing-trading variant lost money after a 0.8% round-trip cost (2023–2026). A daily trend filter (hold only while the coin and BTC are above their 50-day average) was the only approach that was positive, and it still had drawdowns of about −20% to −50%.`;
 
 /** First user turn carries the data; later turns are the plain conversation. */
 export function buildMessages(req: AdvisorRequest, market: unknown): Anthropic.Beta.BetaMessageParam[] {

@@ -43,7 +43,7 @@ export const SWING_V2: Record<SwingPreset, {
   cooldownH: number;
   cooldownAfterStopH: number;
 }> = {
-  // trend: only `exposure` is used — see runTrendRide
+  // trend: only `exposure` (and TREND_VOL_TARGET) are used — see runTrendRide
   trend: { minScore: 0, minStopU: 0, maxStopU: 0, targetR: Infinity, trailU: 0, exposure: 0.9, maxHoldH: Infinity, staleH: Infinity, cooldownH: 0, cooldownAfterStopH: 0 },
   calm: { minScore: 72, minStopU: 0.9, maxStopU: 1.8, targetR: 2.6, trailU: 1.6, exposure: 0.6, maxHoldH: 336, staleH: 96, cooldownH: 24, cooldownAfterStopH: 72 },
   normal: { minScore: 64, minStopU: 0.8, maxStopU: 1.6, targetR: 2.2, trailU: 1.4, exposure: 0.75, maxHoldH: 240, staleH: 72, cooldownH: 12, cooldownAfterStopH: 48 },
@@ -112,16 +112,24 @@ export function dailyRegime(clean: SwingBar[], daily: SwingBar[] | null | undefi
 }
 
 /** Same, with the 50-day average itself (the level whose daily close below ends a trend ride). */
-export function dailyRegimeSma(clean: SwingBar[], daily: SwingBar[] | null | undefined, n = 50): ({ up: boolean; sma: number } | null)[] | null {
+export function dailyRegimeSma(clean: SwingBar[], daily: SwingBar[] | null | undefined, n = 50): ({ up: boolean; sma: number; vol20: number | null } | null)[] | null {
   if (!daily || daily.length < n + 1) return null;
   const d = daily.filter((b) => isNum(b.p) && b.p > 0).sort((a, b) => a.t - b.t);
-  const per: ({ up: boolean; sma: number } | null)[] = d.map((_, k) => {
+  const per: ({ up: boolean; sma: number; vol20: number | null } | null)[] = d.map((_, k) => {
     if (k + 1 < n) return null;
     let sum = 0;
     for (let j = k - n + 1; j <= k; j++) sum += d[j].p;
-    return { up: d[k].p > sum / n, sma: sum / n };
+    // annualised volatility of the last 20 closed days, for sizing the trend ride
+    let vol20: number | null = null;
+    if (k >= 20) {
+      const r: number[] = [];
+      for (let j = k - 19; j <= k; j++) r.push(Math.log(d[j].p / d[j - 1].p));
+      const m = r.reduce((a, b) => a + b, 0) / r.length;
+      vol20 = Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / r.length) * Math.sqrt(365);
+    }
+    return { up: d[k].p > sum / n, sma: sum / n, vol20 };
   });
-  const out: ({ up: boolean; sma: number } | null)[] = [];
+  const out: ({ up: boolean; sma: number; vol20: number | null } | null)[] = [];
   let k = -1;
   for (const b of clean) {
     while (k + 1 < d.length && d[k + 1].t + DAY_MS <= b.t + 3_600_000) k++;
@@ -157,6 +165,15 @@ export function dailyFromHourly(bars: SwingBar[] | null | undefined): SwingBar[]
  * and kept roughly half of the bull-market gain. It is a trend filter, not a forecast: it gives
  * back part of every move before it exits, and in a sideways market it whipsaws.
  */
+/**
+ * The trend ride commits less when the coin is unusually volatile: weight = exposure × min(1,
+ * target ÷ 20-day vol). On real daily data (scripts/eval/trend-variants.ts) this raised the basket's
+ * CAGR from 9.4% to 13.2% and cut its drawdown from −57% to −49% (2023–2026), and lifted BTC from
+ * 31.8% to 35.1% a year over 2018–2022, without hurting 2023–2026. 60% is a standard crypto target,
+ * not a searched value. Funding-rate and Fear & Greed entry gates were tested too and changed nothing.
+ */
+export const TREND_VOL_TARGET = 0.6;
+
 function runTrendRide(clean: SwingBar[], coin: SwingResult['coin'], config: SwingConfig, warnings: string[]): SwingResult {
   const P = SWING_PRESETS.trend;
   const Q = { ...SWING_V2.trend, ...(config.v2Overrides ?? {}) };
@@ -200,14 +217,15 @@ function runTrendRide(clean: SwingBar[], coin: SwingResult['coin'], config: Swin
       barsInMarket++;
       if (!want) exit(i, 'trend');
     } else if (want && i < clean.length - 1) {
-      committed = cash * Q.exposure;
+      const volScale = isNum(g!.vol20) && g!.vol20! > 0 ? Math.min(1, TREND_VOL_TARGET / g!.vol20!) : 1;
+      committed = cash * Q.exposure * volScale;
       qty = toUsd(committed * (1 - fee), i) / C[i];
       entryPrice = C[i];
       entryAt = clean[i].t;
       entryIdx = i;
       entrySma = g!.sma;
       const pct = (C[i] / g!.sma - 1) * 100;
-      entryReason = `روز بسته‌شده بالای میانگین ۵۰ روزه (${fa(pct, 1)}٪ بالاتر)${m ? ' · بیت‌کوین هم بالای میانگین ۵۰ روزه' : ''} — نگه‌داری تا بسته‌شدن روزانه زیر میانگین`;
+      entryReason = `روز بسته‌شده بالای میانگین ۵۰ روزه (${fa(pct, 1)}٪ بالاتر)${m ? ' · بیت‌کوین هم بالای میانگین ۵۰ روزه' : ''}${volScale < 0.99 ? ` · نوسان ۲۰ روزه ${fa(g!.vol20! * 100)}٪ سالانه، پس ${fa(volScale * 100)}٪ اندازه عادی` : ''} — نگه‌داری تا بسته‌شدن روزانه زیر میانگین`;
       cash -= committed;
     }
     equity.push({ t: clean[i].t, equity: cash + (qty > 0 ? toToman(qty * C[i], i) : 0), price: C[i], inMarket: qty > 0 });
@@ -467,7 +485,7 @@ export function runSwingV2(bars: SwingBar[], coin: SwingResult['coin'], config: 
  * never used while designing v2. Shown in the UI so a style is chosen on evidence, not on its name.
  */
 export const SWING_EVIDENCE: { key: SwingPreset | 'v1'; label: string; bear: number; bull: number; dd: number; tradesPer90d: number }[] = [
-  { key: 'trend', label: 'روندسوار', bear: -2.4, bull: 11.1, dd: -22.1, tradesPer90d: 3.6 },
+  { key: 'trend', label: 'روندسوار', bear: -2.0, bull: 11.4, dd: -19.1, tradesPer90d: 3.6 },
   { key: 'calm', label: 'کم‌تحرک (نسخه ۲)', bear: -1.5, bull: -0.7, dd: -6.6, tradesPer90d: 4.4 },
   { key: 'normal', label: 'متعادل (نسخه ۲)', bear: -2.1, bull: -1.3, dd: -8.6, tradesPer90d: 5.6 },
   { key: 'aggressive', label: 'پرتحرک (نسخه ۲)', bear: -3.4, bull: -2.6, dd: -11.7, tradesPer90d: 7.5 },

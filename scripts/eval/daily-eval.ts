@@ -86,6 +86,11 @@ export function summarizeDaily(label: string, rows: DRow[]) {
 if (process.argv[1]?.endsWith('daily-eval.ts')) {
   const split = (process.argv[2] ?? 'dev') as 'dev' | 'final' | 'all';
   const which = process.argv[3] ?? 'both';
+  if (which === 'rsi') {
+    summarizeDaily(`v1/${split}`, evaluateDaily(null, split));
+    summarizeDaily(`v1+rsi/${split}`, evaluateDaily({ rsiTrend: true }, split));
+    process.exit(0);
+  }
   if (which !== 'v2') summarizeDaily(`v1/${split}`, evaluateDaily(null, split));
   if (which !== 'v1') summarizeDaily(`v2/${split}`, evaluateDaily({ engine: 2 }, split));
 }

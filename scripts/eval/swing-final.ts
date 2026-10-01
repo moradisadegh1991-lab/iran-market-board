@@ -25,11 +25,11 @@ for (const sym of BASKET) {
   const d = toDaily(c);
   for (let s = WARM; s + WIN <= c.length; s += STEP) {
     const win = c.slice(s, s + WIN), ww = c.slice(s - WARM, s + WIN), end = win[WIN - 1].t;
-    for (const preset of ['trend', 'calm', 'normal', 'aggressive'] as SwingPreset[]) {
+    for (const preset of (process.argv[2] ? [process.argv[2]] : ['trend', 'calm', 'normal', 'aggressive']) as SwingPreset[]) {
       for (const engine of ['v1', 'v2'] as const) {
         const bars = engine === 'v1' ? win.map((k) => ({ t: k.t, p: k.c })) : ww.map((k) => ({ t: k.t, p: k.c, o: k.o, h: k.h, l: k.l, v: k.v }));
         const r = runSwing(bars, { id: sym, symbol: sym, name: sym }, {
-          capitalToman: 1e8, preset, feePct: 0.4, usdtRial: null, engine, tradeFrom: win[0].t,
+          capitalToman: 1e8, preset, feePct: Number(process.env.FEE ?? 0.4), usdtRial: null, engine, tradeFrom: win[0].t,
           market: engine === 'v2' && sym !== 'BTC' ? btc.filter((k) => k.t >= ww[0].t && k.t <= end).map((k) => ({ t: k.t, p: k.c })) : null,
           daily: d.filter((x) => x.t + DAY <= end), marketDaily: sym !== 'BTC' ? btcD.filter((x) => x.t + DAY <= end) : null,
         });

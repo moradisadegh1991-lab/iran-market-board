@@ -55,6 +55,10 @@ export interface SimParams {
   assetTrust: Record<SimAsset, number>; // × position size per asset
   /** 2 = signal/exit rules v2 (signalForV2). Absent = the original rules, bit-for-bit. */
   engine?: 2;
+  /** v1 + one change: high RSI is not treated as a reason to sell (no overbought penalty, no RSI
+   *  take-profit). On real TGJU data high RSI predicted HIGHER forward returns in both 2014–2020 and
+   *  2021–2026 — the only factor whose sign held in both. Absent = original behaviour. */
+  rsiTrend?: true;
 }
 
 export const DEFAULT_PARAMS: SimParams = {
@@ -96,6 +100,7 @@ export function normalizeParams(p: Partial<SimParams> | null | undefined): SimPa
     assetTrust: Object.fromEntries(SIM_ASSETS.map(({ key }) => [key, c(p?.assetTrust?.[key], PARAM_BOUNDS.assetTrust, d.assetTrust[key])])) as SimParams['assetTrust'],
     // only present when asked for, so default params serialise exactly as they always have
     ...(p?.engine === 2 ? { engine: 2 as const } : {}),
+    ...(p?.rsiTrend === true ? { rsiTrend: true as const } : {}),
   };
 }
 
@@ -448,7 +453,7 @@ export function signalFor(
   comp.momentum += m20;
 
   // 3) stretch / pullback
-  if (isNum(R)) {
+  if (isNum(R) && !params.rsiTrend) {
     if (R > 76) {
       score -= 15;
       comp.stretch -= 15;
@@ -522,7 +527,7 @@ export function signalFor(
     (newsScore > 0 ? up : down).push(`جمع‌بندی اخبار ۱۰ روز اخیر ${newsScore > 0 ? 'مثبت' : 'منفی'} است: ${facts.join('، ')}`);
   }
 
-  return { score: clamp(score, -100, 100), newsScore, components: comp, annVol, rsi: R, reasonsUp: up, reasonsDown: down, news: topNews.map(({ contrib: _c, ...n }) => n), ppy };
+  return { score: clamp(score, -100, 100), newsScore, components: comp, annVol, rsi: R, reasonsUp: up, reasonsDown: down, news: topNews.map(({ contrib: _c, ...n }) => n), ppy, ...(params.rsiTrend ? { noTakeProfit: true } : {}) };
 }
 
 // ─────────────────────────── simulation ───────────────────────────

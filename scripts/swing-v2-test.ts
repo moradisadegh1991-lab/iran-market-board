@@ -100,6 +100,20 @@ for (const preset of ['trend', 'calm', 'normal', 'aggressive'] as SwingPreset[])
   ok(`trend ride: ${r.trades.length} trades, every entry inside an up-regime`);
 }
 
+// 6b) the trend ride commits less when the coin is far more volatile than the 60% target
+{
+  const calmBars = mk(4000, [0.0009, 0.0009, 0.0009, 0.0009]);
+  const wild = calmBars.map((b, i) => ({ ...b, p: b.p * Math.exp(0.06 * Math.sin(i / 3)) }));
+  const cfg = (b: SwingBar[]): SwingConfig => ({ capitalToman: 1e8, preset: 'trend', feePct: 0.4, usdtRial: 1e6, engine: 'v2', daily: daily(b) });
+  const a = runSwing(calmBars, COIN, cfg(calmBars)).trades[0];
+  const b = runSwing(wild, COIN, cfg(wild)).trades[0];
+  const committed = (t: typeof a) => t.qty * t.entryPrice;
+  assert.ok(a && b, 'both series should trigger a trend ride');
+  assert.ok(committed(b) < committed(a) * 0.8, `high-vol entry should be smaller (${committed(b).toFixed(0)} vs ${committed(a).toFixed(0)})`);
+  assert.match(b.entryReason, /نوسان ۲۰ روزه/);
+  ok('trend ride sizes down in high volatility (vol target 60%)');
+}
+
 // 7) live replay reproduces the backtest exactly with v2
 {
   const cfg = { coins: [COIN], capitalToman: 1e8, preset: 'normal' as const, feePct: 0.4, hours: 168, usdtRial: 1e6, engine: 'v2' as const };

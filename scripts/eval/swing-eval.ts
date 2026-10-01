@@ -51,7 +51,7 @@ export function evaluate(engine: 'v1' | 'v2', split: 'dev' | 'hold' | 'all', pre
       const bars: SwingBar[] = engine === 'v1' ? win.map((k) => ({ t: k.t, p: k.c })) : withWarm.map((k) => ({ t: k.t, p: k.c, o: k.o, h: k.h, l: k.l, v: k.v }));
       const ctxBtc = engine === 'v2' && sym !== 'BTC' ? btc.filter((k) => k.t >= withWarm[0].t && k.t <= win[win.length - 1].t).map((k) => ({ t: k.t, p: k.c })) : undefined;
       for (const preset of presets) {
-        const r = runSwing(bars, { id: sym, symbol: sym, name: sym }, { capitalToman: 1e8, preset, feePct: 0.4, usdtRial: null, engine, market: ctxBtc, tradeFrom: win[0].t, daily: useDaily ? dly.filter((d) => d.t < win[win.length - 1].t) : null, marketDaily: useDaily && sym !== 'BTC' ? btcD.filter((d) => d.t < win[win.length - 1].t) : null });
+        const r = runSwing(bars, { id: sym, symbol: sym, name: sym }, { capitalToman: 1e8, preset, feePct: Number(process.env.FEE ?? 0.4), usdtRial: null, engine, market: ctxBtc, tradeFrom: win[0].t, daily: useDaily ? dly.filter((d) => d.t < win[win.length - 1].t) : null, marketDaily: useDaily && sym !== 'BTC' ? btcD.filter((d) => d.t < win[win.length - 1].t) : null });
         const m = r.metrics;
         rows.push({ sym, preset, split: sp, ret: m.returnPct, hold: m.buyHoldPct, trades: m.trades, dd: m.maxDrawdownPct, pf: m.profitFactor, win: m.winRatePct, sharpe: m.sharpe });
       }
