@@ -1,4 +1,5 @@
 'use client';
+import { api } from '@/lib/api';
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { fmtInt, fmtNum, fmtPct, fmtPrice, isNum, num } from '@/lib/num';
@@ -43,7 +44,7 @@ export default function SimulatorView() {
   const [showBench, setShowBench] = useState({ deposit: true, usd: true, equal: false });
 
   useEffect(() => {
-    fetch('/api/simulate')
+    fetch(api('/api/simulate'))
       .then((r) => r.json())
       .then((c: Coverage & { error?: string }) => {
         if (c.error) throw new Error(c.error);
@@ -74,7 +75,7 @@ export default function SimulatorView() {
     setBusy(true);
     setErr(null);
     try {
-      const r = await fetch('/api/simulate', {
+      const r = await fetch(api('/api/simulate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ start, end, capitalToman: capitalNum, profile, assets, useNews }),

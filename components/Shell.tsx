@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { useSnapshot } from './SnapshotProvider';
 import { fmtDateTimeFa } from '@/lib/num';
+import { IN_APP } from '@/lib/api';
 
 /** Personal finance first: this is a money app for one household that also watches the market. */
 export const FIN_PAGES = [
@@ -59,6 +60,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <Link href="/market" aria-current={!inFinance ? 'true' : undefined}>
                 بازار
               </Link>
+              {IN_APP ? (
+                // the phone-only tools (automatic SMS expenses, price alerts, per-device live
+                // trading, the game) are the earlier app, bundled at /classic/. A file path, not
+                // a route: the app's local server answers every extension-less path with /index.html.
+                <a href="/classic/index.html">گوشی</a>
+              ) : null}
             </nav>
           </div>
           <div className="status" aria-live="polite">

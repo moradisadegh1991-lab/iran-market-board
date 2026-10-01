@@ -1,10 +1,11 @@
 'use client';
+import { api } from '@/lib/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { fmtDateTimeFa, fmtInt, isNum } from '@/lib/num';
 import { ACTIVITY_LABEL, PROFILES, SIM_ASSETS, type Activity, type SimAsset, type SimProfile } from '@/lib/engine/simulator';
 import type { LiveSession, LiveTrade } from '@/lib/engine/live';
-import { Chips, MultiChips, PageHead, Pct } from '../ui';
+import { AdminActions, Chips, MultiChips, PageHead, Pct } from '../ui';
 import TradeEntry, { tomanWords } from '../TradeEntry';
 import type { EquityLine } from '../EquityChart';
 
@@ -50,7 +51,7 @@ export default function LiveView() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(() => {
-    fetch('/api/paper', { cache: 'no-store' })
+    fetch(api('/api/paper'), { cache: 'no-store' })
       .then((r) => r.json())
       .then((j: PaperState) => {
         if (j.error) throw new Error(j.error);
@@ -73,7 +74,7 @@ export default function LiveView() {
     setActionErr(null);
     try {
       const capitalToman = Number(capital);
-      const r = await fetch('/api/paper', {
+      const r = await fetch(api('/api/paper'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
         body: JSON.stringify({ action: 'start', capitalToman, profile, assets, days: Number(days), activity, useNews: true }),
@@ -93,7 +94,7 @@ export default function LiveView() {
     setBusy(true);
     setActionErr(null);
     try {
-      const r = await fetch('/api/paper', {
+      const r = await fetch(api('/api/paper'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
         body: JSON.stringify({ action: 'stop' }),
@@ -196,12 +197,12 @@ export default function LiveView() {
           <div className="ticket panel pad">
             <h2>پایان معامله</h2>
             <p className="lede">با قیمت لحظه‌ای بسته می‌شود و گزارش نهایی به تلگرام‌های ثبت‌شده ارسال می‌شود.</p>
-            <div className="admin">
+            <AdminActions>
               <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
               <button className="btn run danger" disabled={busy || !secret} onClick={stop}>
                 {busy ? 'در حال بستن…' : 'پایان معامله'}
               </button>
-            </div>
+            </AdminActions>
             {actionErr ? <p className="empty">{actionErr}</p> : null}
           </div>
         </div>
@@ -259,12 +260,12 @@ export default function LiveView() {
                 <MultiChips label="دارایی‌های مجاز" value={assets} onChange={setAssets} options={SIM_ASSETS.map((a) => ({ key: a.key, label: a.label }))} />
               </div>
             </div>
-            <div className="admin">
+            <AdminActions>
               <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
               <button className="btn run" disabled={busy || !secret} onClick={start}>
                 {busy ? 'در حال شروع…' : 'شروع معامله برخط'}
               </button>
-            </div>
+            </AdminActions>
             {actionErr ? <p className="empty">{actionErr}</p> : null}
           </div>
         </div>

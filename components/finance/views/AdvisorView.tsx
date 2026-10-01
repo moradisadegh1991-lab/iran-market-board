@@ -1,4 +1,5 @@
 'use client';
+import { api } from '@/lib/api';
 import { useEffect, useRef, useState } from 'react';
 import { advisorSummary } from '@/lib/finance/calc';
 import type { FinanceData } from '@/lib/finance/model';
@@ -62,7 +63,7 @@ function Advisor({ d }: { d: FinanceData }) {
     }
     const q = new URLSearchParams(window.location.search).get('q');
     if (q) setInput(q);
-    fetch('/api/advisor', { cache: 'no-store' })
+    fetch(api('/api/advisor'), { cache: 'no-store' })
       .then((r) => r.json())
       .then((j) => {
         setConfigured(!!j.configured);
@@ -95,7 +96,7 @@ function Advisor({ d }: { d: FinanceData }) {
     abort.current = ctl;
     let acc = '';
     try {
-      const res = await fetch('/api/advisor', {
+      const res = await fetch(api('/api/advisor'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-advisor-secret': secret.trim() },
         body: JSON.stringify({ summary, messages: next }),

@@ -1,5 +1,7 @@
 'use client';
+import { api } from '@/lib/api';
 import { useState } from 'react';
+import { AdminActions } from './ui';
 
 export default function TelegramPanel({ botUsername }: { botUsername: string }) {
   const [secret, setSecret] = useState('');
@@ -8,7 +10,7 @@ export default function TelegramPanel({ botUsername }: { botUsername: string }) 
   async function send() {
     setState({ busy: true, msg: '' });
     try {
-      const res = await fetch('/api/telegram/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret }, body: '{}' });
+      const res = await fetch(api('/api/telegram/broadcast'), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret }, body: '{}' });
       const j = await res.json();
       if (!res.ok || !j.ok) throw new Error(j.error === 'forbidden' ? 'رمز مدیر اشتباه است.' : j.error || 'ارسال انجام نشد.');
       setState({ busy: false, msg: `ارسال شد: ${j.messages} پیام به ${j.sent} گفتگو${j.failed?.length ? ` — ${j.failed.length} مورد ناموفق (${j.failed[0].chat}: ${j.failed[0].error})` : ''}` });
@@ -42,12 +44,12 @@ export default function TelegramPanel({ botUsername }: { botUsername: string }) 
           </div>
           <div>
             <p>ارسال فوری گزارش کامل به کانال و همه مشترکان:</p>
-            <div className="admin">
+            <AdminActions>
               <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} aria-label="رمز مدیر" />
               <button className="btn" onClick={send} disabled={!secret || state.busy}>
                 {state.busy ? 'در حال ارسال…' : 'ارسال به تلگرام'}
               </button>
-            </div>
+            </AdminActions>
             {state.msg ? <p className="small" role="status">{state.msg}</p> : null}
           </div>
         </div>

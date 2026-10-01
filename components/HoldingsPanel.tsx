@@ -1,11 +1,12 @@
 'use client';
+import { api, IN_APP } from '@/lib/api';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { fmtInt, fmtNum, fmtPct, isNum, tehranDate } from '@/lib/num';
 import { JALALI_MONTHS, gregorianToJalali, jalaliMonthLength, jalaliToIso } from '@/lib/jalali';
 import type { HoldingKind, HoldingsSummary, Instrument } from '@/lib/holdings';
 import type { HoldingsAnalysis } from '@/lib/engine/holdings-analysis';
 import type { HorizonKey, PortfolioHorizon, Profile } from '@/lib/types';
-import { Chips, Empty, Pct, Select } from './ui';
+import { AdminActions, Chips, Empty, Pct, Select } from './ui';
 import { tomanWords } from './TradeEntry';
 
 type State = HoldingsSummary & {
@@ -72,7 +73,7 @@ export default function HoldingsPanel() {
   const [openRow, setOpenRow] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    fetch(`/api/holdings?profile=${pfProfile}&horizon=${pfHorizon}`, { cache: 'no-store' })
+    fetch(api(`/api/holdings?profile=${pfProfile}&horizon=${pfHorizon}`), { cache: 'no-store' })
       .then((r) => r.json())
       .then((j: State) => {
         if (j.error) throw new Error(j.error);
@@ -98,7 +99,7 @@ export default function HoldingsPanel() {
     setBusy(true);
     setFormErr(null);
     try {
-      const r = await fetch('/api/holdings', {
+      const r = await fetch(api('/api/holdings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret },
         body: JSON.stringify(body),
@@ -148,9 +149,11 @@ export default function HoldingsPanel() {
     <section className="holdings">
       <div className="holdings-head">
         <h2>دارایی واقعی من</h2>
-        <button className="btn" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-          {open ? 'بستن فرم' : 'افزودن دارایی'}
-        </button>
+        {IN_APP ? null : (
+          <button className="btn" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+            {open ? 'بستن فرم' : 'افزودن دارایی'}
+          </button>
+        )}
       </div>
       <p className="lede">
         مقدار و مبلغی که واقعاً پرداخت کرده‌اید را ثبت کنید؛ ارزش روز و سود و زیان با قیمت‌های زنده همین داشبورد محاسبه می‌شود. این فهرست فقط ثبت و ارزش‌گذاری است و چیزی خرید و
@@ -313,9 +316,11 @@ export default function HoldingsPanel() {
                       )}
                     </td>
                     <td>
-                      <button className="icon-btn" onClick={() => remove(h.id, h.label)} disabled={busy} aria-label={`حذف ${h.label}`}>
-                        ✕
-                      </button>
+                      {IN_APP ? null : (
+                        <button className="icon-btn" onClick={() => remove(h.id, h.label)} disabled={busy} aria-label={`حذف ${h.label}`}>
+                          ✕
+                        </button>
+                      )}
                     </td>
                   </tr>
                   {isOpen && an ? (
@@ -432,12 +437,12 @@ export default function HoldingsPanel() {
               {impliedUnit ? <small className="muted">میانگین خرید شما: {fmtInt(impliedUnit)} تومان برای هر {inst?.unit}</small> : null}
             </label>
           </div>
-          <div className="admin">
+          <AdminActions>
             <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
             <button className="btn run" disabled={busy || !secret || !qty || !paid} onClick={add}>
               {busy ? 'در حال ثبت…' : 'افزودن'}
             </button>
-          </div>
+          </AdminActions>
           {formErr ? <Empty>{formErr}</Empty> : null}
         </div>
       ) : null}

@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { accountBalances } from '@/lib/finance/calc';
 import {
   CHOICE_LABEL,
@@ -8,10 +8,12 @@ import {
   dismissStaged,
   enqueue,
   isDuplicate,
+  rowsFromMessages,
   rowsFromSms,
   rowsFromTable,
   suggestCategory,
   type ColumnMap,
+  type SmsResult,
   type StagedChoice,
 } from '@/lib/finance/importers';
 import { readStatement, ReadError } from '@/lib/finance/readers';
@@ -23,6 +25,31 @@ import { Card, confirmDelete, Field, fmtDateFa, JalaliDate, Money, parseAmount, 
 
 const faN = (n: number) => n.toLocaleString('fa-IR');
 const faDigits = (t: string) => t.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[+d]);
+// ── the Android SMS plugin (android-app/native-plugin), present only inside the APK ──
+interface SmsPlugin {
+  requestPermission(): Promise<{ granted?: boolean }>;
+  read(o: { sinceMs: number; limit: number }): Promise<{ messages?: { body?: string; date?: number }[] }>;
+}
+function useSmsPlugin(): SmsPlugin | null {
+  const [p, setP] = useState<SmsPlugin | null>(null);
+  // read after mount: the bridge object does not exist during the static render
+  useEffect(() => {
+    const c = (window as { Capacitor?: { Plugins?: { SmsReader?: SmsPlugin } } }).Capacitor;
+    setP(c?.Plugins?.SmsReader ?? null);
+  }, []);
+  return p;
+}
+const PHONE_READ_KEY = 'imf.smsread.v1';
+const FIRST_READ_DAYS = 60;
+function lastPhoneRead(): number | null {
+  try {
+    const v = Number(localStorage.getItem(PHONE_READ_KEY));
+    return v > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 const ROLE_LABEL: Record<string, string> = { date: 'تاریخ', time: 'زمان', desc: 'شرح', out: 'برداشت', in: 'واریز', amount: 'مبلغ', balance: 'مانده', ref: 'پیگیری' };
 
 interface FileReport {
@@ -207,27 +234,76 @@ function SmsCard({ d }: { d: FinanceData }) {
   const accounts = useAccounts(d);
   const [accountId, setAccountId] = useState(() => accounts.find((a) => a.kind === 'bank')?.id ?? '');
   const [text, setText] = useState('');
-  const [result, setResult] = useState<{ added: number; read: number; ignored: { text: string; reason: string }[] } | null>(null);
+  const [result, setResult] = useState<{ added: number; read: number; ignored: { text: string; reason: string }[]; ignoredCount: number } | null>(null);
 
-  function read() {
-    const r = rowsFromSms(text, smsParser, today, { accountId: accountId || null });
+  const plugin = useSmsPlugin();
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneErr, setPhoneErr] = useState<string | null>(null);
+
+  function queue(r: SmsResult, listIgnored: boolean) {
     let added = 0;
     update((dr) => {
       added = enqueue(dr, r.rows);
     });
-    setResult({ added, read: r.rows.length, ignored: r.ignored });
+    // from the phone inbox, "ignored" is every personal SMS too — count them, never list them
+    setResult({ added, read: r.rows.length, ignored: listIgnored ? r.ignored : [], ignoredCount: r.ignored.length });
+  }
+
+  function read() {
+    const r = rowsFromSms(text, smsParser, today, { accountId: accountId || null });
+    queue(r, true);
     if (r.rows.length) setText('');
+  }
+
+  async function readPhone() {
+    if (!plugin) return;
+    setPhoneErr(null);
+    setResult(null);
+    setPhoneBusy(true);
+    try {
+      const perm = await plugin.requestPermission();
+      if (!perm?.granted) throw new Error('اجازه خواندن پیامک داده نشد. از تنظیمات اندروید، مجوز «پیامک» را برای این اپ روشن کنید.');
+      const since = lastPhoneRead() ?? Date.now() - FIRST_READ_DAYS * 86_400_000;
+      const res = await plugin.read({ sinceMs: since, limit: 1000 });
+      const msgs = (res?.messages ?? []).map((m) => ({ body: String(m.body ?? ''), at: Number(m.date) || undefined }));
+      queue(rowsFromMessages(msgs, smsParser, today, { accountId: accountId || null }), false);
+      const newest = Math.max(since, ...msgs.map((m) => m.at ?? 0));
+      try {
+        localStorage.setItem(PHONE_READ_KEY, String(newest));
+      } catch {
+        // without it the next read starts from the same point; ids keep the queue free of repeats
+      }
+    } catch (e) {
+      setPhoneErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPhoneBusy(false);
+    }
   }
 
   return (
     <Card title="پیامک بانکی">
       <p className="muted small">
-        متن پیامک‌های بانک را کپی کنید و این‌جا بچسبانید؛ <b>بین هر دو پیامک یک خط خالی</b> بگذارید. نوع هر تراکنش را بعد از خواندن خودتان تعیین می‌کنید. (اپ اندروید پیامک‌ها را خودش
-        می‌خواند؛ مرورگر به پیامک‌های گوشی دسترسی ندارد.)
+        {plugin ? 'پیامک‌های بانکی را مستقیم از گوشی بخوانید، یا متنشان را این‌جا بچسبانید' : 'متن پیامک‌های بانک را کپی کنید و این‌جا بچسبانید'}؛ <b>بین هر دو پیامک یک خط خالی</b>{' '}
+        بگذارید. نوع هر تراکنش را بعد از خواندن خودتان تعیین می‌کنید.{plugin ? null : ' (اپ اندروید پیامک‌ها را خودش می‌خواند؛ مرورگر به پیامک‌های گوشی دسترسی ندارد.)'}
       </p>
       <div className="fin-grid">
         <AccountSelect d={d} label="حساب این پیامک‌ها" value={accountId} onChange={setAccountId} allowNone="— بعداً انتخاب می‌کنم —" />
       </div>
+      {plugin ? (
+        <div className="fin-actions" style={{ margin: '10px 0 14px' }}>
+          <button className="fin-upload" onClick={readPhone} disabled={phoneBusy}>
+            {phoneBusy ? 'در حال خواندن صندوق پیامک…' : 'خواندن پیامک‌های بانکی گوشی'}
+          </button>
+          <span className="muted small">
+            {lastPhoneRead() ? `از آخرین خواندن (${fmtDateFa(new Date(lastPhoneRead()!).toISOString().slice(0, 10))}) به بعد` : `پیامک‌های ${faN(FIRST_READ_DAYS)} روز اخیر`}؛ پیامک‌ها از گوشی بیرون نمی‌روند.
+          </span>
+        </div>
+      ) : null}
+      {phoneErr ? (
+        <p className="fin-err" role="alert">
+          {phoneErr}
+        </p>
+      ) : null}
       <Field label="متن پیامک‌ها">
         <textarea className="fin-input" rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder={'برداشت: 1,250,000 ریال\nکارت: *4417\nمانده: 12,300,000\n0705-14:35\n\nواریز 3,000,000 ریال به حساب شما'} />
       </Field>
@@ -240,7 +316,7 @@ function SmsCard({ d }: { d: FinanceData }) {
         <div className="fin-report" role="status">
           <p>
             {faN(result.read)} تراکنش خوانده شد؛ {faN(result.added)} ردیف تازه به صف بررسی رفت{result.read > result.added ? ` (${faN(result.read - result.added)} تا قبلاً در صف بود)` : ''}.
-            {result.ignored.length ? ` ${faN(result.ignored.length)} پیام تراکنش نبود.` : ''}
+            {result.ignoredCount ? ` ${faN(result.ignoredCount)} پیام تراکنش بانکی نبود.` : ''}
           </p>
           {result.ignored.length ? (
             <details className="fin-details">

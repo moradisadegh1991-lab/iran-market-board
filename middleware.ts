@@ -19,9 +19,25 @@ import { NextResponse, type NextRequest } from 'next/server';
  */
 const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor'];
 
+/**
+ * GET-only: the shared live session, the swing live session and the holdings list are already
+ * public on the website (their GET needs no secret). The app shows them read-only; their POST —
+ * which changes server state — stays closed to cross-origin callers, and the app hides those
+ * forms (components/ui.tsx `AdminActions`).
+ */
+const GET_ONLY = ['/api/paper', '/api/swing-live', '/api/holdings'];
+
+const matches = (list: string[], pathname: string) => list.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (!READ_ONLY.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return NextResponse.next();
+  // exact paths only: /api/paper/tick and /api/swing-live/tick advance sessions and stay closed
+  if (req.method === 'GET' && GET_ONLY.includes(pathname)) {
+    const res = NextResponse.next();
+    res.headers.set('Access-Control-Allow-Origin', '*');
+    return res;
+  }
+  if (!matches(READ_ONLY, pathname)) return NextResponse.next();
 
   const headers = {
     'Access-Control-Allow-Origin': '*',

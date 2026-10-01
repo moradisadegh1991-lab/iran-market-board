@@ -2,8 +2,9 @@
   "name": "iran-market-board-android",
   "version": "1.0.0",
   "private": true,
-  "description": "پوسته اندرویدی تابلوی بازار — رابط کاربری آفلاین، داده از سرور",
+  "description": "اپ اندروید «مالی من» — کل سایت داخل APK (dist/) + ابزارهای گوشی (www/ → dist/classic/)",
   "scripts": {
+    "build:web": "node ../scripts/build-app-web.mjs",
     "set-url": "node set-url.mjs",
     "sync": "cap sync android",
     "open": "cap open android",
@@ -15,7 +16,9 @@
     "@capacitor/android": "^6.1.2",
     "@capacitor/core": "^6.1.2",
     "@capacitor/splash-screen": "^6.0.2",
-    "@capacitor/local-notifications": "^6.1.0"
+    "@capacitor/local-notifications": "^6.1.0",
+    "@capacitor/filesystem": "^6.0.1",
+    "@capacitor/share": "^6.0.2"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.1.2"

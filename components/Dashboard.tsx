@@ -1,4 +1,5 @@
 'use client';
+import { api } from '@/lib/api';
 import { useCallback, useEffect, useState } from 'react';
 import RatesBoard from './RatesBoard';
 import RiskMatrix from './RiskMatrix';
@@ -18,7 +19,7 @@ export default function Dashboard({ initial, botUsername }: { initial: Snapshot 
   const load = useCallback(async () => {
     setBusy(true);
     try {
-      const res = await fetch('/api/snapshot', { cache: 'no-store' });
+      const res = await fetch(api('/api/snapshot'), { cache: 'no-store' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       setSnap(json);

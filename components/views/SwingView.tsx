@@ -1,4 +1,5 @@
 'use client';
+import { api } from '@/lib/api';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { fmtDateTimeFa, fmtInt, fmtNum, fmtPct, isNum } from '@/lib/num';
@@ -7,7 +8,7 @@ import type { SwingPortfolio } from '@/lib/engine/swing-portfolio';
 import type { SwingScan } from '@/lib/engine/swing-scan';
 import type { SwingLiveSession } from '@/lib/engine/swing-live';
 import { fmtDateTimeFa as fdt } from '@/lib/num';
-import { Chips, Empty, PageHead, Pct, Select } from '../ui';
+import { AdminActions, Chips, Empty, PageHead, Pct, Select } from '../ui';
 import { tomanWords } from '../TradeEntry';
 import type { EquityLine } from '../EquityChart';
 
@@ -102,7 +103,7 @@ export default function SwingView() {
   const [liveErr, setLiveErr] = useState<string | null>(null);
 
   const loadLive = useCallback(() => {
-    fetch('/api/swing-live', { cache: 'no-store' })
+    fetch(api('/api/swing-live'), { cache: 'no-store' })
       .then((r) => r.json())
       .then((j) => setLive(j.active ?? null))
       .catch(() => undefined);
@@ -121,7 +122,7 @@ export default function SwingView() {
         coins: basket.map((id) => { const c = menu?.coins.find((x) => x.id === id); return { id, symbol: c?.symbol, name: c?.name }; }),
         capitalToman: Number(capital), hours: Number(liveHours), preset, feePct: Number(feePct), engine,
       } : {}) };
-      const r = await fetch('/api/swing-live', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret }, body: JSON.stringify(body) });
+      const r = await fetch(api('/api/swing-live'), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!r.ok || j.error) throw new Error(j.error || `خطای ${r.status}`);
       loadLive();
@@ -138,7 +139,7 @@ export default function SwingView() {
   }
 
   useEffect(() => {
-    fetch('/api/swing')
+    fetch(api('/api/swing'))
       .then((r) => r.json())
       .then((m: Menu) => {
         if (m.error) throw new Error(m.error);
@@ -169,7 +170,7 @@ export default function SwingView() {
         : multi
           ? { ...common, coins: basket.map((id) => { const c = menu?.coins.find((x) => x.id === id); return { id, symbol: c?.symbol, name: c?.name }; }) }
           : { ...common, coinId, symbol: coin?.symbol, name: coin?.name };
-      const r = await fetch('/api/swing', {
+      const r = await fetch(api('/api/swing'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -307,12 +308,12 @@ export default function SwingView() {
             ))}
           </ul>
 
-          <div className="admin">
+          <AdminActions>
             <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
             <button className="btn run danger" disabled={liveBusy || !secret} onClick={() => liveAction('stop')}>
               {liveBusy ? 'در حال بستن…' : 'پایان نوسان‌گیری برخط'}
             </button>
-          </div>
+          </AdminActions>
           {liveErr ? <p className="empty">{liveErr}</p> : null}
         </section>
       ) : (
@@ -338,12 +339,12 @@ export default function SwingView() {
               <p className="muted">{basket.length ? basket.map((id) => menu?.coins.find((c) => c.id === id)?.symbol ?? id).join('، ') : 'در حالت «چند ارز همزمان» ارز انتخاب کنید.'}</p>
             </div>
           </div>
-          <div className="admin">
+          <AdminActions>
             <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
             <button className="btn run" disabled={liveBusy || !secret || basket.length === 0} onClick={() => liveAction('start')}>
               {liveBusy ? 'در حال شروع…' : 'شروع نوسان‌گیری برخط'}
             </button>
-          </div>
+          </AdminActions>
           <p className="muted small">برای دریافت اعلان هر معامله، در ربات تلگرام دستور <code>/live_on ADMIN_SECRET</code> را بفرستید.</p>
           {liveErr ? <p className="empty">{liveErr}</p> : null}
         </section>

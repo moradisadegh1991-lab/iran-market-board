@@ -238,7 +238,7 @@ function Backup({ d }: { d: FinanceData }) {
         دفتر فقط در همین مرورگر است؛ پاک کردن داده‌های مرورگر یا عوض کردن گوشی آن را از بین می‌برد. هر چند وقت یک بار فایل پشتیبان بگیرید. فایل پشتیبان رمزگذاری نشده؛ جای امنی نگهش دارید.
       </p>
       <div className="fin-actions">
-        <button className="btn" onClick={() => download(`mali-man-backup-${today}.json`, JSON.stringify(d, null, 1), 'application/json')}>
+        <button className="btn" onClick={() => void download(`mali-man-backup-${today}.json`, JSON.stringify(d, null, 1), 'application/json')}>
           دریافت فایل پشتیبان
         </button>
         <button className="fin-mini" onClick={() => file.current?.click()}>

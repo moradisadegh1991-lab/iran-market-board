@@ -490,14 +490,33 @@ export interface SmsResult {
  * is queued with direction null for the user to decide (rule 3: never default to "deposit").
  */
 export function rowsFromSms(text: string, api: SmsApi, today: Iso, opts: { accountId?: string | null; now?: number } = {}): SmsResult {
+  return rowsFromMessages(splitSms(text).map((body) => ({ body })), api, today, opts);
+}
+
+/** One SMS as the phone's inbox gives it: `at` is the receive time (ms), when known. */
+export interface SmsMessage {
+  body: string;
+  at?: number;
+}
+
+const tehranIso = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
+const tehranTime = (ms: number) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms));
+
+/**
+ * Pasted text and the Android inbox go through the same path. A date written in the SMS wins;
+ * otherwise the inbox receive time is used (the bank sends within seconds of the transaction).
+ */
+export function rowsFromMessages(msgs: SmsMessage[], api: SmsApi, today: Iso, opts: { accountId?: string | null; now?: number } = {}): SmsResult {
   const rows: Staged[] = [];
   const ignored: SmsResult['ignored'] = [];
-  for (const body of splitSms(text)) {
+  for (const { body: rawBody, at } of msgs) {
+    const body = rawBody.trim();
+    if (body.length <= 8) continue;
     const c = api.classify(body);
-    const date = smsDate(body, today);
+    const date = smsDate(body, today) ?? (at ? tehranIso(at) : null);
     // banks write rial; a message that says only «تومان» is converted (rule 1)
     const k = /تومان/.test(body) && !/ریال|ريال/.test(body) ? 10 : 1;
-    const base = { source: 'sms' as const, date, time: timeOf(body), raw: body, accountId: opts.accountId ?? null, importedAt: opts.now ?? Date.now() };
+    const base = { source: 'sms' as const, date, time: timeOf(body) ?? (at ? tehranTime(at) : null), raw: body, accountId: opts.accountId ?? null, importedAt: opts.now ?? Date.now() };
     if (c.kind === 'not') {
       ignored.push({ text: body, reason: 'پیام بانکی تراکنش نبود (رمز یک‌بار مصرف، تبلیغ یا پیام اپراتور)' });
       continue;
@@ -507,14 +526,14 @@ export function rowsFromSms(text: string, api: SmsApi, today: Iso, opts: { accou
         ignored.push({ text: body, reason: 'مبلغی در پیامک پیدا نشد' });
         continue;
       }
-      rows.push({ ...base, id: stableId(['sms', body]), amountRial: c.guessedAmount * k, direction: null, uncertainAmount: true, why: 'پیامک به‌طور کامل خوانده نشد؛ مبلغ و جهت را بررسی کنید', description: norm(body).slice(0, 80), balanceRial: null, card: null });
+      rows.push({ ...base, id: stableId(['sms', body, at ?? '']), amountRial: c.guessedAmount * k, direction: null, uncertainAmount: true, why: 'پیامک به‌طور کامل خوانده نشد؛ مبلغ و جهت را بررسی کنید', description: norm(body).slice(0, 80), balanceRial: null, card: null });
       continue;
     }
     const t = c.tx;
     const clear = t.directionClear !== false;
     rows.push({
       ...base,
-      id: stableId(['sms', body]),
+      id: stableId(['sms', body, at ?? '']),
       amountRial: t.amount * k,
       direction: clear ? (t.isWithdrawal ? 'out' : 'in') : null,
       why: clear

@@ -1,4 +1,6 @@
 'use client';
+import Link from 'next/link';
+import { api } from '@/lib/api';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -44,7 +46,7 @@ export default function ChartsView() {
   useEffect(() => {
     const ctrl = new AbortController();
     setState('loading');
-    fetch(`/api/chart?asset=${encodeURIComponent(asset)}&tf=${tf}`, { signal: ctrl.signal })
+    fetch(api(`/api/chart?asset=${encodeURIComponent(asset)}&tf=${tf}`), { signal: ctrl.signal })
       .then(async (r) => {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
@@ -113,7 +115,7 @@ export default function ChartsView() {
         {scenario && !scenario.missingReason && scenario.rows.m1 ? (
           <p className="note">
             سناریوی یک‌ماهه: بدترین {fmtPrice(scenario.rows.m1.worst)}، بهترین {fmtPrice(scenario.rows.m1.best)}.{' '}
-            <a href={`/scenarios#s-${scenario.key.replace(':', '-')}`}>جزئیات سناریو</a>
+            <Link href={`/scenarios#s-${scenario.key.replace(':', '-')}`}>جزئیات سناریو</Link>
           </p>
         ) : null}
       </section>

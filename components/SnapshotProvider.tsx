@@ -1,8 +1,24 @@
 'use client';
+import { api, IN_APP } from '@/lib/api';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { Snapshot } from '@/lib/types';
 
 const POLL_MS = 60_000;
+/**
+ * In the APK there is no server render, so the last board received is kept on the phone and
+ * shown (with its own timestamp in the header) until a fresh one arrives — the market pages
+ * then open without internet instead of spinning.
+ */
+const CACHE_KEY = 'imf.snapshot.v1';
+function cached(): Snapshot | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    const s = raw ? (JSON.parse(raw) as Snapshot) : null;
+    return s && Array.isArray(s.live?.items) ? s : null;
+  } catch {
+    return null;
+  }
+}
 
 interface Ctx {
   snap: Snapshot | null;
@@ -21,11 +37,18 @@ export default function SnapshotProvider({ initial, children }: { initial: Snaps
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
-      const res = await fetch('/api/snapshot', { cache: 'no-store' });
+      const res = await fetch(api('/api/snapshot'), { cache: 'no-store' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       setSnap(json);
       setError(null);
+      if (IN_APP) {
+        try {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(json));
+        } catch {
+          // storage full: the board still works, it just will not open offline
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -34,6 +57,10 @@ export default function SnapshotProvider({ initial, children }: { initial: Snaps
   }, []);
 
   useEffect(() => {
+    if (!initial && IN_APP) {
+      const c = cached();
+      if (c) setSnap(c);
+    }
     if (!initial) refresh();
     const id = setInterval(() => {
       if (document.visibilityState === 'visible') refresh();

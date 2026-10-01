@@ -10,7 +10,30 @@ import TxnForm from '../TxnForm';
 
 type KindFilter = 'all' | TxnKind;
 
-export function download(name: string, text: string, type: string) {
+interface NativeFiles {
+  Filesystem?: { writeFile(o: { path: string; data: string; directory: string; encoding: string }): Promise<{ uri: string }> };
+  Share?: { share(o: { title?: string; url?: string; files?: string[]; dialogTitle?: string }): Promise<unknown> };
+}
+
+/**
+ * Saves a file the user asked for (backup, CSV). Android's WebView ignores `blob:` downloads, so
+ * inside the APK the file is written to the app's cache and handed to the share sheet (save to
+ * Files / Drive, send to Telegram…) through the official Capacitor plugins.
+ */
+export async function download(name: string, text: string, type: string) {
+  const plugins = (window as { Capacitor?: { isNativePlatform?: () => boolean; Plugins?: NativeFiles } }).Capacitor;
+  const fs = plugins?.Plugins?.Filesystem;
+  const share = plugins?.Plugins?.Share;
+  if (plugins?.isNativePlatform?.() && fs && share) {
+    try {
+      const { uri } = await fs.writeFile({ path: name, data: text, directory: 'CACHE', encoding: 'utf8' });
+      await share.share({ title: name, files: [uri], dialogTitle: 'ذخیره یا ارسال فایل' }).catch(() => share.share({ title: name, url: uri, dialogTitle: 'ذخیره یا ارسال فایل' }));
+    } catch (e) {
+      // closing the share sheet is not an error worth showing
+      if (!/cancel/i.test(String(e))) alert(`ذخیره فایل ممکن نشد: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return;
+  }
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement('a');
   a.href = url;
@@ -124,7 +147,7 @@ function Transactions({ d }: { d: FinanceData }) {
           onChange={setKind}
         />
         <Search value={q} onChange={setQ} placeholder="جست‌وجو در توضیح، دسته یا حساب" />
-        <button className="fin-mini" onClick={() => download(`transactions-${today}.csv`, txnsCsv(d, fmtDateFa), 'text/csv;charset=utf-8')} disabled={!d.txns.length}>
+        <button className="fin-mini" onClick={() => void download(`transactions-${today}.csv`, txnsCsv(d, fmtDateFa), 'text/csv;charset=utf-8')} disabled={!d.txns.length}>
           خروجی CSV (اکسل / Power BI)
         </button>
       </div>

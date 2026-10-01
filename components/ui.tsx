@@ -1,5 +1,6 @@
 'use client';
 import { fmtPct, isNum } from '@/lib/num';
+import { IN_APP } from '@/lib/api';
 
 export function PageHead({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
@@ -108,4 +109,19 @@ export function FilterBar({ children }: { children: React.ReactNode }) {
 
 export function Empty({ children }: { children: React.ReactNode }) {
   return <p className="empty">{children}</p>;
+}
+
+/**
+ * The ADMIN_SECRET forms that change server state (shared live session, holdings, Telegram).
+ * Inside the APK they are replaced by a note: no request from the app may change the server
+ * (CLAUDE.md rule 6), and an admin secret typed into a distributed app is not a secret.
+ */
+export function AdminActions({ children }: { children: React.ReactNode }) {
+  if (IN_APP)
+    return (
+      <p className="muted small admin-note" role="note">
+        این کار روی سرور اثر می‌گذارد و فقط از نسخه وب با رمز مدیر انجام می‌شود؛ در اپ فقط وضعیت را می‌بینید.
+      </p>
+    );
+  return <div className="admin">{children}</div>;
 }

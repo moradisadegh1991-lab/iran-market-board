@@ -24,7 +24,7 @@
 
 ```
 /                    ← اپ اصلی Next.js (این را روی Vercel دیپلوی می‌کنید)
-/android-app/        ← پوسته Capacitor اندروید (این را جدا build می‌کنید)
+/android-app/        ← پوسته Capacitor اندروید؛ از مهر ۱۴۰۵ کل سایت را هم (خروجی ایستا) در خود دارد — بخش ۴-ه
 ```
 
 ## ۲) نقشه پوشه‌ها
@@ -56,7 +56,9 @@ scripts/eval/        ارزیابی روی داده واقعی (نیاز به ی
 .github/workflows/   paper-tick.yml (ضربان‌ساز معامله برخط) · build-android.yml (ساخت APK)
 middleware.ts        CORS فقط روی مسیرهای فقط-خواندنی، برای اپ اندرویدی
 
-android-app/www/     اپ اندروید: index.html (پوسته) + game-engine.js + sms-parser.js
+android-app/dist/    (git-ignored) خروجی scripts/build-app-web.mjs = webDir: کل سایت + www/ زیر /classic/
+android-app/ci/      ci-release.jks — کلید ثابت امضای بیلد CI (بخش ۴-ه)
+android-app/www/     اپ قبلی اندروید (بخش «گوشی»): index.html (پوسته) + game-engine.js + sms-parser.js
                      + app-trade.js (سناریو، نمودار، نوسان‌گیری، شبیه‌ساز، معامله برخط)
                      + app-notify.js (مرکز اعلان‌ها و هشدار قیمت)
 android-app/native-plugin/   پلاگین Java خواندن پیامک (⚠️ تست‌نشده — بخش ۷ را ببین)
@@ -194,6 +196,32 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
     PDF اسکن‌شده (تصویر) متن ندارد و پیام می‌دهد؛ OCR ساخته نشده.
 33. **‏فرمت واقعی بانک‌ها هنوز دیده نشده.** سرستون‌ها از واژه‌های رایج اینترنت‌بانک‌ها حدس زده شده‌اند (`HEADER_RULES`)؛ با اولین
     فایل واقعی کاربر (ناشناس‌شده) بسنج و نمونه را به fixtureها اضافه کن.
+
+## ۴-ه) کل سایت داخل APK (مهر ۱۴۰۵)
+
+‏`scripts/build-app-web.mjs <BOARD_URL>` سایت را روی یک کپی (`.app-build/`) بدون `app/api`، بدون middleware و با layout بدون
+snapshot سمت سرور، با `output: 'export'` می‌سازد و در `android-app/dist/` می‌گذارد (`www/` زیر `/classic/`). هر تغییر در
+layout با جایگزینی دقیق رشته است و اگر layout عوض شده باشد ساخت با خطا می‌ایستد — اسکریپت را هم‌گام کن.
+`NEXT_PUBLIC_API_BASE` و `NEXT_PUBLIC_IN_APP=1` در ساخت جاسازی می‌شوند (`lib/api.ts`). workflow `build-android.yml`
+همین را می‌سازد، APK را امضا و در یک GitHub Release منتشر می‌کند.
+
+34. **‏همه fetchهای سمت کاربر از `api()` در `lib/api.ts`** — مسیر نسبی `/api/...` در اپ به `https://localhost` می‌رود و خالی برمی‌گردد.
+35. **‏ناوبری فقط با `Link`.** سرور محلی کپاسیتور هر مسیر بدون پسوند را با `/index.html` (HTML داشبورد) جواب می‌دهد؛ `<a href="/x">`
+    در اپ همیشه داشبورد را باز می‌کند. شروع سرد روی مسیر عمیق با یک اسکریپت کوچک در layout ساخت اپ به `/` می‌رود.
+    پیوند به `/classic/` باید مسیر فایل باشد (`/classic/index.html`) و برگشت از آن `../` (نه `../index.html` که روتر Next
+    نمی‌شناسد و خطای hydration #418 می‌دهد).
+36. **‏قاعده ۶ در اپ هم برقرار است:** فرم‌های `ADMIN_SECRET` (جلسه مشترک `/api/paper`، شروع/پایان `/api/swing-live`، دارایی‌های
+    سرور، ارسال تلگرام) در اپ با `AdminActions` به یک یادداشت تبدیل می‌شوند. CORS برای `paper`/`swing-live`/`holdings` فقط
+    GET و فقط مسیر دقیق است (`/tick`ها بسته‌اند).
+37. **‏دانلود `blob:` در WebView کار نمی‌کند**؛ `download()` در `TransactionsView.tsx` در اپ از Filesystem + Share استفاده می‌کند.
+    این مسیر بومی و دکمه «خواندن پیامک‌های بانکی گوشی» در هیچ محیط من اجرا نشده‌اند (Android SDK نبود) — روی گوشی واقعی بسنج.
+38. **‏کلید امضای ثابت.** اندروید به‌روزرسانی را فقط با همان امضا می‌پذیرد و حذف اپ یعنی پاک شدن دفتر مالی؛ پس CI همیشه با
+    یک کلید امضا می‌کند (secretها، وگرنه `android-app/ci/ci-release.jks`) و `versionCode` = شماره اجرای workflow.
+39. **‏اپ به production وصل است** (`BOARD_URL`)؛ تغییر هر API تا روی production دیپلوی نشده، در اپ دیده نمی‌شود.
+
+‏تست مرورگری این بخش: `dist/` را با سروری که رفتار کپاسیتور را تقلید می‌کند (مسیر بدون نقطه → `/index.html`) سرو کن و
+API را به یک `next start` محلی بده (`build-app-web.mjs http://localhost:3111` برای همین مجاز است)؛ همه صفحه‌ها با
+کلیک روی زبانه‌ها، بخش «گوشی» و برگشت، و شروع آفلاین (کش snapshot) را بسنج.
 
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 

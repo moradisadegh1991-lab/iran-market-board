@@ -5,3 +5,7 @@ node_modules
 *.tsbuildinfo
 next-env.d.ts
 .cache/
+
+# APK web bundle (scripts/build-app-web.mjs)
+.app-build/
+android-app/dist/

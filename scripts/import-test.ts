@@ -19,6 +19,7 @@ import {
   parseCsv,
   parseDate,
   parseMoney,
+  rowsFromMessages,
   rowsFromSms,
   rowsFromTable,
   smsDate,
@@ -283,6 +284,24 @@ const ab = (u8: Uint8Array) => u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8
     assert.equal(r.rows[0].direction, null);
     assert.equal(r.rows[0].why, 'پیامک نگفته برداشت است یا واریز');
     assert.equal(r.rows[0].amountRial, 2_400_000);
+  });
+
+  await ok('phone inbox: receive time gives the date when the SMS has none; personal SMS ignored', () => {
+    const at = Date.UTC(2026, 9, 1, 20, 45); // 1 Oct 2026 20:45 UTC = 2 Oct 00:15 Tehran
+    const r = rowsFromMessages(
+      [
+        { body: 'واریز 3,000,000 ریال به حساب شما', at },
+        { body: 'سلام، فردا جلسه ساعت ۱۰ است', at },
+        { body: 'برداشت: 1,250,000 ریال\n1405/07/06', at }, // the date in the text wins
+      ],
+      smsParser,
+      TODAY,
+    );
+    assert.equal(r.ignored.length, 1);
+    assert.deepEqual(r.rows.map((x) => [x.date, x.time]), [['2026-10-02', '00:15'], [J(7, 6), '00:15']]);
+    // the same SMS read twice from the inbox is one queue row; the same text received twice is two
+    assert.equal(rowsFromMessages([{ body: 'واریز 3,000,000 ریال', at }], smsParser, TODAY).rows[0].id, rowsFromMessages([{ body: 'واریز 3,000,000 ریال', at }], smsParser, TODAY).rows[0].id);
+    assert.notEqual(rowsFromMessages([{ body: 'واریز 3,000,000 ریال', at }], smsParser, TODAY).rows[0].id, rowsFromMessages([{ body: 'واریز 3,000,000 ریال', at: at + 60_000 }], smsParser, TODAY).rows[0].id);
   });
 
   await ok('SMS date without a year never lands in the future', () => {
