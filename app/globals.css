@@ -559,3 +559,5 @@ ol.list { counter-reset: n; }
   .rn-digit.rolling { animation: none; }
   .toggle .track, .toggle .track::after { transition: none; }
 }
+.evidence { margin: 14px 0 4px; }
+.evidence tr.sel th, .evidence tr.sel td { background: var(--teal-soft); }

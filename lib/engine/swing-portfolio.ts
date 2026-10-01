@@ -78,17 +78,20 @@ function combineEquity(
 }
 
 export function runSwingPortfolio(
-  inputs: { coin: { id: string; symbol: string; name: string }; bars: SwingBar[] | null; error?: string }[],
+  inputs: { coin: { id: string; symbol: string; name: string }; bars: SwingBar[] | null; daily?: SwingBar[] | null; error?: string }[],
   config: Omit<SwingConfig, 'capitalToman'> & { capitalToman: number },
 ): SwingPortfolio {
   const warnings: string[] = [];
   if (!inputs.length) throw new Error('هیچ ارزی انتخاب نشده است.');
 
   const sleeveCapital = config.capitalToman / inputs.length;
-  const sleeves: SwingSleeve[] = inputs.map(({ coin, bars, error }) => {
+  const sleeves: SwingSleeve[] = inputs.map(({ coin, bars, daily, error }) => {
     if (!bars || error) return { coin, ok: false, error: error ?? 'تاریخچه‌ای دریافت نشد.' };
     try {
-      const result = runSwing(bars, coin, { ...config, capitalToman: sleeveCapital });
+      // BTC is the market reference for the others, not for itself
+      const market = coin.id === 'bitcoin' ? null : config.market;
+      const marketDaily = coin.id === 'bitcoin' ? null : config.marketDaily;
+      const result = runSwing(bars, coin, { ...config, capitalToman: sleeveCapital, daily: daily ?? config.daily, market, marketDaily });
       return { coin, ok: true, result };
     } catch (e) {
       return { coin, ok: false, error: e instanceof Error ? e.message : String(e) };

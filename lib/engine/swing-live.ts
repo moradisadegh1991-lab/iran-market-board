@@ -12,7 +12,8 @@
  * The still-forming bar is deliberately excluded: including a half-finished candle makes
  * signals appear and vanish as the price wobbles inside the hour.
  */
-import { SWING_PRESETS, runSwing, type SwingBar, type SwingPreset, type SwingResult, type SwingTrade } from './swing';
+import { SWING_PRESETS, runSwing, type SwingBar, type SwingEngine, type SwingPreset, type SwingResult, type SwingTrade } from './swing';
+import { V2_WARMUP_H } from './swing-v2';
 
 export interface SwingLiveConfig {
   coins: { id: string; symbol: string; name: string }[];
@@ -22,6 +23,8 @@ export interface SwingLiveConfig {
   /** session length in hours, 1 … 168 */
   hours: number;
   usdtRial: number | null;
+  /** absent on sessions started before v2 existed — those keep running on v1 */
+  engine?: SwingEngine;
 }
 
 export interface SwingLiveFill extends SwingTrade {
@@ -66,6 +69,10 @@ export interface SwingLiveSession {
    *  Without it the first tick would replay the backtester's historical trades as if they
    *  had just happened (and start the equity curve at the historical P&L, not at capital). */
   baseline: Record<string, { trades: number; value: number }>;
+  /** v2: the first bar of history every tick replays (fixed at start, see swing-data.ts) */
+  anchor?: number;
+  /** v2: bars before this are warm-up; trades are only taken from here on */
+  tradeFrom?: number;
   fills: SwingLiveFill[];
   open: SwingLivePos[];
   equity: { t: number; equity: number }[];
@@ -82,7 +89,9 @@ const MAX_EQUITY = 600;
  * which is why short sessions use 5-minute bars: two days of hourly data is only ~48
  * candles, while one day of 5-minute data is ~288.
  */
-export function barPlan(hours: number): { days: number; barMinutes: number; minBars: number } {
+export function barPlan(hours: number, engine: SwingEngine = 'v1'): { days: number; barMinutes: number; minBars: number } {
+  // v2 always works on hourly exchange candles with its own warm-up, whatever the session length
+  if (engine === 'v2') return { days: 14, barMinutes: 60, minBars: V2_WARMUP_H + 24 };
   if (hours <= 36) return { days: 1, barMinutes: 5, minBars: 200 };
   // enough hourly candles to cover the slowest preset plus the session itself
   return { days: Math.min(90, Math.max(10, Math.ceil(hours / 24) + 4)), barMinutes: 60, minBars: 200 };
@@ -108,13 +117,27 @@ function splitTrades(r: SwingResult): { done: SwingTrade[]; openTrade: SwingTrad
 export interface SwingLiveInput {
   coin: { id: string; symbol: string; name: string };
   bars: SwingBar[] | null;
+  /** v2: the coin's daily closes for the 50-day regime filter */
+  daily?: SwingBar[] | null;
   livePrice: number | null;
   error?: string;
 }
 
+/** v2: BTC as the market reference, shared by every coin of a tick */
+export interface SwingLiveMarket {
+  market: SwingBar[] | null;
+  marketDaily: SwingBar[] | null;
+}
+
 export function startSwingLive(config: SwingLiveConfig, now: number): SwingLiveSession {
-  const { barMinutes } = barPlan(config.hours);
+  const { barMinutes, days } = barPlan(config.hours, config.engine);
+  const v2 = config.engine === 'v2';
+  const hourStart = Math.floor(now / 3_600_000) * 3_600_000;
+  // v2: 14 days of tradable history before the session plus the indicators' warm-up; the session's
+  // own fills only count from its start (the baseline mechanism below), as with v1
+  const tradeFrom = hourStart - days * 86_400_000;
   return {
+    ...(v2 ? { anchor: tradeFrom - V2_WARMUP_H * 3_600_000, tradeFrom } : {}),
     id: Math.random().toString(36).slice(2, 10),
     status: 'running',
     startedAt: now,
@@ -134,7 +157,7 @@ export function startSwingLive(config: SwingLiveConfig, now: number): SwingLiveS
       {
         at: now,
         kind: 'start',
-        text: `شروع با ${fa(config.capitalToman)} تومان روی ${fa(config.coins.length, 0)} ارز (${config.coins.map((c) => c.symbol).join('، ')})، سبک ${SWING_PRESETS[config.preset].label}، مدت ${fa(config.hours, 0)} ساعت، کندل ${fa(barMinutes, 0)} دقیقه‌ای.`,
+        text: `شروع با ${fa(config.capitalToman)} تومان روی ${fa(config.coins.length, 0)} ارز (${config.coins.map((c) => c.symbol).join('، ')})، سبک ${SWING_PRESETS[config.preset].label}، مدت ${fa(config.hours, 0)} ساعت، کندل ${fa(barMinutes, 0)} دقیقه‌ای${v2 ? '، موتور نسخه ۲ (کندل کامل صرافی، فیلتر روند روزانه و رژیم بیت‌کوین)' : ''}.`,
       },
     ],
   };
@@ -145,7 +168,7 @@ export interface SwingLiveTickResult {
   newFills: SwingLiveFill[];
 }
 
-export function swingLiveTick(session: SwingLiveSession, inputs: SwingLiveInput[], now: number): SwingLiveTickResult {
+export function swingLiveTick(session: SwingLiveSession, inputs: SwingLiveInput[], now: number, mkt?: SwingLiveMarket): SwingLiveTickResult {
   const s: SwingLiveSession = { ...session, fills: [...session.fills], events: [...session.events], equity: [...session.equity], baseline: { ...session.baseline } };
   const sleeve = s.sleeveCapitalToman;
   const newFills: SwingLiveFill[] = [];
@@ -158,7 +181,8 @@ export function swingLiveTick(session: SwingLiveSession, inputs: SwingLiveInput[
     s.events.unshift({ at: now, kind: 'gap', text: `فاصله این بررسی از قبلی ${fa(gapMin, 0)} دقیقه بود؛ در این فاصله قیمت‌ها پایش نشدند.` });
   }
 
-  for (const { coin, bars, livePrice, error } of inputs) {
+  const v2 = s.config.engine === 'v2';
+  for (const { coin, bars, daily, livePrice, error } of inputs) {
     if (!bars || error) {
       failed.push(coin.symbol);
       total += sleeve; // its sleeve simply stays in cash
@@ -167,7 +191,18 @@ export function swingLiveTick(session: SwingLiveSession, inputs: SwingLiveInput[
     const usable = confirmedBars(bars, s.barMinutes, now);
     let result: SwingResult;
     try {
-      result = runSwing(usable, coin, { capitalToman: sleeve, preset: s.config.preset, feePct: s.config.feePct, usdtRial: s.config.usdtRial });
+      result = runSwing(usable, coin, {
+        capitalToman: sleeve, preset: s.config.preset, feePct: s.config.feePct, usdtRial: s.config.usdtRial,
+        ...(v2
+          ? {
+              engine: 'v2' as const,
+              daily: daily ?? null,
+              market: coin.id === 'bitcoin' ? null : mkt?.market ?? null,
+              marketDaily: coin.id === 'bitcoin' ? null : mkt?.marketDaily ?? null,
+              tradeFrom: s.tradeFrom ?? null,
+            }
+          : {}),
+      });
     } catch (e) {
       failed.push(coin.symbol);
       total += sleeve;

@@ -30,7 +30,7 @@ window.IMB_TRADE = function (ctx) {
   // not something anyone wants restored three days later.
   var st = {
     chart: { asset: 'usd', tf: '1m', data: null, busy: false, err: null },
-    swing: { coin: 'bitcoin', symbol: 'BTC', days: 60, preset: 'normal', res: null, busy: false, err: null, menu: null },
+    swing: { coin: 'bitcoin', symbol: 'BTC', days: 90, preset: 'trend', res: null, busy: false, err: null, menu: null },
     sim: { res: null, busy: false, err: null, cov: null },
     live: { s: null, busy: false, err: null, meta: null, cfg: null },
     scn: { group: 'all' }
@@ -211,7 +211,7 @@ window.IMB_TRADE = function (ctx) {
       '<select id="swCoin" aria-label="ارز">' + coins.slice(0, 60).map(function (c) {
         return '<option value="' + esc(c.id) + '|' + esc(c.symbol) + '"' + (c.id === st.swing.coin ? ' selected' : '') + '>' + esc(c.name) + ' (' + esc(c.symbol) + ')</option>';
       }).join('') + '</select>' +
-      seg('swPreset', [{ k: 'calm', t: 'کم‌تحرک' }, { k: 'normal', t: 'متعادل' }, { k: 'aggressive', t: 'پرتحرک' }], st.swing.preset) +
+      seg('swPreset', [{ k: 'trend', t: 'روندسوار' }, { k: 'calm', t: 'کم‌تحرک' }, { k: 'normal', t: 'متعادل' }, { k: 'aggressive', t: 'پرتحرک' }], st.swing.preset) +
       seg('swDays', [{ k: 30, t: '۳۰ روز' }, { k: 60, t: '۶۰ روز' }, { k: 90, t: '۹۰ روز' }], st.swing.days) +
       '<div class="btn-row"><button class="addbtn" id="swRun">اجرای نوسان‌گیری</button>' +
       '<button class="chipbtn big" id="swAuto">غربال خودکار ۴ ارز</button></div></div>';

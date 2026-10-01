@@ -37,9 +37,9 @@ app/api/             advisor (مشاور Claude، stream) · snapshot · diag ·
                      · live/local (معامله برخط بدون‌حالت، برای اپ) · learning
                      · swing (backtest/portfolio/scan) · swing-live/{,tick}
                      · holdings · cron/* · telegram/{webhook,setup,broadcast}
-lib/sources/         tgju · goldapi · nobitex · brsapi · coingecko · history · news · cache
+lib/sources/         tgju · goldapi · nobitex · brsapi · coingecko · klines (کندل بایننس/OKX) · history · news · cache
 lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-risk · scenario
-                     · simulator · live · learning · swing · swing-portfolio · swing-scan
+                     · simulator · signal-v2 (آزمایشی) · live · learning · swing · swing-v2 · swing-portfolio · swing-scan
                      · holdings-analysis · sizing
 lib/telegram/        api · format · handler · paper
 lib/finance/         model (نوع داده، همه به ریال) · calc (محاسبات خالص) · actions (تسویه/حذف چندجدولی)
@@ -51,6 +51,7 @@ components/finance/  FinanceProvider (localStorage) · kit · TxnForm · DueList
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
                      · Crypto · Portfolio · Bot
 scripts/             تست‌های آفلاین همه با tsx اجرا می‌شوند — بخش ۵ را ببین
+scripts/eval/        ارزیابی روی داده واقعی (نیاز به یک بار دانلود) — بخش ۴-ج
 .github/workflows/   paper-tick.yml (ضربان‌ساز معامله برخط) · build-android.yml (ساخت APK)
 middleware.ts        CORS فقط روی مسیرهای فقط-خواندنی، برای اپ اندرویدی
 
@@ -169,6 +170,33 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
     `fallbacks: "default"`. تست شبکه‌ای واقعی با کلید انجام نشده — با سرور mock هم‌شکل API (SSE)
     کل مسیر وب و اندروید تست شد.
 
+## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
+
+21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
+    `scripts/eval/` است: `fetch-real.ts` و `fetch-old.ts` یک بار داده واقعی را در `.cache/eval/`
+    (git-ignored) می‌گیرند — کندل ساعتی یک سال اخیر ۱۴ ارز و دو سال قبل‌تر، کندل روزانه، و تاریخچه کامل
+    TGJU (دلار از ۲۰۱۱، سکه، طلا، انس، تتر). پروتکل: طراحی فقط روی سال اخیر (نزولی)؛ دو سال قبل
+    (صعودی ۲۰۲۴) آزمون نهایی بود و هنگام طراحی دیده نشد. `swing-eval.ts`، `swing-final.ts`،
+    `daily-eval.ts` (بازه‌های یک‌ساله ۲۰۱۵–۲۰۲۶) و `factor-ic.ts` (قدرت پیش‌بینی هر شاخص).
+22. **‏نتیجه واقعی (عددها در `SWING_EVIDENCE` و در صفحه نوسان‌گیری):** نوسان‌گیری ساعتی v1 در ۹۹٪
+    بازه‌های سال نزولی و حتی در بازار صعودی زیان داد (حتی با کارمزد صفر، لبه منفی). v2 زیان را
+    ۴ تا ۷ برابر کم کرد ولی سودده نشد. تنها سبک مثبت «روندسوار» است (بالای میانگین ۵۰ روزه خود ارز
+    و بیت‌کوین = نگه‌داری): ‎+۱۱٪ در هر ۹۰ روز صعودی، ‎−۲٫۴٪ در نزولی، با افت سرمایه ‎−۲۲٪. به کاربر
+    وعده سود نده؛ همین جدول را نشانش بده.
+23. **‏v1 دست‌نخورده می‌ماند.** `runSwing` پیش‌فرض `engine` ندارد = v1 بیت‌به‌بیت (تست‌های قبلی و هش‌ها).
+    API و جلسه برخط جدید پیش‌فرض v2 دارند؛ جلسه‌های قدیمی بدون `config.engine` روی v1 ادامه می‌دهند.
+    preset `trend` همیشه v2 است. v2 به ۵۵۲ کندل گرم‌شدن قبل از `tradeFrom` نیاز دارد.
+24. **‏داده v2 از `lib/swing-data.ts`:** کندل کامل از `data-api.binance.vision` (برخلاف api.binance.com
+    برای IP آمریکا/ورسل مسدود نیست) یا OKX، و در نبود آن‌ها CoinGecko (بدون سقف/کف/حجم، هشدار می‌دهد).
+    جلسه برخط v2 اولین کندل تاریخچه را با `anchor` ثابت می‌کند تا بازپخش هر تیک append-only بماند —
+    `scripts/swing-v2-test.ts` برابری بازپخش برخط با بک‌تست، نبود نگاه به آینده و قواعد پر شدن از
+    سقف/کف را قفل کرده.
+25. **‏موتور روزانه (معامله برخط چنددارایی) همان v1 ماند، عمداً.** `signal-v2.ts` (فعال با
+    `params.engine = 2`) از عوامل اندازه‌گیری‌شده ساخته شد (RSI بالا در بازار ایران بازده بعدی را
+    *بیشتر* پیش‌بینی می‌کرد نه کمتر؛ حباب طلای ۱۸ نسبت به انس×دلار؛ روند دلار برای طلا و سکه)، ولی
+    در آزمون نهایی ۲۰۲۱–۲۰۲۶ از v1 بهتر نشد (۴۸٫۹٪ در برابر ۵۰٫۸٪ سالانه، افت بیشتر). قدرت پیش‌بینی
+    مومنتوم بعد از ۲۰۲۱ تقریباً صفر شد. پیش‌فرض نکن مگر با شواهد تازه.
+
 ## ۵) چک‌لیست تأیید قبل از هر تحویل
 
 ‏همه این‌ها همین امروز اجرا و سبز شدند. قبل از commit کردن هر تغییری، حداقل تست‌های مربوط
@@ -184,6 +212,7 @@ npm run test:activity
 npm run test:pfrisk && npm run test:swingfx && npm run test:sizing
 npx tsx scripts/live-local-test.ts
 npm run test:finance && npm run test:advisor
+npx tsx scripts/swing-v2-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts
 npx tsx scripts/learn-live-test.ts

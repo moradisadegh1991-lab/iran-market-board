@@ -3,6 +3,7 @@
 // Orders are decided at a session close and filled at the NEXT available close of that asset, with spread/fee costs.
 import { clamp, fmtInt, fmtPct, isNum } from '@/lib/num';
 import { ewmaVol, logReturns, mean, rsi, sma, std } from './stats';
+import { signalForV2 } from './signal-v2';
 
 export type SimAsset = 'usd' | 'g18' | 'coin' | 'tse' | 'btc' | 'eth' | 'sol' | 'xrp' | 'ton' | 'doge';
 export type SimProfile = 'conservative' | 'balanced' | 'aggressive';
@@ -52,6 +53,8 @@ export interface SimParams {
   minHoldDays: number;
   cooldownDays: number; // no re-entry after a stop
   assetTrust: Record<SimAsset, number>; // × position size per asset
+  /** 2 = signal/exit rules v2 (signalForV2). Absent = the original rules, bit-for-bit. */
+  engine?: 2;
 }
 
 export const DEFAULT_PARAMS: SimParams = {
@@ -91,6 +94,8 @@ export function normalizeParams(p: Partial<SimParams> | null | undefined): SimPa
     minHoldDays: c(p?.minHoldDays, PARAM_BOUNDS.minHoldDays, d.minHoldDays),
     cooldownDays: c(p?.cooldownDays, PARAM_BOUNDS.cooldownDays, d.cooldownDays),
     assetTrust: Object.fromEntries(SIM_ASSETS.map(({ key }) => [key, c(p?.assetTrust?.[key], PARAM_BOUNDS.assetTrust, d.assetTrust[key])])) as SimParams['assetTrust'],
+    // only present when asked for, so default params serialise exactly as they always have
+    ...(p?.engine === 2 ? { engine: 2 as const } : {}),
   };
 }
 
@@ -126,6 +131,20 @@ export function applyActivity(params: SimParams, level: Activity): SimParams {
 
 export function effectiveProfile(profile: SimProfile, params: SimParams): EffectiveProfile {
   const p = PROFILES[profile];
+  if (params.engine === 2) {
+    // v2: on real data v1 lost to a plain deposit in flat years purely through churn (20+ round
+    // trips a year at 1.2–1.6% each). A wider band and a longer minimum hold cut that.
+    return {
+      ...p,
+      entry: p.entry + params.entryShift,
+      exit: p.exit + params.exitShift,
+      stopK: p.stopK * params.stopMult,
+      minStop: p.minStop * params.stopMult,
+      band: p.band * params.bandMult * 1.6,
+      minHoldDays: Math.max(10, Math.round(params.minHoldDays)),
+      cooldownDays: Math.round(params.cooldownDays),
+    };
+  }
   return {
     ...p,
     entry: p.entry + params.entryShift,
@@ -279,10 +298,10 @@ export interface SimResult {
 // ─────────────────────────── helpers ───────────────────────────
 
 const DAY = 86400000;
-const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
+export const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY);
 /** decisions happen after the Tehran close (~16:00 = 12:30 UTC); only news published before that is visible */
-const cutoffMs = (date: string) => Date.parse(`${date}T12:30:00Z`);
+export const cutoffMs = (date: string) => Date.parse(`${date}T12:30:00Z`);
 
 export class PriceBook {
   private idx = new Map<string, number>();
@@ -330,6 +349,14 @@ export interface Signal {
   reasonsDown: string[];
   news: NewsRef[];
   ppy: number;
+  /** v2: annualised DOWNSIDE volatility (×√2 to match total-vol scale), used for sizing. In this market
+   *  volatility spikes mostly come with the price rising (the rial falling), so sizing on total vol
+   *  sold the strongest trends; on real data total vol even predicted HIGHER forward returns. */
+  riskVol?: number;
+  /** v2: × trailing-stop width (wider inside a long-term uptrend, where normal pullbacks are larger) */
+  stopScale?: number;
+  /** v2: no partial take-profit on "overbought" — on real Iranian data high RSI predicted HIGHER returns */
+  noTakeProfit?: boolean;
 }
 
 export interface Position {
@@ -366,11 +393,12 @@ export function signalFor(
   asset: SimAsset,
   book: PriceBook,
   date: string,
-  input: Pick<SimInput, 'news'>,
+  input: Pick<SimInput, 'news'> & { fixedIncomeYield?: number },
   bubbleBooks: { ons?: PriceBook; usd?: PriceBook },
   params: SimParams = DEFAULT_PARAMS,
   cut: number = cutoffMs(date),
 ): Signal | null {
+  if (params.engine === 2) return signalForV2(asset, book, date, input, bubbleBooks, params, cut);
   const p = book.history(date, 130);
   if (p.length < 62) return null;
   const last = p[p.length - 1];
@@ -715,7 +743,7 @@ export function executeOrder(o: Order, mkt: number, date: string, acct: Account,
     acct.cash -= budget;
     acct.feesToman += fee / 10;
     const prev = pos.get(o.asset);
-    const stopDist = Math.max(prof.minStop, prof.stopK * o.signal.annVol * Math.sqrt(10 / o.signal.ppy));
+    const stopDist = Math.max(prof.minStop, prof.stopK * o.signal.annVol * Math.sqrt(10 / o.signal.ppy)) * (o.signal.stopScale ?? 1);
     if (prev && prev.qty > 0) {
       prev.qty += qty;
       prev.cost += budget;
@@ -761,7 +789,7 @@ export function checkExit(a: SimAsset, p: Position, px: number, sig: Signal | nu
       reasons: [`حد ضرر متحرک فعال شد: قیمت ${pctTxt(px / p.peak - 1, 1)} از بالاترین قیمت پس از خرید پایین آمد (فاصله مجاز ${pctAbs(p.stopDist, 1)})`, `خروج کامل بدون توجه به دیدگاه قبلی؛ ${fmtInt(prof.cooldownDays)} روز ورود دوباره ممنوع`],
     };
   }
-  if (!p.tookProfit && sig && px >= p.entryPrice * (1 + 3 * p.stopDist) && isNum(sig.rsi) && sig.rsi > 72) {
+  if (!p.tookProfit && sig && !sig.noTakeProfit && px >= p.entryPrice * (1 + 3 * p.stopDist) && isNum(sig.rsi) && sig.rsi > 72) {
     p.tookProfit = true;
     return {
       asset: a, side: 'sell', kind: 'take_profit', decisionDate: date, qtyFraction: 1 / 3, targetW: 0,
@@ -794,7 +822,7 @@ export function planReview({ date, sigs, eq, prof, params, shock, weightOf, posi
     const cd = cooldownUntil(a);
     if (s.score >= prof.entry && !(cd && date < cd)) {
       const conviction = (s.score - prof.entry) / (100 - prof.entry);
-      const volScale = Math.min(1, prof.targetVol / Math.max(s.annVol, 0.02));
+      const volScale = Math.min(1, prof.targetVol / Math.max(s.riskVol ?? s.annVol, 0.02));
       target.set(a, prof.maxW * (0.45 + 0.55 * conviction) * volScale * params.assetTrust[a]);
     } else if (held && s.score > prof.exit) target.set(a, Math.min(curW, prof.maxW * 1.15));
     else target.set(a, 0);

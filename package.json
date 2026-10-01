@@ -20,7 +20,8 @@
     "test:swingfx": "tsx scripts/swing-fx-test.ts",
     "test:sizing": "tsx scripts/sizing-test.ts",
     "test:finance": "tsx scripts/finance-test.ts",
-    "test:advisor": "tsx scripts/advisor-test.ts"
+    "test:advisor": "tsx scripts/advisor-test.ts",
+    "test:swingv2": "tsx scripts/swing-v2-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

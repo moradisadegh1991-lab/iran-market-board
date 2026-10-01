@@ -18,13 +18,56 @@ interface Menu {
   history?: { runs: number; priors: { coinId: string; symbol: string; runs: number; meanEdgePct: number; meanReturnPct: number; score: number }[] };
   maxDays: number;
   presets: { key: string; label: string; note: string }[];
+  engines?: { key: 'v1' | 'v2'; label: string; note: string }[];
+  evidence?: { key: string; label: string; bear: number; bull: number; dd: number; tradesPer90d: number }[];
   error?: string;
 }
+
+/** The real-data record of every style, so the choice is made on evidence rather than on a label. */
+function Evidence({ rows, current }: { rows: NonNullable<Menu['evidence']>; current: string }) {
+  return (
+    <details className="method evidence" open>
+      <summary>کارنامه هر سبک روی داده واقعی سه سال اخیر</summary>
+      <div className="table-scroll">
+        <table className="t">
+          <caption>میانگین بازده هر بازه ۹۰ روزه (دلاری، پس از ۰٫۴٪ کارمزد هر طرف)، ۱۴ ارز قابل معامله در ایران</caption>
+          <thead>
+            <tr>
+              <th>سبک</th>
+              <th>سال نزولی (۱۴۰۴–۱۴۰۵؛ نگه‌داری −۱۵٪)</th>
+              <th>دو سال صعودی (۱۴۰۲–۱۴۰۴؛ نگه‌داری +۲۱٪)</th>
+              <th>افت سرمایه</th>
+              <th>معامله در ۹۰ روز</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} className={r.key === current ? 'sel' : ''}>
+                <th>{r.label}</th>
+                <td><Pct v={r.bear} /></td>
+                <td><Pct v={r.bull} /></td>
+                <td><Pct v={r.dd} /></td>
+                <td className="num">{fmtInt(r.tradesPer90d)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="note">
+        نوسان‌گیری ساعتی در هیچ‌کدام از دو دوره پس از کارمزد سودده نبود؛ نسخه ۲ فقط زیان را خیلی کمتر کرد. تنها سبکی که در بازار صعودی سود واقعی ساخت و در بازار نزولی بیرون ماند،
+        روندسوار است — آن هم با افت سرمایه بزرگ‌تر و بدون تضمین برای آینده. دوره صعودی هنگام طراحی نسخه ۲ دیده نشده بود.
+      </p>
+    </details>
+  );
+}
+
+type Preset = 'trend' | 'calm' | 'normal' | 'aggressive';
 
 const WINDOWS = [
   { key: '30', label: '۱ ماه' },
   { key: '60', label: '۲ ماه' },
   { key: '90', label: '۳ ماه' },
+  { key: '180', label: '۶ ماه' },
 ] as const;
 const CAPITALS = [100_000_000, 500_000_000, 1_000_000_000];
 
@@ -32,8 +75,10 @@ export default function SwingView() {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [coinId, setCoinId] = useState('bitcoin');
   const [coinQuery, setCoinQuery] = useState('');
-  const [preset, setPreset] = useState<'calm' | 'normal' | 'aggressive'>('normal');
-  const [days, setDays] = useState<'30' | '60' | '90'>('60');
+  // the default style is the one that held up on three years of real data (see SWING_EVIDENCE)
+  const [preset, setPreset] = useState<Preset>('trend');
+  const [engine, setEngine] = useState<'v1' | 'v2'>('v2');
+  const [days, setDays] = useState<'30' | '60' | '90' | '180'>('90');
   const [capital, setCapital] = useState('500000000');
   const [feePct, setFeePct] = useState('0.4');
   const [busy, setBusy] = useState(false);
@@ -72,7 +117,7 @@ export default function SwingView() {
     try {
       const body: any = { action, ...(action === 'start' ? {
         coins: basket.map((id) => { const c = menu?.coins.find((x) => x.id === id); return { id, symbol: c?.symbol, name: c?.name }; }),
-        capitalToman: Number(capital), hours: Number(liveHours), preset, feePct: Number(feePct),
+        capitalToman: Number(capital), hours: Number(liveHours), preset, feePct: Number(feePct), engine,
       } : {}) };
       const r = await fetch('/api/swing-live', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret }, body: JSON.stringify(body) });
       const j = await r.json();
@@ -116,7 +161,7 @@ export default function SwingView() {
     setBusy(true);
     setErr(null);
     try {
-      const common = { days: Number(days), capitalToman: Number(capital), preset, feePct: Number(feePct) };
+      const common = { days: Number(days), capitalToman: Number(capital), preset, feePct: Number(feePct), engine };
       const payload = auto
         ? { ...common, auto: true, count: Number(autoCount) }
         : multi
@@ -284,7 +329,7 @@ export default function SwingView() {
                 onChange={setLiveHours}
                 options={[{ key: '1', label: '۱ ساعت' }, { key: '6', label: '۶ ساعت' }, { key: '24', label: '۱ روز' }, { key: '72', label: '۳ روز' }, { key: '168', label: '۱ هفته' }]}
               />
-              <small className="muted">تا ۳۶ ساعت با کندل ۵ دقیقه‌ای، بیشتر از آن با کندل ساعتی.</small>
+              <small className="muted">{engine === 'v2' || preset === 'trend' ? 'نسخه ۲ همیشه با کندل ساعتی کامل صرافی کار می‌کند؛ در جلسه کوتاه ممکن است هیچ شرایط ورودی پیش نیاید.' : 'تا ۳۶ ساعت با کندل ۵ دقیقه‌ای، بیشتر از آن با کندل ساعتی.'}</small>
             </div>
             <div>
               <span className="field-label">ارزهای انتخاب‌شده</span>
@@ -386,7 +431,7 @@ export default function SwingView() {
             )}
           </div>
           <div>
-            <span className="field-label">بازه داده ساعتی</span>
+            <span className="field-label">بازه معامله</span>
             <Chips label="بازه" value={days} onChange={setDays} options={WINDOWS.map((w) => ({ key: w.key, label: w.label }))} />
           </div>
           <div>
@@ -395,9 +440,19 @@ export default function SwingView() {
               label="سبک"
               value={preset}
               onChange={setPreset}
-              options={(menu?.presets ?? [{ key: 'normal', label: 'متعادل', note: '' }]).map((p) => ({ key: p.key as typeof preset, label: p.label }))}
+              options={(menu?.presets ?? [{ key: 'trend', label: 'روندسوار (روزانه)', note: '' }]).map((p) => ({ key: p.key as Preset, label: p.label }))}
             />
             <small className="muted">{menu?.presets.find((p) => p.key === preset)?.note}</small>
+          </div>
+          <div>
+            <span className="field-label">نسخه موتور</span>
+            <Chips
+              label="نسخه موتور"
+              value={preset === 'trend' ? 'v2' : engine}
+              onChange={(v) => preset !== 'trend' && setEngine(v)}
+              options={(menu?.engines ?? [{ key: 'v2' as const, label: 'نسخه ۲', note: '' }]).map((e) => ({ key: e.key, label: e.label }))}
+            />
+            <small className="muted">{preset === 'trend' ? 'روندسوار فقط در نسخه ۲ وجود دارد.' : menu?.engines?.find((e) => e.key === engine)?.note}</small>
           </div>
           <label className="field cap-field">
             <span className="field-label">سرمایه (تومان)</span>
@@ -414,6 +469,7 @@ export default function SwingView() {
             <small className="muted">پیش‌فرض ۰٫۴٪ — کارمزد صرافی داخلی به‌علاوه اسپرد تتر</small>
           </label>
         </div>
+        {menu?.evidence ? <Evidence rows={menu.evidence} current={preset === 'trend' || engine === 'v2' ? preset : 'v1'} /> : null}
         <div className="ticket-foot">
           <button className="btn run" disabled={busy || !menu || (multi && basket.length === 0)} onClick={run}>
             {busy ? 'در حال اجرا…' : 'اجرای نوسان‌گیری'}
@@ -748,16 +804,29 @@ export default function SwingView() {
               </div>
             </div>
           ) : (
-            <Empty>در این بازه سیگنال ورودی صادر نشد. بازه بلندتر یا سبک پرتحرک‌تر را امتحان کنید.</Empty>
+            <Empty>در این بازه هیچ ورودی شرایط را نداشت و سرمایه نقد ماند. نسخه ۲ عمداً در بازار نزولی یا بی‌روند معامله نمی‌کند؛ «صفر» این‌جا یعنی از زیان دور ماندن.</Empty>
           )}
 
           <details className="method">
             <summary>روش محاسبه و محدودیت‌ها</summary>
             <ul className="notes">
-              <li>داده ساعتی از CoinGecko گرفته می‌شود و فقط قیمت بسته‌شدن هر ساعت را دارد؛ سقف و کف درون‌ساعتی موجود نیست. پس حد ضرر در همان کندلی شناسایی می‌شود که بسته‌شدنش از آن عبور کرده و برای جبران این خوش‌بینی، ۰٫۱۵٪ لغزش اضافه روی خروج‌های حد ضرر حساب می‌شود.</li>
-              <li>ورود: در روند صعودی (میانگین {fmtInt(res.preset.fastH)} ساعته بالای {fmtInt(res.preset.slowH)} ساعته) و یکی از این سه حالت — اصلاح تا زیر میانگین سریع، اشباع فروش (RSI)، یا شکست سقف {fmtInt(res.preset.breakoutH)} ساعته. جهش‌های عمودی کوتاه‌مدت حذف می‌شوند.</li>
-              <li>هدف سود و حد ضرر بر پایه نوسان واقعی همان ارز در ۷۲ ساعت گذشته تعیین می‌شود، نه درصد ثابت.</li>
-              <li>در هر لحظه حداکثر یک موقعیت باز است، بدون اهرم و بدون فروش استقراضی. بخشی از سرمایه که وارد معامله می‌شود {fmtPct(res.preset.exposure * 100, 0, false)} است و بقیه نقد می‌ماند.</li>
+              {res.config.engine === 'v2' || res.config.preset === 'trend' ? (
+                <>
+                  <li>داده: کندل ساعتی کامل (باز، سقف، کف، بسته و حجم) از داده عمومی بایننس یا OKX؛ اگر ارز آن‌جا نباشد، قیمت ساعتی CoinGecko. حد ضرر وقتی فعال می‌شود که <b>کف</b> کندل به آن برسد (اگر قیمت با شکاف از آن رد شود، با قیمت باز شدن)، هدف وقتی که <b>سقف</b> کندل به آن برسد؛ کندلی که به هر دو برسد، زیان حساب می‌شود.</li>
+                  {res.config.preset === 'trend' ? (
+                    <li>روندسوار: وقتی آخرین روزِ بسته‌شده بالای میانگین ۵۰ روزه است (و برای آلت‌کوین‌ها، بیت‌کوین هم)، می‌خرد و نگه می‌دارد؛ با بسته‌شدن روزانه زیر میانگین می‌فروشد. پیش‌بینی نمی‌کند؛ بخشی از هر حرکت را از دست می‌دهد ولی در بازار نزولی بیرون می‌ماند.</li>
+                  ) : (
+                    <li>ورود فقط وقتی روند ۲۰ روزه صعودی است، قیمت بالای میانگین ۵۰ روزه است و (برای آلت‌کوین‌ها) بیت‌کوین هم در روند صعودی است؛ سپس شکست سقف ۷۲ ساعته با حجم، یا برگشت از اصلاح. هر ورود امتیاز هم‌گرایی شواهد (۰ تا ۱۰۰) دارد و اندازه موقعیت با امتیاز بزرگ‌تر می‌شود. حد ضرر زیر کف اخیر بازار، هدف چند برابر ریسک، و پس از ۱٫۵ برابر ریسک، حد ضرر به نقطه سر‌به‌سر و سپس متحرک می‌رود.</li>
+                  )}
+                  <li>{fmtInt(552)} کندل (۲۳ روز) پیش از بازه فقط برای گرم شدن شاخص‌ها خوانده می‌شود و در آن معامله‌ای انجام نمی‌شود.</li>
+                </>
+              ) : (
+                <>
+                  <li>نسخه ۱ (قدیمی): فقط قیمت بسته‌شدن هر ساعت؛ حد ضرر در کندلی شناسایی می‌شود که بسته‌شدنش از آن عبور کرده، با ۰٫۱۵٪ لغزش اضافه.</li>
+                  <li>ورود: در روند صعودی (میانگین {fmtInt(res.preset.fastH)} ساعته بالای {fmtInt(res.preset.slowH)} ساعته) و یکی از این سه حالت — اصلاح تا زیر میانگین سریع، اشباع فروش (RSI)، یا شکست سقف {fmtInt(res.preset.breakoutH)} ساعته.</li>
+                </>
+              )}
+              <li>در هر لحظه حداکثر یک موقعیت باز در هر ارز است، بدون اهرم و بدون فروش استقراضی.</li>
               <li>این یک آزمون گذشته‌نگر روی یک بازه محدود است. نتیجه خوب در گذشته تضمینی برای آینده نیست و کارمزد واقعی صرافی شما ممکن است بیشتر باشد.</li>
             </ul>
           </details>

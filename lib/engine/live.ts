@@ -189,7 +189,7 @@ export function liveTick(s: LiveSession, ctx: TickContext): TickOutcome {
   const sig = (a: SimAsset) => {
     if (!signalCache.has(a)) {
       const b = books.get(a);
-      signalCache.set(a, b ? signalFor(a, b, today, { news: ctx.news }, bubbleBooks, s.params, now) : null);
+      signalCache.set(a, b ? signalFor(a, b, today, { news: ctx.news, fixedIncomeYield: s.config.fixedIncomeYield }, bubbleBooks, s.params, now) : null);
     }
     return signalCache.get(a)!;
   };

@@ -9,13 +9,23 @@
 //  • CoinGecko hourly history is capped (~90 days), so this measures a regime, not a long-run edge.
 import { isNum, msToTehranDate } from '@/lib/num';
 import { emaSeries, logReturns, maxDrawdown, mean, rsiSeries, std } from './stats';
+import { runSwingV2 } from './swing-v2';
 
 export interface SwingBar {
   t: number; // ms
-  p: number; // USD
+  p: number; // USD close
+  /** optional OHLCV from exchange candles (engine v2 uses them; v1 ignores them) */
+  o?: number;
+  h?: number;
+  l?: number;
+  /** traded value during the bar, USDT */
+  v?: number;
 }
 
-export type SwingPreset = 'calm' | 'normal' | 'aggressive';
+export type SwingEngine = 'v1' | 'v2';
+
+/** 'trend' exists only in engine v2 (any request for it runs v2) — see swing-v2.ts runTrendRide */
+export type SwingPreset = 'trend' | 'calm' | 'normal' | 'aggressive';
 
 export interface SwingConfig {
   capitalToman: number;
@@ -32,6 +42,18 @@ export interface SwingConfig {
   usdtRialByDate?: Map<string, number> | null;
   /** risk-free annual rate for Sharpe/Sortino and the fixed-income benchmark (e.g. 0.30) */
   riskFreeAnnual?: number;
+  /** v1 = the original close-only rules (default, kept bit-for-bit); v2 = lib/engine/swing-v2.ts */
+  engine?: SwingEngine;
+  /** v2 only: BTC closes over the same span, for the market-wide regime filter on altcoins */
+  market?: SwingBar[] | null;
+  /** v2 only: daily closes of the coin (and of BTC) for the long-term regime filter — price above
+   *  its 50-day average. Only days that closed before a bar may influence that bar. */
+  daily?: SwingBar[] | null;
+  marketDaily?: SwingBar[] | null;
+  /** v2 only, for evaluation scripts: override preset knobs (see SWING_V2) */
+  v2Overrides?: Record<string, number> | null;
+  /** v2 only: bars before this time are indicator warm-up and are never traded or scored */
+  tradeFrom?: number | null;
 }
 
 const DEFAULT_RISK_FREE = 0.3;
@@ -71,6 +93,13 @@ export const SWING_PRESETS: Record<SwingPreset, {
   /** bars the fast EMA must stay below the slow one before a trend exit fires */
   trendExitBars: number;
 }> = {
+  trend: {
+    label: 'روندسوار (روزانه)',
+    note: 'نگه‌داری تا وقتی قیمت و بیت‌کوین بالای میانگین ۵۰ روزه‌اند؛ تنها سبکی که در آزمون سه‌ساله داده واقعی هم در بازار نزولی ضرر را کوچک کرد و هم بخش بزرگی از رشد را گرفت',
+    // v1 never runs this preset; the numbers below only keep the table complete
+    fastH: 36, slowH: 168, dipK: 1.6, rsiBuy: 36, breakoutH: 120, targetK: 1.8, stopK: 1.3, maxHoldH: 240, cooldownH: 24, exposure: 0.9,
+    trendERpct: 0.62, trendERmin: 0.17, chopTargetK: 1.5, chopStopK: 1.3, trailAfterK: 1.4, trailK: 1.6, trendExitBars: 4,
+  },
   calm: {
     label: 'کم‌تحرک',
     note: 'فقط اصلاح‌های عمیق در روند صعودی؛ معاملات کم، هدف و حد ضرر دورتر',
@@ -118,6 +147,8 @@ export interface SwingTrade {
   equityAfter: number; // toman
   targetPrice: number;
   stopPrice: number;
+  /** engine v2: confluence score (0–100) of the evidence behind the entry */
+  score?: number;
 }
 
 export interface SwingMetrics {
@@ -224,6 +255,7 @@ function fa(n: number, digits = 1): string {
  * Long-only, at most one open position, no leverage, no shorting.
  */
 export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; name: string }, config: SwingConfig): SwingResult {
+  if (config.engine === 'v2' || config.preset === 'trend') return runSwingV2(bars, coin, config);
   const P = SWING_PRESETS[config.preset];
   const warnings: string[] = [];
   const clean = bars.filter((b) => isNum(b.p) && b.p > 0 && isNum(b.t)).sort((a, b) => a.t - b.t);
@@ -262,32 +294,7 @@ export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; n
   const trades: SwingTrade[] = [];
   const equity: SwingResult['equity'] = [];
 
-  // Per-bar USDT/IRR. With a daily series each bar uses the rate of its own Tehran day (carrying
-  // the last known rate forward across gaps); without one, every bar uses the single current rate,
-  // which is the old behaviour and is flagged as `fixedFx` so the caller can say so.
-  const fixedFx = !config.usdtRialByDate || config.usdtRialByDate.size === 0;
-  const rates: (number | null)[] = (() => {
-    const fallback = isNum(config.usdtRial) ? config.usdtRial : null;
-    if (fixedFx) return clean.map(() => fallback);
-    const byDate = config.usdtRialByDate!;
-    const keys = [...byDate.keys()].sort();
-    let k = 0;
-    let carried: number | null = null;
-    return clean.map((b) => {
-      const d = msToTehranDate(b.t);
-      while (k < keys.length && keys[k] <= d) {
-        const v = byDate.get(keys[k]);
-        if (isNum(v) && v > 0) carried = v;
-        k++;
-      }
-      // a bar older than the first stored rate falls back to the earliest one we have
-      if (carried === null) {
-        const first = keys.map((d2) => byDate.get(d2)).find((v) => isNum(v) && v > 0);
-        return isNum(first) ? first! : fallback;
-      }
-      return carried;
-    });
-  })();
+  const { rates, fixedFx } = barRates(clean, config);
   const toToman = (usd: number, i: number) => {
     const r = rates[i];
     return isNum(r) ? (usd * r) / 10 : usd;
@@ -438,6 +445,67 @@ export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; n
 
   if (qty > 0) close(clean.length - 1, 'end');
 
+  return finalizeSwing({ coin, config, preset: P, clean, prices, rates, fixedFx, start, fee, cash, barsInMarket, trades, equity, warnings });
+}
+
+/**
+ * Per-bar USDT/IRR. With a daily series each bar uses the rate of its own Tehran day (carrying
+ * the last known rate forward across gaps); without one, every bar uses the single current rate,
+ * which is the old behaviour and is flagged as `fixedFx` so the caller can say so.
+ */
+export function barRates(clean: SwingBar[], config: SwingConfig): { rates: (number | null)[]; fixedFx: boolean } {
+  const fixedFx = !config.usdtRialByDate || config.usdtRialByDate.size === 0;
+  const rates: (number | null)[] = (() => {
+    const fallback = isNum(config.usdtRial) ? config.usdtRial : null;
+    if (fixedFx) return clean.map(() => fallback);
+    const byDate = config.usdtRialByDate!;
+    const keys = [...byDate.keys()].sort();
+    let k = 0;
+    let carried: number | null = null;
+    return clean.map((b) => {
+      const d = msToTehranDate(b.t);
+      while (k < keys.length && keys[k] <= d) {
+        const v = byDate.get(keys[k]);
+        if (isNum(v) && v > 0) carried = v;
+        k++;
+      }
+      // a bar older than the first stored rate falls back to the earliest one we have
+      if (carried === null) {
+        const first = keys.map((d2) => byDate.get(d2)).find((v) => isNum(v) && v > 0);
+        return isNum(first) ? first! : fallback;
+      }
+      return carried;
+    });
+  })();
+  return { rates, fixedFx };
+}
+
+export interface FinalizeArgs {
+  coin: SwingResult['coin'];
+  config: SwingConfig;
+  preset: SwingResult['preset'];
+  clean: SwingBar[];
+  prices: number[];
+  rates: (number | null)[];
+  fixedFx: boolean;
+  /** first bar that could trade — benchmarks and the window are measured from here */
+  start: number;
+  fee: number;
+  cash: number;
+  barsInMarket: number;
+  trades: SwingTrade[];
+  equity: SwingResult['equity'];
+  warnings: string[];
+}
+
+/** Benchmarks, risk-adjusted metrics and warnings — shared by every engine version. */
+export function finalizeSwing(a: FinalizeArgs): SwingResult {
+  const { coin, config, clean, prices, rates, fixedFx, start, fee, cash, barsInMarket, trades, equity, warnings } = a;
+  const P = a.preset;
+  const toToman = (usd: number, i: number) => {
+    const r = rates[i];
+    return isNum(r) ? (usd * r) / 10 : usd;
+  };
   const finalEquity = cash;
   const lastIdx = prices.length - 1;
   const firstPx = prices[start];
@@ -487,9 +555,13 @@ export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; n
     warnings.push(`بازده این استراتژی از صندوق درآمد ثابت (${fixedIncomePct.toLocaleString('fa-IR', { maximumFractionDigits: 1 })}٪ در همین بازه) کمتر بود؛ ریسک معامله‌گری در این دوره جبران نشد.`);
   }
 
+  // the market/daily series are inputs, not results — returning them would ship thousands of
+  // bars back to the browser with every run (and into every live-session snapshot)
+  const { market: _m, marketDaily: _md, daily: _d, ...lean } = config;
+  const outConfig = config.market || config.marketDaily || config.daily ? lean : config;
   return {
     coin,
-    config,
+    config: outConfig,
     preset: P,
     metrics: {
       startEquity: config.capitalToman,
