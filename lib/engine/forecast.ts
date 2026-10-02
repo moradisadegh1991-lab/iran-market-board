@@ -1,9 +1,13 @@
 // Price forecast cones for the charts page — the pure half.
 //
-// Not a new model: the cone is drawn from the same scenario engine as /scenarios (scenario.ts:
-// 5th percentile, median, 95th percentile at 1 day … 1 year). Between those horizons the band
-// widens with √time and the median moves linearly, so the cone never claims more precision than
-// the six points it is built on.
+// The cone passes through forecast quantiles at 1 day … 1 year; between those horizons the band
+// widens with √time and the median moves linearly, so it never claims more precision than the six
+// points it is built on. For dollar-priced assets the points are the scenario engine's (/scenarios).
+// For rial-priced assets they are an equal-weight ensemble of three readings (ensembleRows): the
+// scenario engine, the empirical distribution of past moves, and the past days whose pattern looked
+// like today's (forecast-model.ts). On real data 2016–2026 the ensemble beat the engine for every
+// rial asset and horizon, in the design years and in the held-out years alike, and was no better for
+// dollar assets — so only rial assets use it (scripts/eval/forecast-eval.ts, CLAUDE.md rule 61).
 //
 // And every cone is shown with its own track record: `calibrate` re-runs the engine on the past —
 // at each test date only on prices up to that date (CLAUDE.md rule 4, no lookahead) — and checks
@@ -11,6 +15,7 @@
 // is honest; one that held it 60% of the time says so on the page.
 import type { HorizonKey, ScenarioRow } from '@/lib/types';
 import type { Calibration } from '../forecast-meta';
+import { analogForecast, averageQuantiles, empiricalForecast, forwardIndex, pUpFromQuantiles, type AnalogForecast, type LogQuantiles } from './forecast-model';
 import { buildScenario, SCENARIO_HORIZONS, type ScenarioInput } from './scenario';
 
 export { FORECAST_ASSETS, FORECAST_HORIZONS, type Calibration } from '../forecast-meta';
@@ -28,22 +33,28 @@ export interface ConePoint {
 /** z of the 25th/75th percentile over z of the 5th/95th — the inner band from the outer one, same skew. */
 const INNER = 0.6745 / 1.6449;
 
+/** A forecast at one horizon, in price: 5% / median / 95%, and optionally its own 25% / 75%. */
+export type ConeRow = Pick<ScenarioRow, 'days' | 'worst' | 'base' | 'best'> & { lo50?: number; hi50?: number };
+
 /**
  * The cone from today (`anchor`) out to `days`, `steps` points. Built in log space from the
- * scenario rows: median interpolated linearly in time, each half-width with √time.
+ * rows: median interpolated linearly in time, each half-width with √time. Without lo50/hi50 the
+ * inner band is the outer one × INNER.
  */
-export function coneFromRows(anchor: number, rows: Pick<ScenarioRow, 'days' | 'worst' | 'base' | 'best'>[], days: number, steps = 40): ConePoint[] {
+export function coneFromRows(anchor: number, rows: ConeRow[], days: number, steps = 40): ConePoint[] {
   const known = [
-    { days: 0, lo: 0, mid: 0, hi: 0 },
+    { days: 0, lo: 0, mid: 0, hi: 0, loI: 0, hiI: 0 },
     ...rows
       .filter((r) => r.days > 0 && r.worst > 0 && r.base > 0 && r.best > 0)
       .sort((a, b) => a.days - b.days)
-      .map((r) => ({
-        days: r.days,
-        lo: Math.log(r.worst / anchor),
-        mid: Math.log(r.base / anchor),
-        hi: Math.log(r.best / anchor),
-      })),
+      .map((r) => {
+        const lo = Math.log(r.worst / anchor);
+        const mid = Math.log(r.base / anchor);
+        const hi = Math.log(r.best / anchor);
+        const loI = r.lo50 && r.lo50 > 0 ? Math.min(mid, Math.max(lo, Math.log(r.lo50 / anchor))) : mid - (mid - lo) * INNER;
+        const hiI = r.hi50 && r.hi50 > 0 ? Math.max(mid, Math.min(hi, Math.log(r.hi50 / anchor))) : mid + (hi - mid) * INNER;
+        return { days: r.days, lo, mid, hi, loI, hiI };
+      }),
   ];
   if (known.length < 2) return [];
   const at = (d: number) => {
@@ -57,18 +68,22 @@ export function coneFromRows(anchor: number, rows: Pick<ScenarioRow, 'days' | 'w
     const mid = a.mid + (b.mid - a.mid) * t;
     const down = a.mid - a.lo + (b.mid - b.lo - (a.mid - a.lo)) * ts;
     const up = a.hi - a.mid + (b.hi - b.mid - (a.hi - a.mid)) * ts;
-    return { mid, down: Math.max(0, down), up: Math.max(0, up) };
+    const downI = a.mid - a.loI + (b.mid - b.loI - (a.mid - a.loI)) * ts;
+    const upI = a.hiI - a.mid + (b.hiI - b.mid - (a.hiI - a.mid)) * ts;
+    const dn = Math.max(0, down);
+    const u = Math.max(0, up);
+    return { mid, down: dn, up: u, downI: Math.min(dn, Math.max(0, downI)), upI: Math.min(u, Math.max(0, upI)) };
   };
   const out: ConePoint[] = [];
   for (let k = 0; k <= steps; k++) {
     const d = (days * k) / steps;
-    const { mid, down, up } = at(d);
+    const { mid, down, up, downI, upI } = at(d);
     out.push({
       day: d,
       p5: anchor * Math.exp(mid - down),
-      p25: anchor * Math.exp(mid - down * INNER),
+      p25: anchor * Math.exp(mid - downI),
       p50: anchor * Math.exp(mid),
-      p75: anchor * Math.exp(mid + up * INNER),
+      p75: anchor * Math.exp(mid + upI),
       p95: anchor * Math.exp(mid + up),
     });
   }
@@ -88,6 +103,8 @@ export interface CalibrationOpts {
   /** each forecast sees only its last `window` rows — the length the live engine gets — so a long
    *  history scores the method as it runs, not a variant with more data */
   window?: number;
+  /** the forecast to score on day t (price space); default: the scenario engine on prices up to t */
+  forecastAt?: (t: number, days: number) => { worst: number; base: number; best: number } | null;
 }
 
 export interface CalibrationSample {
@@ -119,9 +136,12 @@ export function calibrationSamples(inp: ScenarioInput, h: HorizonKey, opts: Cali
   const out: CalibrationSample[] = [];
   for (let k = eligible.length - 1; k >= 0 && out.length < samples; k -= step) {
     const t = eligible[k];
-    const from = opts.window ? Math.max(0, t + 1 - opts.window) : 0;
-    const s = buildScenario({ ...inp, price: prices[t], dates: dates.slice(from, t + 1), prices: prices.slice(from, t + 1), context: [], bubblePct: null });
-    const row = s.rows[h];
+    let row: { worst: number; base: number; best: number } | null;
+    if (opts.forecastAt) row = opts.forecastAt(t, hz.days);
+    else {
+      const from = opts.window ? Math.max(0, t + 1 - opts.window) : 0;
+      row = buildScenario({ ...inp, price: prices[t], dates: dates.slice(from, t + 1), prices: prices.slice(from, t + 1), context: [], bubblePct: null }).rows[h];
+    }
     if (!row) continue;
     const target = dayMs(dates[t]) + hz.days * 86_400_000;
     let m = t + 1;
@@ -162,4 +182,87 @@ export function calibrate(inp: ScenarioInput, h: HorizonKey, opts: CalibrationOp
     from: xs[n - 1].date,
     to: xs[0].date,
   };
+}
+
+// ── the ensemble for rial-priced assets ──
+
+/** Assets whose forecast is the three-way ensemble (rial-priced; see the header). */
+export const ENSEMBLE_ASSETS = new Set(['usd', 'usdt', 'coin', 'nim', 'rob', 'g18', 'silver']);
+
+export interface EnsembleSeries {
+  dates: string[];
+  prices: number[];
+  /** featureMatrix(prices) — computed once */
+  feats: (number[] | null)[];
+}
+
+export interface EnsembleParts {
+  engine: LogQuantiles;
+  empirical: LogQuantiles;
+  analog: AnalogForecast;
+  ensemble: LogQuantiles;
+}
+
+const fwdCache = new WeakMap<string[], Map<number, Int32Array>>();
+function fwdFor(dates: string[], days: number): Int32Array {
+  let m = fwdCache.get(dates);
+  if (!m) fwdCache.set(dates, (m = new Map()));
+  let f = m.get(days);
+  if (!f) m.set(days, (f = forwardIndex(dates, days)));
+  return f;
+}
+
+function engineLogQ(row: { worst: number; base: number; best: number }, price: number): LogQuantiles {
+  const lo = Math.log(row.worst / price);
+  const mid = Math.log(row.base / price);
+  const hi = Math.log(row.best / price);
+  const q: [number, number, number, number, number] = [lo, mid - (mid - lo) * INNER, mid, mid + (hi - mid) * INNER, hi];
+  return { q05: q[0], q25: q[1], q50: q[2], q75: q[3], q95: q[4], pUp: pUpFromQuantiles(q), n: 0 };
+}
+
+/**
+ * The three readings and their average for day t of `s`, h = `days` ahead, from prices up to t only.
+ * `price` is today's live price when t is the last row (the moves are applied to it); the engine
+ * sees the last `window` rows, as it does on the board.
+ */
+export function ensembleAt(inp: ScenarioInput, s: EnsembleSeries, t: number, days: number, window: number, price = s.prices[t]): EnsembleParts | null {
+  const hz = SCENARIO_HORIZONS.find((x) => x.days === days);
+  if (!hz) return null;
+  const from = Math.max(0, t + 1 - window);
+  const row = buildScenario({ ...inp, price, dates: s.dates.slice(from, t + 1), prices: s.prices.slice(from, t + 1), context: [], bubblePct: null }).rows[hz.key];
+  if (!row) return null;
+  const fwd = fwdFor(s.dates, days);
+  const empirical = empiricalForecast(s.dates, s.prices, fwd, t);
+  const analog = analogForecast(s.dates, s.prices, fwd, t, { feats: s.feats });
+  if (!empirical || !analog) return null;
+  const engine = engineLogQ(row, price);
+  return { engine, empirical, analog, ensemble: averageQuantiles(engine, empirical, analog) };
+}
+
+/** Ensemble rows for every scenario horizon at the last day, in price around `anchor`. */
+export function ensembleRows(inp: ScenarioInput, s: EnsembleSeries, anchor: number, window: number): (ConeRow & { parts: EnsembleParts })[] {
+  const t = s.prices.length - 1;
+  const out: (ConeRow & { parts: EnsembleParts })[] = [];
+  for (const h of SCENARIO_HORIZONS) {
+    const p = ensembleAt(inp, s, t, h.days, window, anchor);
+    if (!p) continue;
+    const q = p.ensemble;
+    out.push({ days: h.days, worst: anchor * Math.exp(q.q05), lo50: anchor * Math.exp(q.q25), base: anchor * Math.exp(q.q50), hi50: anchor * Math.exp(q.q75), best: anchor * Math.exp(q.q95), parts: p });
+  }
+  return out;
+}
+
+/** calibrate() for the ensemble: the same past days, the same scoring, the ensemble's forecasts. */
+export function calibrateEnsemble(inp: ScenarioInput, s: EnsembleSeries, h: HorizonKey, window: number, opts: Omit<CalibrationOpts, 'forecastAt' | 'window'> = {}): Calibration | null {
+  return calibrate({ ...inp, dates: s.dates, prices: s.prices }, h, {
+    minHistory: 260,
+    ...opts,
+    forecastAt: (t, days) => {
+      const p = ensembleAt(inp, s, t, days, window);
+      if (!p) return null;
+      const q = p.ensemble;
+      const px = s.prices[t];
+      return { worst: px * Math.exp(q.q05), base: px * Math.exp(q.q50), best: px * Math.exp(q.q95) };
+    },
+  });
 }

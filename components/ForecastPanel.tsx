@@ -28,7 +28,19 @@ export interface ForecastData {
   annualVolPct: number | null;
   drivers: string[];
   reconstructed?: boolean;
+  /** 'ensemble' for rial assets (engine + past moves + similar patterns), else the scenario engine */
+  method?: 'ensemble' | 'engine';
+  /** chance the price ends the horizon higher than today */
+  pUp?: number | null;
+  ensemble?: {
+    parts: Record<'engine' | 'empirical' | 'analog', { lowPct: number; midPct: number; highPct: number; pUp: number }>;
+    analog: { n: number; matches: { date: string; movePct: number }[] };
+    empiricalN: number;
+    since: string;
+  } | null;
 }
+
+const PART_LABEL = { engine: 'موتور سناریو', empirical: 'حرکت‌های گذشته', analog: 'الگوهای مشابه' } as const;
 
 const UNIT: Record<string, string> = {
   toman: 'تومان',
@@ -99,6 +111,12 @@ export default function ForecastPanel({ asset, horizon, onChange }: { asset: str
           </div>
           {row && inner ? (
             <dl className="chart-stats fc-stats">
+              {typeof shown?.pUp === 'number' ? (
+                <div>
+                  <dt>احتمال بالاتر بودن، {row.label} بعد</dt>
+                  <dd className={shown.pUp >= 0.5 ? 'up' : 'down'}>{pctFa(shown.pUp * 100)}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>میانه، {row.label} بعد</dt>
                 <dd>
@@ -172,6 +190,70 @@ export default function ForecastPanel({ asset, horizon, onChange }: { asset: str
             ) : (
               <p className="fc-cal muted">تاریخچه این دارایی برای سنجیدن کارنامه این افق کافی نیست.</p>
             )}
+            {shown.ensemble ? (
+              <div className="fc-ens">
+                <h3>سه نگاه به {hLabel === 'هفتگی' ? 'هفته' : hLabel === 'ماهانه' ? 'ماه' : hLabel === '۳ ماهه' ? 'سه ماه' : 'سال'} آینده</h3>
+                <p className="muted small">
+                  مثل یک معامله‌گر که قبل از تصمیم چند نگاه را کنار هم می‌گذارد: «موتور سناریو» از نوسان و روند ۱۵ ماه اخیر، «حرکت‌های گذشته» از همه حرکت‌های واقعی هم‌اندازه در ۸ سال اخیر، و «الگوهای مشابه» از
+                  روزهایی که شکل قیمت شبیه امروز بود. هر کدام به‌تنهایی گاهی خطا می‌کند؛ میانگین این سه روی داده واقعی ۱۳۹۵ تا ۱۴۰۵ (دلار، سکه، طلا) در همه افق‌ها از موتور سناریو به‌تنهایی دقیق‌تر بوده و همین ترکیب در
+                  نمودار بالاست.
+                </p>
+                <div className="table-scroll">
+                  <table className="t fc-ens-t">
+                    <thead>
+                      <tr>
+                        <th scope="col">روش</th>
+                        <th scope="col">میانه</th>
+                        <th scope="col">محدوده ۹۰٪</th>
+                        <th scope="col">احتمال بالاتر</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(['engine', 'empirical', 'analog'] as const).map((k) => {
+                        const x = shown.ensemble!.parts[k];
+                        return (
+                          <tr key={k}>
+                            <th scope="row">{PART_LABEL[k]}</th>
+                            <td className={`num ${x.midPct >= 0 ? 'up' : 'down'}`}>{fmtPct(x.midPct, 0)}</td>
+                            <td className="num">
+                              {fmtPct(x.lowPct, 0)} تا {fmtPct(x.highPct, 0)}
+                            </td>
+                            <td className="num">{pctFa(x.pUp * 100)}</td>
+                          </tr>
+                        );
+                      })}
+                      {row ? (
+                        <tr className="fc-ens-sum">
+                          <th scope="row">ترکیب (نمودار بالا)</th>
+                          <td className={`num ${row.basePct >= 0 ? 'up' : 'down'}`}>{fmtPct(row.basePct, 0)}</td>
+                          <td className="num">
+                            {fmtPct(row.worstPct, 0)} تا {fmtPct(row.bestPct, 0)}
+                          </td>
+                          <td className="num">{typeof shown.pUp === 'number' ? pctFa(shown.pUp * 100) : '—'}</td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+                {shown.ensemble.analog.matches.length ? (
+                  <>
+                    <h4>روزهایی از گذشته که الگوی قیمت شبیه امروز بود</h4>
+                    <p className="muted small">
+                      بازده یک هفته تا یک سال اخیر، نوسان و فاصله از میانگین ۲۰۰ روزه — {shown.ensemble.analog.n.toLocaleString('fa-IR')} روز مشابه‌تر از تاریخچه پیدا شد. نزدیک‌ترین‌ها و این‌که {hLabel === 'هفتگی' ? 'یک هفته' : row?.label}{' '}
+                      بعدشان چه شد:
+                    </p>
+                    <ul className="fc-matches">
+                      {shown.ensemble.analog.matches.map((m) => (
+                        <li key={m.date}>
+                          <span>{fmtDateFa(m.date)}</span>
+                          <b className={`num ${m.movePct >= 0 ? 'up' : 'down'}`}>{fmtPct(m.movePct, 0)}</b>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             {shown.drivers.length ? (
               <ul className="notes">
                 {shown.drivers.map((d) => (
@@ -180,8 +262,13 @@ export default function ForecastPanel({ asset, horizon, onChange }: { asset: str
               </ul>
             ) : null}
             <p className="note">
-              این نمودار نمی‌گوید قیمت کجا می‌رود؛ محدوده‌ای را نشان می‌دهد که با نوسان و روند گذشته همین دارایی محتمل است (همان موتور <Link href="/scenarios">سناریوها</Link>). خبر سیاسی یا جهش ارزی
-              می‌تواند قیمت را بیرون آن ببرد. وعده سود نیست.
+              این نمودار نمی‌گوید قیمت کجا می‌رود؛ محدوده‌ای را نشان می‌دهد که با رفتار گذشته همین دارایی محتمل است (
+              {shown.method === 'ensemble' ? 'ترکیب سه نگاه بالا' : (
+                <>
+                  همان موتور <Link href="/scenarios">سناریوها</Link>
+                </>
+              )}
+              ). الگوی شبیه، تکرار همان اتفاق را تضمین نمی‌کند و خبر سیاسی یا جهش ارزی می‌تواند قیمت را بیرون محدوده ببرد. وعده سود نیست.
               {shown.reconstructed ? ' بخشی از تاریخچه این دارایی بازسازی‌شده است، نه قیمت ثبت‌شده.' : ''}
             </p>
           </div>
