@@ -17,7 +17,7 @@ import { NextResponse, type NextRequest } from 'next/server';
  * call counter). Because each call spends the Anthropic key, it additionally requires the
  * `x-advisor-secret` header, which is why that header is allowed below.
  */
-const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor'];
+const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/forecast', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor'];
 
 /**
  * GET-only: the shared live session, the swing live session and the holdings list are already

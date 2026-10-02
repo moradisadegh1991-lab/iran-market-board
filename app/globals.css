@@ -182,6 +182,9 @@ h2 { font-size: 18px; line-height: 1.4; font-weight: 800; margin: 0; color: var(
 .chips button:hover { border-color: #b9c3cf; }
 .chips button[aria-checked='true'], .chips button[aria-pressed='true'] { background: var(--teal); border-color: var(--teal); color: #fff; }
 .chips .count { font-size: 12px; opacity: 0.8; font-variant-numeric: tabular-nums; }
+.seg { display: inline-flex; padding: 3px; gap: 2px; background: var(--line-soft); border-radius: 999px; }
+.seg button { font: inherit; font-size: 14px; border: 0; background: none; color: var(--ink-2, var(--ink)); padding: 6px 16px; border-radius: 999px; cursor: pointer; }
+.seg button[aria-pressed='true'] { background: var(--surface); color: var(--lapis); font-weight: 700; box-shadow: var(--shadow); }
 .search { display: inline-flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); padding: 0 10px; color: var(--muted); }
 .search input { border: 0; outline: 0; background: transparent; padding: 6px 0; min-width: 12rem; color: var(--ink); }
 .select { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); }
@@ -307,6 +310,32 @@ h2 { font-size: 18px; line-height: 1.4; font-weight: 800; margin: 0; color: var(
 .chart-host { width: 100%; height: 360px; }
 .skeleton { background: linear-gradient(90deg, var(--line-soft) 25%, #f5f7fa 50%, var(--line-soft) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; border-radius: var(--r-s); }
 @keyframes shimmer { to { background-position: -200% 0; } }
+
+/* forecast cone (components/ForecastChart.tsx) */
+.chart-mode { margin: 0 0 12px; }
+.fc-host { position: relative; touch-action: pan-y; user-select: none; }
+.fc-host svg { display: block; overflow: visible; }
+.fc-grid { stroke: var(--line-soft); }
+.fc-axis { fill: var(--muted); font: 11.5px var(--body); }
+.fc-outer { fill: rgba(13, 115, 119, 0.13); }
+.fc-inner { fill: rgba(13, 115, 119, 0.26); }
+.fc-median { fill: none; stroke: var(--teal); stroke-width: 2; stroke-dasharray: 6 4; }
+.fc-hist { fill: none; stroke: var(--lapis); stroke-width: 2; stroke-linejoin: round; }
+.fc-today { stroke: var(--muted); stroke-dasharray: 2 3; }
+.fc-today-label { font-weight: 700; }
+.fc-dot { fill: var(--surface); stroke: var(--lapis); stroke-width: 2; }
+.fc-cross { stroke: var(--lapis-line); stroke-width: 1; opacity: 0.6; }
+.fc-tip { position: absolute; top: 6px; display: grid; gap: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); box-shadow: var(--shadow); padding: 6px 9px; font-size: 12.5px; max-width: 70%; pointer-events: none; }
+.fc-stats dd small { font-weight: 500; }
+.fc-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; margin: 8px 0 0; padding: 0; font-size: 12.5px; color: var(--muted); }
+.fc-legend li { display: flex; align-items: center; gap: 6px; }
+.fc-sw { display: inline-block; width: 18px; height: 10px; border-radius: 3px; }
+.fc-sw-hist { height: 0; border-top: 2px solid var(--lapis); border-radius: 0; }
+.fc-sw-median { height: 0; border-top: 2px dashed var(--teal); border-radius: 0; }
+.fc-sw-inner { background: rgba(13, 115, 119, 0.39); }
+.fc-sw-outer { background: rgba(13, 115, 119, 0.13); }
+.fc-cal { margin: 12px 0 0; font-size: 14px; line-height: 1.9; padding: 10px 12px; border-radius: var(--r-s); background: var(--teal-soft); }
+.fc-cal.warn { background: var(--down-soft); }
 
 /* ── Overview: rate board + digest ── */
 /* ── The rate board ───────────────────────────────────────────────────────────
@@ -484,6 +513,7 @@ ol.list { counter-reset: n; }
   .mini-ladder li { grid-template-columns: 3rem 1fr 3rem; grid-template-areas: 'name name name' 'worst bar best'; row-gap: 2px; }
   .chart-host { height: 290px; }
   .chart-stats { gap: 16px; }
+  .fc-stats { flex-wrap: wrap; gap: 8px 16px; }
   .split { grid-template-columns: 1fr; }
   .detail .wide { grid-column: 1 / -1; }
   .amount input { width: 100%; }
