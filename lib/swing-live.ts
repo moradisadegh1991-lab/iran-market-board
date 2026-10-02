@@ -8,7 +8,8 @@ import { isNum } from '@/lib/num';
 import { cachedSource } from '@/lib/sources/cache';
 import { fetchCgHourly, fetchCgMarkets, fetchCgMinutely, type CgCoin } from '@/lib/sources/coingecko';
 import { getSnapshot } from '@/lib/snapshot';
-import { SWING_PRESETS, type SwingPreset } from '@/lib/engine/swing';
+import { SWING_PRESETS, type SwingEngine, type SwingPreset } from '@/lib/engine/swing';
+import { marketContext, swingDataFor } from '@/lib/swing-data';
 import {
   barPlan,
   finishSwingLive,
@@ -16,6 +17,7 @@ import {
   swingLiveTick,
   type SwingLiveConfig,
   type SwingLiveInput,
+  type SwingLiveMarket,
   type SwingLiveSession,
 } from '@/lib/engine/swing-live';
 import { notifySwingFills, notifySwingFinish, notifySwingStart } from '@/lib/telegram/swing-live';
@@ -89,12 +91,13 @@ export function validateSwingConfig(body: any, usdtRial: number | null): SwingLi
   const preset = (Object.keys(SWING_PRESETS).includes(body?.preset) ? body.preset : 'normal') as SwingPreset;
   const feePct = isNum(Number(body?.feePct)) ? Math.max(0, Math.min(2, Number(body.feePct))) : 0.4;
 
-  return { coins: unique, capitalToman, preset, feePct, hours, usdtRial };
+  const engine: SwingEngine = body?.engine === 'v1' && preset !== 'trend' ? 'v1' : 'v2';
+  return { coins: unique, capitalToman, preset, feePct, hours, usdtRial, engine };
 }
 
-/** Bars plus a spot price for each coin in the session. */
-async function gatherInputs(s: SwingLiveSession): Promise<SwingLiveInput[]> {
-  const { days, barMinutes } = barPlan(s.config.hours);
+/** Bars plus a spot price for each coin in the session (and BTC context for v2). */
+async function gatherInputs(s: SwingLiveSession): Promise<{ inputs: SwingLiveInput[]; mkt?: SwingLiveMarket }> {
+  const { days, barMinutes } = barPlan(s.config.hours, s.config.engine);
   const spot = new Map<string, number>();
   try {
     const mk = await cachedSource<CgCoin[]>('cgMarkets', 300, () => fetchCgMarkets(undefined, 250), 6 * 3600);
@@ -104,7 +107,24 @@ async function gatherInputs(s: SwingLiveSession): Promise<SwingLiveInput[]> {
   } catch {
     /* spot is a nicety; bars alone still drive the decisions */
   }
-  return Promise.all(
+  if (s.config.engine === 'v2' && s.anchor) {
+    const now = Date.now();
+    const [inputs, mkt] = await Promise.all([
+      Promise.all(
+        s.config.coins.map(async (coin) => {
+          try {
+            const d = await swingDataFor(coin, days, 'v2', now, s.anchor);
+            return { coin, bars: d.bars, daily: d.daily, livePrice: spot.get(coin.id) ?? null };
+          } catch (e) {
+            return { coin, bars: null, livePrice: null, error: errMsg(e) };
+          }
+        }),
+      ),
+      marketContext(days, s.anchor),
+    ]);
+    return { inputs, mkt };
+  }
+  const inputs = await Promise.all(
     s.config.coins.map(async (coin) => {
       try {
         // short cache: a live session needs fresher bars than a backtest does
@@ -116,6 +136,7 @@ async function gatherInputs(s: SwingLiveSession): Promise<SwingLiveInput[]> {
       }
     }),
   );
+  return { inputs };
 }
 
 export async function startSwingSession(config: SwingLiveConfig): Promise<SwingLiveSession> {
@@ -125,8 +146,8 @@ export async function startSwingSession(config: SwingLiveConfig): Promise<SwingL
   // Refuse to start a session whose coins have too little history for the chosen preset —
   // otherwise it would run for hours quietly sitting in cash and look like a broken engine.
   const probe = startSwingLive(config, Date.now());
-  const { minBars } = barPlan(config.hours);
-  const check = await gatherInputs(probe);
+  const { minBars } = barPlan(config.hours, config.engine);
+  const check = (await gatherInputs(probe)).inputs;
   const thin = check.filter((i) => !i.bars || i.bars.length < minBars);
   if (thin.length === check.length) {
     const why = check.find((i) => i.error)?.error;
@@ -219,8 +240,8 @@ export async function tickSwingSession(opts: { force?: boolean } = {}): Promise<
     if (!opts.force && s.ticks > 0 && now - s.lastTickAt < MIN_TICK_GAP_MS) {
       return { ran: false, reason: 'throttled' as const, sessionId: s.id };
     }
-    const inputs = await gatherInputs(s);
-    const { session, newFills } = swingLiveTick(s, inputs, now);
+    const { inputs, mkt } = await gatherInputs(s);
+    const { session, newFills } = swingLiveTick(s, inputs, now, mkt);
     await kv.set(sessionKey(session.id), session);
     if (newFills.length) notifySwingFills(newFills, session).catch(() => undefined);
     if (session.status === 'finished') await archive(session);
@@ -233,8 +254,8 @@ export async function stopSwingSession(): Promise<SwingLiveSession> {
   const out = await withLock(async () => {
     const s = await loadActiveSwing();
     if (!s || s.status !== 'running') throw new Error('نوسان‌گیری برخط فعالی وجود ندارد.');
-    const inputs = await gatherInputs(s);
-    const ticked = swingLiveTick(s, inputs, Date.now()).session;
+    const { inputs, mkt } = await gatherInputs(s);
+    const ticked = swingLiveTick(s, inputs, Date.now(), mkt).session;
     const done = finishSwingLive(ticked, Date.now(), 'stopped');
     await kv.set(sessionKey(done.id), done);
     await archive(done);

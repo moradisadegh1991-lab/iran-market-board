@@ -5,7 +5,7 @@
 //  • stops / take-profit are checked on every tick (every few minutes), not once a day
 import type { Activity } from '@/lib/engine/simulator';
 import { isNum, tehranClock, tehranDate } from '@/lib/num';
-import { mean } from './stats';
+import { ewmaVol, logReturns, mean, std } from './stats';
 import {
   PriceBook, SIM_ASSETS, analyse, buildResult, checkExit, effectiveProfile, executeOrder, findShockIn, planReview, signalFor, tradeRecord,
   type Account, type EquityPoint, type Order, type Position, type ScoredNews, type Signal, type SimAsset, type SimParams, type SimProfile, type SimResult, type SimTrade,
@@ -32,6 +32,12 @@ export interface LiveConfig {
   activity?: Activity; // how eager the engine is to act
   fixedIncomeYield: number;
   useNews: boolean;
+  /**
+   * Start from the user's own holdings instead of cash only: these quantities become positions at
+   * the first live quote (seedHoldings), and `capitalToman` is then cash + their value. Paper only —
+   * the book's assets are never changed by a session.
+   */
+  startHoldings?: { asset: SimAsset; qty: number }[];
 }
 
 export type LiveTrade = SimTrade & { at: number; equityToman: number; returnPct: number };
@@ -112,6 +118,70 @@ export function createSession(id: string, config: LiveConfig, params: SimParams,
   };
 }
 
+/**
+ * Puts the user's holdings into a new session as positions bought at the current live quote
+ * (no fee: they are already owned), with a trailing stop sized exactly as the engine sizes a buy's
+ * (stopK × volatility, at least minStop). Holdings with no live quote are left out and named.
+ * Call once, before the first tick; `capitalToman` becomes cash + the holdings' value, so returns
+ * and the benchmarks measure the whole starting portfolio.
+ */
+export function seedHoldings(s: LiveSession, ctx: Pick<TickContext, 'now' | 'quotes' | 'daily'>): { seeded: SimAsset[]; skipped: SimAsset[]; valueRial: number } {
+  const seeded: SimAsset[] = [];
+  const skipped: SimAsset[] = [];
+  let valueRial = 0;
+  const today = tehranDate(new Date(ctx.now));
+  const prof = effectiveProfile(s.config.profile, s.params);
+  for (const h of s.config.startHoldings ?? []) {
+    const q = ctx.quotes[h.asset];
+    if (!(isNum(q) && q > 0) || !(h.qty > 0)) {
+      skipped.push(h.asset);
+      continue;
+    }
+    let annVol = META[h.asset].crypto ? 0.6 : 0.25; // only when there is no history to measure it
+    let ppy = META[h.asset].crypto ? 365 : 300;
+    const d = ctx.daily[h.asset];
+    if (d && d.prices.length >= 62) {
+      const book = new PriceBook(d.dates, d.prices);
+      ppy = book.periodsPerYear(d.dates[d.dates.length - 1]);
+      const r = logReturns(d.prices.slice(-61));
+      annVol = Math.max(ewmaVol(r, 0.94), std(r) * 0.6, 1e-4) * Math.sqrt(ppy);
+    }
+    const stopDist = Math.max(prof.minStop, prof.stopK * annVol * Math.sqrt(10 / ppy));
+    const prev = s.positions[h.asset];
+    const qty = (prev?.qty ?? 0) + h.qty;
+    s.positions[h.asset] = {
+      qty, cost: (prev?.cost ?? 0) + q * h.qty, entryDate: today, entryPrice: q, peak: q, stopDist,
+      tookProfit: false, lastBuy: today, realized: 0, fees: 0, trades: 0, daysHeld: 0,
+    };
+    valueRial += q * h.qty;
+    seeded.push(h.asset);
+  }
+  s.config.capitalToman = Math.round((s.acct.cash + valueRial) / 10);
+  return { seeded, skipped, valueRial };
+}
+
+/**
+ * For a session started from the user's holdings: what that same portfolio would be worth now had
+ * nothing been traded — the holdings at the latest quotes, the cash part earning the fixed-income
+ * yield. The number the trades have to beat. Null for a cash-only session.
+ */
+export function untouchedValueToman(s: LiveSession, now: number): number | null {
+  const hs = s.config.startHoldings;
+  if (!hs?.length) return null;
+  let held0 = 0;
+  let heldNow = 0;
+  for (const h of hs) {
+    const p0 = s.startQuotes[h.asset];
+    const p1 = s.lastQuotes[h.asset]?.price ?? p0;
+    if (!isNum(p0) || !isNum(p1)) continue;
+    held0 += h.qty * p0;
+    heldNow += h.qty * p1;
+  }
+  const cash0 = Math.max(0, s.config.capitalToman * 10 - held0);
+  const years = Math.max(0, (Math.min(now, s.finishedAt ?? now) - s.startedAt) / DAY / 365);
+  return (cash0 * Math.pow(1 + s.config.fixedIncomeYield, years) + heldNow) / 10;
+}
+
 export function liveTick(s: LiveSession, ctx: TickContext): TickOutcome {
   const newTrades: LiveTrade[] = [];
   const newEvents: LiveEvent[] = [];
@@ -189,7 +259,7 @@ export function liveTick(s: LiveSession, ctx: TickContext): TickOutcome {
   const sig = (a: SimAsset) => {
     if (!signalCache.has(a)) {
       const b = books.get(a);
-      signalCache.set(a, b ? signalFor(a, b, today, { news: ctx.news }, bubbleBooks, s.params, now) : null);
+      signalCache.set(a, b ? signalFor(a, b, today, { news: ctx.news, fixedIncomeYield: s.config.fixedIncomeYield }, bubbleBooks, s.params, now) : null);
     }
     return signalCache.get(a)!;
   };

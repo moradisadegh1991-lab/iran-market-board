@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useState } from 'react';
 import { fmtInt, fmtNum, isNum } from '@/lib/num';
 import type { StockRow } from '@/lib/types';
@@ -52,7 +53,7 @@ export default function StocksView() {
               {tse?.rows.m1 ? (
                 <p className="banner info">
                   شاخص کل در یک ماه آینده با احتمال ۹۰٪ بین <bdi className="num">{fmtInt(tse.rows.m1.worst)}</bdi> و <bdi className="num">{fmtInt(tse.rows.m1.best)}</bdi> است.{' '}
-                  <a href="/scenarios#s-tse">دلایل و افق‌های دیگر</a>
+                  <Link href="/scenarios#s-tse">دلایل و افق‌های دیگر</Link>
                 </p>
               ) : null}
               <FilterBar>

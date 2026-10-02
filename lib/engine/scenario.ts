@@ -13,7 +13,7 @@
 // "Worst" = 5th percentile (only 5% of outcomes lower), "best" = 95th percentile, "base" = median.
 import { clamp, fmtInt, fmtPct, fmtPrice, isNum } from '@/lib/num';
 import type { AssetScenario, HorizonKey, ScenarioGroup, ScenarioRow } from '@/lib/types';
-import { autocorr1, ewmaVol, logReturns, mean, median, moments, quantile, rsi, sma, std } from './stats';
+import { autocorr1, cornishFisher, ewmaVol, logReturns, mean, median, moments, quantile, rsi, sma, std, varianceRatio } from './stats';
 
 export const SCENARIO_HORIZONS: { key: HorizonKey; label: string; days: number }[] = [
   { key: 'd1', label: '۱ روز', days: 1 },
@@ -43,22 +43,6 @@ export interface ScenarioInput {
 }
 
 const unitTxt = (u: ScenarioInput['unit']) => (u === 'toman' ? ' تومان' : u === 'usd' ? ' دلار' : ' واحد');
-
-function varianceRatio(rho: number, n: number): number {
-  if (n <= 1 || Math.abs(rho) < 1e-6) return 1;
-  let s = 0;
-  let pk = 1;
-  const kmax = Math.min(n - 1, 250);
-  for (let k = 1; k <= kmax; k++) {
-    pk *= rho;
-    if (Math.abs(pk) < 1e-6) break;
-    s += (1 - k / n) * pk;
-  }
-  return Math.max(0.3, 1 + 2 * s);
-}
-
-const cornishFisher = (z: number, S: number, K: number) =>
-  z + ((z * z - 1) * S) / 6 + ((z ** 3 - 3 * z) * K) / 24 - ((2 * z ** 3 - 5 * z) * S * S) / 36;
 
 function rolling(logs: number[], n: number): number[] {
   const out: number[] = [];

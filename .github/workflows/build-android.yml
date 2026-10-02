@@ -1,15 +1,20 @@
-# Builds the Android APK from android-app/.
+# Builds the Android APK: the whole app (مالی من — finance book, market, trading, alerts, game)
+# bundled as static files — see scripts/build-app-web.mjs.
 #
-# Secrets (repo → Settings → Secrets and variables → Actions):
-#   BOARD_URL            required — https://your-app.vercel.app  (baked into the bundle)
-#   ANDROID_KEYSTORE_B64 optional — base64 of your .keystore/.jks
-#   KEYSTORE_PASSWORD    optional
-#   KEY_ALIAS            optional
-#   KEY_PASSWORD         optional
+# Output, on every run:
+#   • a GitHub Release «اپ اندروید — ساخت N» with the APK attached (open it on the phone, tap the .apk)
+#   • the same APK as a workflow artifact
 #
-# With the four keystore secrets present it produces a SIGNED release APK ready for
-# Myket / Cafe Bazaar. Without them it still produces a debug APK you can install and
-# test — so a missing keystore never turns into a failed build with no output.
+# Secrets (repo → Settings → Secrets and variables → Actions), all optional:
+#   BOARD_URL            the deployment the app talks to (default https://iran-market-board.vercel.app)
+#   ANDROID_KEYSTORE_B64 base64 of your own .keystore/.jks — use this for Myket / Cafe Bazaar
+#   KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD
+#
+# Without the keystore secrets the APK is signed with android-app/ci/ci-release.jks. That key is
+# fixed on purpose: Android installs an update only when it carries the SAME signature as the
+# installed app. The old setup signed every run with a fresh debug key, so each new build had to
+# be uninstalled first — and uninstalling deletes everything the app keeps on the phone (the
+# whole financial book). Keep using one key for the life of the app.
 name: build-android
 
 on:
@@ -23,22 +28,24 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write # to publish the release with the APK
+
+concurrency:
+  group: build-android-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: android-app
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: npm
 
       - uses: actions/setup-java@v4
         with:
@@ -48,59 +55,96 @@ jobs:
       # Google removed the legacy "tools" package from the SDK repository on 2026-09-15;
       # android-actions/setup-android's default `packages: 'tools platform-tools'` now fails
       # every run with "Failed to find package 'tools'" (github.com/android-actions/setup-
-      # android/issues/537 — this hit many unrelated repos the same day, not just this one).
-      # Nothing here ever needed the standalone `tools` package: it only supplied legacy
-      # command-line utilities superseded by cmdline-tools years ago. Requesting just
-      # platform-tools sidesteps the dead package; the action still stands up ANDROID_HOME
-      # and pre-accepts the SDK licenses, which the next step's sdkmanager call relies on.
+      # android/issues/537). Requesting just platform-tools sidesteps the dead package; the
+      # action still stands up ANDROID_HOME and pre-accepts the SDK licenses.
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
 
       # Capacitor 6's default variables.gradle targets API 34 (capacitorjs.com/docs/updating/6-0).
-      # Installed explicitly rather than left to Gradle's own auto-download, matching how other
-      # projects worked around the same setup-android breakage — more predictable in CI than
-      # relying on an implicit download mid-build.
       - name: Install the SDK platform and build-tools Capacitor 6 targets
         run: yes | sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Install dependencies
+      - name: Resolve the server address
+        id: url
+        env:
+          INPUT_URL: ${{ github.event.inputs.board_url }}
+          SECRET_URL: ${{ secrets.BOARD_URL }}
+        run: |
+          URL="${INPUT_URL:-${SECRET_URL:-https://iran-market-board.vercel.app}}"
+          echo "board_url=${URL%/}" >> "$GITHUB_OUTPUT"
+          echo "App will talk to ${URL%/}"
+
+      - name: Install the web app's dependencies
+        run: npm ci --no-audit --no-fund
+
+      # the phone decides with the app closed (Java) what the app later books (JS): they must agree
+      - name: Native SMS classifier matches the app's
+        run: npx tsx scripts/native-sms-test.ts
+
+      - name: Build the whole website as static files for the APK
+        run: node scripts/build-app-web.mjs "${{ steps.url.outputs.board_url }}"
+
+      - name: Install Capacitor
+        working-directory: android-app
         run: npm install --no-audit --no-fund
 
-      - name: Point the bundle at the deployment
-        env:
-          BOARD_URL: ${{ github.event.inputs.board_url || secrets.BOARD_URL }}
-        run: |
-          if [ -z "$BOARD_URL" ]; then
-            echo "::error::BOARD_URL secret is not set — the app would ship with a placeholder server address."
-            exit 1
-          fi
-          node set-url.mjs "$BOARD_URL"
-
       - name: Add the Android platform
+        working-directory: android-app
         run: |
           npx cap add android || echo "android/ already present"
           npx cap sync android
 
       - name: Wire the SMS-reader plugin into the Android project
+        working-directory: android-app
         run: node scripts/wire-native-plugin.mjs
 
-      - name: Decode keystore
-        id: keystore
+
+      # Launcher icon (adaptive + legacy), splash, and the status-bar notification icon that
+      # capacitor.config.json names as LocalNotifications.smallIcon. Sources: android-app/assets
+      # (rendered from assets-src/*.svg) and android-app/res-extra.
+      - name: App icon, splash and notification icon
+        working-directory: android-app
+        run: npm run icons
+
+      # «نوعش چیست؟»: an SMS_RECEIVED broadcast → notification with the type buttons → the stored
+      # choice, on Robolectric (the real Android framework classes on the JVM). After the icons step:
+      # the tests check the notification carries the status-bar icon the APK ships with.
+      - name: Test the native SMS notification code
+        working-directory: android-app
+        run: |
+          node scripts/wire-native-tests.mjs
+          cd android && chmod +x gradlew && ./gradlew :app:testDebugUnitTest --no-daemon
+
+      # Every build gets a higher versionCode, so the phone installs it as an update over the
+      # previous one (keeping the app's data) instead of refusing it.
+      - name: Version from the run number
+        working-directory: android-app
+        run: |
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName \"[^\"]*\"/versionName \"2.${{ github.run_number }}\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
+
+      - name: Signing key
+        working-directory: android-app
         env:
           KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KS_KEYPASS: ${{ secrets.KEY_PASSWORD }}
         run: |
           if [ -n "$KS" ]; then
             echo "$KS" | base64 -d > android/app/release.keystore
-            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=$KS_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$KS_KEYPASS" >> "$GITHUB_ENV"
+            echo "Signing with the ANDROID_KEYSTORE_B64 secret."
           else
-            echo "No keystore secret — building an unsigned debug APK instead."
-            echo "signed=false" >> "$GITHUB_OUTPUT"
+            cp ci/ci-release.jks android/app/release.keystore
+            echo "KEYSTORE_PASSWORD=malimann-ci" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=malimann" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=malimann-ci" >> "$GITHUB_ENV"
+            echo "No keystore secret — signing with the fixed CI key (android-app/ci/ci-release.jks)."
           fi
-
-      - name: Configure release signing
-        if: steps.keystore.outputs.signed == 'true'
-        run: |
           cat >> android/app/build.gradle <<'GRADLE'
 
           // appended by CI
@@ -122,27 +166,55 @@ jobs:
           }
           GRADLE
 
-      - name: Build release APK
-        if: steps.keystore.outputs.signed == 'true'
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon
+      - name: Build the APK
+        working-directory: android-app/android
+        run: chmod +x gradlew && ./gradlew assembleRelease --no-daemon
 
-      - name: Build debug APK
-        if: steps.keystore.outputs.signed != 'true'
-        run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Check the APK carries the icons, name and SMS receivers
+        run: |
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt2"
+          APK=$(find android-app/android -name '*release*.apk' | head -1)
+          "$AAPT" dump badging "$APK" | grep -E "^package:|application-label:|application-icon-640" || true
+          # a smallIcon missing from the resources makes notifications fail silently (CLAUDE.md rule 14)
+          "$AAPT" dump resources "$APK" | grep -q "drawable/ic_stat_mali" || { echo "::error::notification icon ic_stat_mali is not in the APK"; exit 1; }
+          "$AAPT" dump resources "$APK" | grep -q "mipmap/ic_launcher_foreground" || { echo "::error::adaptive launcher icon missing"; exit 1; }
+          echo "icons OK"
+          # the receiver that asks «نوعش چیست؟» when a bank SMS arrives, and its permission
+          MF=$("$AAPT" dump xmltree --file AndroidManifest.xml "$APK")
+          echo "$MF" | grep -q "SmsAskReceiver" && echo "$MF" | grep -q "android.provider.Telephony.SMS_RECEIVED" && echo "$MF" | grep -q "android.permission.RECEIVE_SMS" && echo "$MF" | grep -q "SmsChoiceReceiver" || { echo "::error::SMS receivers or RECEIVE_SMS missing from the manifest"; exit 1; }
+          echo "SMS receivers OK"
 
-      - name: Collect APKs
+      - name: Collect the APK
+        id: apk
         run: |
           mkdir -p out
-          find android -name '*.apk' -exec cp {} out/ \;
+          APK=$(find android-app/android -name '*release*.apk' | head -1)
+          NAME="mali-man-${{ github.run_number }}.apk"
+          cp "$APK" "out/$NAME"
           ls -la out
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: market-board-apk
-          path: android-app/out/*.apk
+          name: mali-man-apk
+          path: out/*.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish the APK as a release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: اپ اندروید «مالی من» — ساخت ${{ github.run_number }}
+          prerelease: false
+          make_latest: true
+          files: out/${{ steps.apk.outputs.name }}
+          body: |
+            فایل `${{ steps.apk.outputs.name }}` را روی گوشی باز کنید و «نصب» بزنید.
+
+            - یک اپ با همه امکانات: دفتر مالی (تراکنش، ورود از بانک و پیامک، بودجه، وام/چک/قبض، اهداف، حساب و دارایی، ماشین‌حساب‌ها، مشاور)، بازار، معامله برخط روی گوشی، هشدار قیمت و بازی.
+            - وقتی پیامک بانکی می‌رسد (حتی با اپ بسته)، اعلانی بالای صفحه می‌پرسد هزینه بود، درآمد یا انتقال؛ جوابتان با باز شدن اپ در دفتر ثبت می‌شود.
+            - داده‌های نسخه‌های قبلی (هزینه‌ها و دارایی‌ها) از کارت «داده‌های نسخه قبلی اپ» در خانه به دفتر منتقل می‌شوند.
+            - داده‌های مالی فقط روی گوشی می‌ماند. سرور: ${{ steps.url.outputs.board_url }}
+            - commit: ${{ github.sha }}

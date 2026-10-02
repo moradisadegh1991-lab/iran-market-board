@@ -9,7 +9,7 @@
  * Idempotent: safe to run on every build, in CI or locally, before or after MainActivity.java
  * already has an onCreate().
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,8 +22,7 @@ const pkgPath = appId.split('.').join('/');
 const javaDir = join(ROOT, 'android/app/src/main/java', pkgPath);
 const mainActivityPath = join(javaDir, 'MainActivity.java');
 const manifestPath = join(ROOT, 'android/app/src/main/AndroidManifest.xml');
-const pluginSrc = join(ROOT, 'native-plugin/java/SmsReaderPlugin.java');
-const pluginDest = join(javaDir, 'SmsReaderPlugin.java');
+const nativeDir = join(ROOT, 'native-plugin/java');
 
 function fail(msg) {
   console.error('✗ ' + msg);
@@ -38,12 +37,13 @@ if (!existsSync(join(ROOT, 'android'))) {
   process.exit(0); // not an error: this is expected before the platform exists yet
 }
 
-// ── 1. copy the plugin, with its package line matched to this project's appId ──
+// ── 1. copy the plugin and its classes (BankSms, SmsAsk, the two receivers), package matched to appId ──
 mkdirSync(javaDir, { recursive: true });
-let pluginJava = readFileSync(pluginSrc, 'utf8');
-pluginJava = pluginJava.replace(/^package [\w.]+;/m, `package ${appId};`);
-writeFileSync(pluginDest, pluginJava);
-console.log(`✓ SmsReaderPlugin.java → ${pluginDest.replace(ROOT + '/', '')}`);
+for (const file of readdirSync(nativeDir).filter((f) => f.endsWith('.java')).sort()) {
+  const java = readFileSync(join(nativeDir, file), 'utf8').replace(/^package [\w.]+;/m, `package ${appId};`);
+  writeFileSync(join(javaDir, file), java);
+  console.log(`✓ ${file} → ${join(javaDir, file).replace(ROOT + '/', '')}`);
+}
 
 // ── 2. register it in MainActivity.java ──
 if (!existsSync(mainActivityPath)) {
@@ -86,7 +86,8 @@ if (!existsSync(manifestPath)) {
   let mf = readFileSync(manifestPath, 'utf8');
   // POST_NOTIFICATIONS is required from Android 13 (API 33); without it the local
   // notification is silently dropped and nothing tells you why.
-  const perms = ['android.permission.READ_SMS', 'android.permission.POST_NOTIFICATIONS'];
+  // RECEIVE_SMS: the «نوعش چیست؟» notification the moment a bank SMS arrives (SmsAskReceiver)
+  const perms = ['android.permission.READ_SMS', 'android.permission.RECEIVE_SMS', 'android.permission.POST_NOTIFICATIONS'];
   let changed = false;
   for (const perm of perms) {
     if (mf.includes(perm)) {
@@ -96,6 +97,22 @@ if (!existsSync(manifestPath)) {
     mf = mf.replace(/(<manifest[^>]*>)/, `$1\n    <uses-permission android:name="${perm}" />`);
     changed = true;
     console.log(`✓ AndroidManifest.xml: ${perm.split('.').pop()} permission added`);
+  }
+  // the receivers: SMS_RECEIVED only from the system (BROADCAST_SMS), the button taps only from
+  // this app's own notifications (not exported)
+  const receivers = [
+    ['SmsAskReceiver', `<receiver android:name=".SmsAskReceiver" android:exported="true" android:permission="android.permission.BROADCAST_SMS">\n            <intent-filter>\n                <action android:name="android.provider.Telephony.SMS_RECEIVED" />\n            </intent-filter>\n        </receiver>`],
+    ['SmsChoiceReceiver', `<receiver android:name=".SmsChoiceReceiver" android:exported="false" />`],
+  ];
+  for (const [name, xml] of receivers) {
+    if (mf.includes(`android:name=".${name}"`)) {
+      console.log(`✓ AndroidManifest.xml already declares ${name} (no change)`);
+      continue;
+    }
+    if (!/<\/application>/.test(mf)) fail('AndroidManifest.xml has no </application> to add the receivers to');
+    mf = mf.replace(/(\s*)<\/application>/, `\n        ${xml}$1</application>`);
+    changed = true;
+    console.log(`✓ AndroidManifest.xml: ${name} declared`);
   }
   if (changed) writeFileSync(manifestPath, mf);
 }

@@ -66,7 +66,7 @@ async function loadActive(): Promise<StoredSession | null> {
 const save = (s: StoredSession) => kv.set(sessionKey(s.id), s, 120 * 86400);
 
 /** Real quotes (rial per unit; TSE in index points like the backtest) + daily history + recent news. */
-async function buildContext(now: number, assets: SimAsset[], useNews: boolean): Promise<TickContext & { dataNote: string | null }> {
+export async function buildContext(now: number, assets: SimAsset[], useNews: boolean): Promise<TickContext & { dataNote: string | null }> {
   const [snap, all] = await Promise.all([getSnapshot(), loadAllSeries()]);
   const item = (k: string) => snap.live.items.find((i) => i.key === k)?.price ?? null;
   const usdRial = isNum(item('usd')) ? item('usd')! * 10 : null;
@@ -189,10 +189,17 @@ export async function maybeTick(): Promise<void> {
 
 export function validateConfig(body: any): LiveConfig {
   const valid = SIM_ASSETS.map((a) => a.key);
-  const assets = [...new Set((Array.isArray(body?.assets) ? body.assets : []).filter((a: string) => valid.includes(a as SimAsset)))] as SimAsset[];
+  // the user's own holdings to start from (device sessions only — see seedHoldings)
+  const startHoldings = (Array.isArray(body?.startHoldings) ? body.startHoldings : [])
+    .slice(0, 12)
+    .map((h: { asset?: unknown; qty?: unknown }) => ({ asset: String(h?.asset) as SimAsset, qty: Number(h?.qty) }))
+    .filter((h: { asset: SimAsset; qty: number }) => valid.includes(h.asset) && isNum(h.qty) && h.qty > 0 && h.qty < 1e12) as { asset: SimAsset; qty: number }[];
+  const assets = [...new Set([...(Array.isArray(body?.assets) ? body.assets : []), ...startHoldings.map((h) => h.asset)].filter((a: string) => valid.includes(a as SimAsset)))] as SimAsset[];
   if (!assets.length) throw new Error('دست‌کم یک دارایی انتخاب کنید.');
-  const capitalToman = Math.round(Number(body?.capitalToman));
-  if (!isNum(capitalToman) || capitalToman < 1_000_000 || capitalToman > 1e13) throw new Error('سرمایه باید بین ۱ میلیون تومان و ۱۰ هزار میلیارد تومان باشد.');
+  const capitalToman = Math.round(Number(body?.capitalToman ?? 0));
+  // starting from holdings, the cash part may be zero; the total is checked once they are priced
+  const minCash = startHoldings.length ? 0 : 1_000_000;
+  if (!isNum(capitalToman) || capitalToman < minCash || capitalToman > 1e13) throw new Error('سرمایه باید بین ۱ میلیون تومان و ۱۰ هزار میلیارد تومان باشد.');
   const days = Math.round(Number(body?.days ?? 30));
   if (!isNum(days) || days < 1 || days > 90) throw new Error('مدت معامله باید بین ۱ و ۹۰ روز باشد.');
   const profile = (Object.keys(PROFILES).includes(body?.profile) ? body.profile : 'balanced') as LiveConfig['profile'];
@@ -203,7 +210,10 @@ export function validateConfig(body: any): LiveConfig {
   const asked = Number(body?.reviewEveryDays);
   const reviewEveryDays = [1, 2, 3, 7].includes(asked) ? asked : Math.max(1, Math.min(7, Math.floor(days / 6) || 1));
   const activity = (['calm', 'normal', 'active'] as const).includes(body?.activity) ? body.activity : 'normal';
-  return { capitalToman, profile, assets, days, reviewEveryDays, activity, fixedIncomeYield: Number(process.env.FIXED_INCOME_YIELD || 0.3), useNews: body?.useNews !== false };
+  return {
+    capitalToman, profile, assets, days, reviewEveryDays, activity, fixedIncomeYield: Number(process.env.FIXED_INCOME_YIELD || 0.3), useNews: body?.useNews !== false,
+    ...(startHoldings.length ? { startHoldings } : {}),
+  };
 }
 
 /**

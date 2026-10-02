@@ -1,4 +1,4 @@
-import OverviewView from '@/components/views/OverviewView';
+import HomeView from '@/components/finance/views/HomeView';
 export default function Page() {
-  return <OverviewView />;
+  return <HomeView />;
 }

@@ -14,7 +14,16 @@ function tidy(pairs: DatedPairs): DatedPairs {
   return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-KEEP_DAYS);
 }
 
-export const TGJU_SLUGS = { usd: 'price_dollar_rl', coin: 'sekee', g18: 'geram18', ons: 'ons' } as const;
+export const TGJU_SLUGS = {
+  usd: 'price_dollar_rl',
+  coin: 'sekee',
+  nim: 'nim',
+  rob: 'rob',
+  g18: 'geram18',
+  ons: 'ons',
+  silver: 'silver_999', // rial per gram of 999 silver
+  silverOns: 'silver', // USD per ounce
+} as const;
 
 export async function fetchTgjuHistory(slug: string): Promise<DatedPairs> {
   const json = await fetchJson(`https://api.tgju.org/v1/market/indicator/summary-table-data/${slug}`, { timeoutMs: 20_000 });

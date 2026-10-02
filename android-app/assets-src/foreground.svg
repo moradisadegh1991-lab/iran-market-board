@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- adaptive-icon safe zone is the centre 66%: everything sits inside r≈300 -->
+  <defs>
+    <linearGradient id="coin" x1="0.2" y1="0.1" x2="0.8" y2="0.95">
+      <stop offset="0" stop-color="#f7d27a"/>
+      <stop offset="0.55" stop-color="#e2ab35"/>
+      <stop offset="1" stop-color="#c38a1e"/>
+    </linearGradient>
+  </defs>
+  <circle cx="512" cy="522" r="262" fill="#000" opacity="0.18"/>
+  <circle cx="512" cy="506" r="262" fill="url(#coin)"/>
+  <circle cx="512" cy="506" r="212" fill="none" stroke="#a8761a" stroke-width="14" opacity="0.55"/>
+  <!-- a rising line: money that grows -->
+  <polyline points="372,612 462,512 540,568 660,430" fill="none" stroke="#1a2848" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="690,398 692,494 600,430" fill="#1a2848" stroke="#1a2848" stroke-width="18" stroke-linejoin="round"/>
+</svg>

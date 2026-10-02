@@ -7,22 +7,57 @@
 //    which makes stops slightly optimistic in fast drops. Modelled by charging `slipPct` extra on stop exits.
 //  • every trade pays fee+spread on both sides; an aggressive preset that trades often will be dragged by it.
 //  • CoinGecko hourly history is capped (~90 days), so this measures a regime, not a long-run edge.
-import { isNum } from '@/lib/num';
-import { emaSeries, maxDrawdown, rsiSeries, std } from './stats';
+import { isNum, msToTehranDate } from '@/lib/num';
+import { emaSeries, logReturns, maxDrawdown, mean, rsiSeries, std } from './stats';
+import { runSwingV2 } from './swing-v2';
 
 export interface SwingBar {
   t: number; // ms
-  p: number; // USD
+  p: number; // USD close
+  /** optional OHLCV from exchange candles (engine v2 uses them; v1 ignores them) */
+  o?: number;
+  h?: number;
+  l?: number;
+  /** traded value during the bar, USDT */
+  v?: number;
 }
 
-export type SwingPreset = 'calm' | 'normal' | 'aggressive';
+export type SwingEngine = 'v1' | 'v2';
+
+/** 'trend' exists only in engine v2 (any request for it runs v2) — see swing-v2.ts runTrendRide */
+export type SwingPreset = 'trend' | 'calm' | 'normal' | 'aggressive';
 
 export interface SwingConfig {
   capitalToman: number;
   preset: SwingPreset;
   feePct: number; // per side, % (exchange fee + tether spread)
   usdtRial: number | null; // for toman reporting; null → report in USD only
+  /**
+   * Daily USDT/IRR by Tehran date. Without it the whole window is converted at the single
+   * `usdtRial` rate, which silently makes every "toman" number a dollar number in disguise:
+   * the rial leg of the trade — often the larger half of an Iranian holder's return — disappears.
+   * With it, entries convert at their own day's rate and exits at theirs, so the reported toman
+   * P&L is the money actually made, and `usdtPct` becomes a real benchmark.
+   */
+  usdtRialByDate?: Map<string, number> | null;
+  /** risk-free annual rate for Sharpe/Sortino and the fixed-income benchmark (e.g. 0.30) */
+  riskFreeAnnual?: number;
+  /** v1 = the original close-only rules (default, kept bit-for-bit); v2 = lib/engine/swing-v2.ts */
+  engine?: SwingEngine;
+  /** v2 only: BTC closes over the same span, for the market-wide regime filter on altcoins */
+  market?: SwingBar[] | null;
+  /** v2 only: daily closes of the coin (and of BTC) for the long-term regime filter — price above
+   *  its 50-day average. Only days that closed before a bar may influence that bar. */
+  daily?: SwingBar[] | null;
+  marketDaily?: SwingBar[] | null;
+  /** v2 only, for evaluation scripts: override preset knobs (see SWING_V2) */
+  v2Overrides?: Record<string, number> | null;
+  /** v2 only: bars before this time are indicator warm-up and are never traded or scored */
+  tradeFrom?: number | null;
 }
+
+const DEFAULT_RISK_FREE = 0.3;
+const BARS_PER_YEAR = 24 * 365;
 
 export const SWING_PRESETS: Record<SwingPreset, {
   label: string;
@@ -58,6 +93,13 @@ export const SWING_PRESETS: Record<SwingPreset, {
   /** bars the fast EMA must stay below the slow one before a trend exit fires */
   trendExitBars: number;
 }> = {
+  trend: {
+    label: 'روندسوار (روزانه)',
+    note: 'نگه‌داری تا وقتی قیمت و بیت‌کوین بالای میانگین ۵۰ روزه‌اند؛ تنها سبکی که در آزمون سه‌ساله داده واقعی هم در بازار نزولی ضرر را کوچک کرد و هم بخش بزرگی از رشد را گرفت',
+    // v1 never runs this preset; the numbers below only keep the table complete
+    fastH: 36, slowH: 168, dipK: 1.6, rsiBuy: 36, breakoutH: 120, targetK: 1.8, stopK: 1.3, maxHoldH: 240, cooldownH: 24, exposure: 0.9,
+    trendERpct: 0.62, trendERmin: 0.17, chopTargetK: 1.5, chopStopK: 1.3, trailAfterK: 1.4, trailK: 1.6, trendExitBars: 4,
+  },
   calm: {
     label: 'کم‌تحرک',
     note: 'فقط اصلاح‌های عمیق در روند صعودی؛ معاملات کم، هدف و حد ضرر دورتر',
@@ -105,6 +147,8 @@ export interface SwingTrade {
   equityAfter: number; // toman
   targetPrice: number;
   stopPrice: number;
+  /** engine v2: confluence score (0–100) of the evidence behind the entry */
+  score?: number;
 }
 
 export interface SwingMetrics {
@@ -112,8 +156,10 @@ export interface SwingMetrics {
   finalEquity: number;
   pnlToman: number;
   returnPct: number;
-  buyHoldPct: number; // same coin, bought at the start and held (USD terms, fee once each way)
+  buyHoldPct: number; // same coin, bought at the start and held, fee once each way
   usdtPct: number | null; // simply holding tether over the window (rial-denominated benchmark)
+  /** leaving the same money in a fixed-income fund for the same window — the local hurdle rate */
+  fixedIncomePct: number | null;
   trades: number;
   wins: number;
   winRatePct: number | null;
@@ -127,6 +173,20 @@ export interface SwingMetrics {
   barsUsed: number;
   fromAt: number;
   toAt: number;
+  /** annualised, in excess of the risk-free rate — null when the sample is too thin to mean anything */
+  sharpe: number | null;
+  /** same, but punishing only downside deviation */
+  sortino: number | null;
+  /** gross profit ÷ gross loss, in toman. Below 1 means the losers outweighed the winners */
+  profitFactor: number | null;
+  /** average net result per trade, % of the money committed — the edge, if there is one */
+  expectancyPct: number | null;
+  /** average win ÷ average loss; with a 40% win rate this has to clear ~1.5 to break even */
+  payoffRatio: number | null;
+  /** longest run of losing trades — what the account has to survive to reach the average */
+  maxConsecLosses: number;
+  /** true when toman figures used one fixed tether rate rather than the rate of each day */
+  fixedFx: boolean;
 }
 
 export interface SwingResult {
@@ -195,6 +255,7 @@ function fa(n: number, digits = 1): string {
  * Long-only, at most one open position, no leverage, no shorting.
  */
 export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; name: string }, config: SwingConfig): SwingResult {
+  if (config.engine === 'v2' || config.preset === 'trend') return runSwingV2(bars, coin, config);
   const P = SWING_PRESETS[config.preset];
   const warnings: string[] = [];
   const clean = bars.filter((b) => isNum(b.p) && b.p > 0 && isNum(b.t)).sort((a, b) => a.t - b.t);
@@ -232,7 +293,16 @@ export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; n
 
   const trades: SwingTrade[] = [];
   const equity: SwingResult['equity'] = [];
-  const usdToToman = (usd: number) => (isNum(config.usdtRial) ? (usd * config.usdtRial) / 10 : usd);
+
+  const { rates, fixedFx } = barRates(clean, config);
+  const toToman = (usd: number, i: number) => {
+    const r = rates[i];
+    return isNum(r) ? (usd * r) / 10 : usd;
+  };
+  const toUsd = (toman: number, i: number) => {
+    const r = rates[i];
+    return isNum(r) ? (toman * 10) / r : toman;
+  };
   const start = Math.max(P.slowH, 24);
 
   /**
@@ -252,7 +322,9 @@ export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; n
       bar;                                                    // trend / timeout / end exit at market
     const gross = px / entryPrice - 1;
     const extra = why === 'stop' ? slipPct : 0;
-    const grossOut = netIn * (1 + gross); // value of the position before the exit fee
+    // toman value of the coins held, at THIS bar's tether rate — so the rial leg of the trade
+    // lands in the P&L instead of being assumed away
+    const grossOut = toToman(qty * px, i); // value of the position before the exit fee
     const proceeds = grossOut * (1 - fee - extra);
     const feeToman = committed * fee + grossOut * (fee + extra);
     cash += proceeds;
@@ -351,7 +423,7 @@ export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; n
         committed = cash * P.exposure * volAdj;
         if (committed > 0) {
           netIn = committed * (1 - fee);
-          const usdIn = isNum(config.usdtRial) ? (netIn * 10) / config.usdtRial : netIn;
+          const usdIn = toUsd(netIn, i);
           qty = usdIn / px;
           entryPrice = px;
           entryAt = clean[i].t;
@@ -367,27 +439,129 @@ export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; n
       }
     }
 
-    const mark = qty > 0 ? netIn * (px / entryPrice) : 0;
+    const mark = qty > 0 ? toToman(qty * px, i) : 0;
     equity.push({ t: clean[i].t, equity: cash + mark, price: px, inMarket: qty > 0 });
   }
 
   if (qty > 0) close(clean.length - 1, 'end');
 
+  return finalizeSwing({ coin, config, preset: P, clean, prices, rates, fixedFx, start, fee, cash, barsInMarket, trades, equity, warnings });
+}
+
+/**
+ * Per-bar USDT/IRR. With a daily series each bar uses the rate of its own Tehran day (carrying
+ * the last known rate forward across gaps); without one, every bar uses the single current rate,
+ * which is the old behaviour and is flagged as `fixedFx` so the caller can say so.
+ */
+export function barRates(clean: SwingBar[], config: SwingConfig): { rates: (number | null)[]; fixedFx: boolean } {
+  const fixedFx = !config.usdtRialByDate || config.usdtRialByDate.size === 0;
+  const rates: (number | null)[] = (() => {
+    const fallback = isNum(config.usdtRial) ? config.usdtRial : null;
+    if (fixedFx) return clean.map(() => fallback);
+    const byDate = config.usdtRialByDate!;
+    const keys = [...byDate.keys()].sort();
+    let k = 0;
+    let carried: number | null = null;
+    return clean.map((b) => {
+      const d = msToTehranDate(b.t);
+      while (k < keys.length && keys[k] <= d) {
+        const v = byDate.get(keys[k]);
+        if (isNum(v) && v > 0) carried = v;
+        k++;
+      }
+      // a bar older than the first stored rate falls back to the earliest one we have
+      if (carried === null) {
+        const first = keys.map((d2) => byDate.get(d2)).find((v) => isNum(v) && v > 0);
+        return isNum(first) ? first! : fallback;
+      }
+      return carried;
+    });
+  })();
+  return { rates, fixedFx };
+}
+
+export interface FinalizeArgs {
+  coin: SwingResult['coin'];
+  config: SwingConfig;
+  preset: SwingResult['preset'];
+  clean: SwingBar[];
+  prices: number[];
+  rates: (number | null)[];
+  fixedFx: boolean;
+  /** first bar that could trade — benchmarks and the window are measured from here */
+  start: number;
+  fee: number;
+  cash: number;
+  barsInMarket: number;
+  trades: SwingTrade[];
+  equity: SwingResult['equity'];
+  warnings: string[];
+}
+
+/** Benchmarks, risk-adjusted metrics and warnings — shared by every engine version. */
+export function finalizeSwing(a: FinalizeArgs): SwingResult {
+  const { coin, config, clean, prices, rates, fixedFx, start, fee, cash, barsInMarket, trades, equity, warnings } = a;
+  const P = a.preset;
+  const toToman = (usd: number, i: number) => {
+    const r = rates[i];
+    return isNum(r) ? (usd * r) / 10 : usd;
+  };
   const finalEquity = cash;
+  const lastIdx = prices.length - 1;
   const firstPx = prices[start];
-  const lastPx = prices[prices.length - 1];
-  const bhPct = ((lastPx / firstPx) * (1 - fee) * (1 - fee) - 1) * 100;
+  const lastPx = prices[lastIdx];
+  // buy & hold in toman: convert at each end's own tether rate, so it carries the rial leg too
+  const bhPct = (toToman(lastPx, lastIdx) / toToman(firstPx, start)) * (1 - fee) * (1 - fee) * 100 - 100;
+  const rateStart = rates[start], rateEnd = rates[lastIdx];
+  const usdtPct = !fixedFx && isNum(rateStart) && isNum(rateEnd) && rateStart > 0 ? (rateEnd / rateStart - 1) * 100 : null;
+
+  const windowDays = (clean[lastIdx].t - clean[start].t) / 86400000;
+  const rf = isNum(config.riskFreeAnnual) ? config.riskFreeAnnual : DEFAULT_RISK_FREE;
+  const fixedIncomePct = windowDays > 0 ? (Math.pow(1 + rf, windowDays / 365) - 1) * 100 : null;
+
   const eqSeries = equity.map((e) => e.equity);
   const netPcts = trades.map((t) => t.netPct);
   const wins = trades.filter((t) => t.pnlToman > 0).length;
 
+  // Risk-adjusted numbers. Without them a strategy is judged on return alone, which in a market
+  // where a fixed-income fund pays ~30% a year is not a judgement at all.
+  const eqR = logReturns(eqSeries);
+  const rfPerBar = Math.log(1 + rf) / BARS_PER_YEAR;
+  const enough = eqR.length >= 200 && trades.length >= 3;
+  const excess = eqR.map((r) => r - rfPerBar);
+  const sdBar = std(eqR);
+  const downside = Math.sqrt(mean(excess.map((r) => Math.min(r, 0) ** 2)));
+  const sharpe = enough && sdBar > 0 ? (mean(excess) / sdBar) * Math.sqrt(BARS_PER_YEAR) : null;
+  const sortino = enough && downside > 0 ? (mean(excess) / downside) * Math.sqrt(BARS_PER_YEAR) : null;
+
+  const grossWin = trades.filter((t) => t.pnlToman > 0).reduce((a, t) => a + t.pnlToman, 0);
+  const grossLoss = -trades.filter((t) => t.pnlToman <= 0).reduce((a, t) => a + t.pnlToman, 0);
+  const winPcts = trades.filter((t) => t.pnlToman > 0).map((t) => t.netPct);
+  const lossPcts = trades.filter((t) => t.pnlToman <= 0).map((t) => t.netPct);
+  const avgLoss = lossPcts.length ? Math.abs(mean(lossPcts)) : 0;
+  let run = 0, maxConsecLosses = 0;
+  for (const t of trades) {
+    run = t.pnlToman <= 0 ? run + 1 : 0;
+    if (run > maxConsecLosses) maxConsecLosses = run;
+  }
+
   if (trades.length === 0) warnings.push('در این بازه هیچ سیگنال ورودی صادر نشد؛ عدد بازده صفر یعنی سرمایه تمام مدت نقد مانده، نه اینکه استراتژی ضرر نکرده باشد.');
   if (trades.length >= 25) warnings.push('تعداد معاملات زیاد است؛ بخش بزرگی از بازده ناخالص صرف کارمزد و اسپرد می‌شود.');
   if (clean.length < 24 * 25) warnings.push('بازه داده کوتاه است؛ نتیجه بیشتر بازتاب یک وضعیت خاص بازار است تا کیفیت استراتژی.');
+  if (fixedFx && isNum(config.usdtRial)) {
+    warnings.push('نرخ تتر در کل بازه ثابت فرض شده است؛ یعنی این ارقام در عمل بازده دلاری‌اند و تغییر نرخ تتر در آن‌ها نیست. برای عدد تومانی واقعی، تاریخچه روزانه تتر لازم است.');
+  }
+  if (isNum(fixedIncomePct) && (finalEquity / config.capitalToman - 1) * 100 < fixedIncomePct) {
+    warnings.push(`بازده این استراتژی از صندوق درآمد ثابت (${fixedIncomePct.toLocaleString('fa-IR', { maximumFractionDigits: 1 })}٪ در همین بازه) کمتر بود؛ ریسک معامله‌گری در این دوره جبران نشد.`);
+  }
 
+  // the market/daily series are inputs, not results — returning them would ship thousands of
+  // bars back to the browser with every run (and into every live-session snapshot)
+  const { market: _m, marketDaily: _md, daily: _d, ...lean } = config;
+  const outConfig = config.market || config.marketDaily || config.daily ? lean : config;
   return {
     coin,
-    config,
+    config: outConfig,
     preset: P,
     metrics: {
       startEquity: config.capitalToman,
@@ -395,7 +569,8 @@ export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; n
       pnlToman: finalEquity - config.capitalToman,
       returnPct: (finalEquity / config.capitalToman - 1) * 100,
       buyHoldPct: bhPct,
-      usdtPct: null,
+      usdtPct,
+      fixedIncomePct,
       trades: trades.length,
       wins,
       winRatePct: trades.length ? (wins / trades.length) * 100 : null,
@@ -409,6 +584,13 @@ export function runSwing(bars: SwingBar[], coin: { id: string; symbol: string; n
       barsUsed: clean.length,
       fromAt: clean[start].t,
       toAt: clean[clean.length - 1].t,
+      sharpe,
+      sortino,
+      profitFactor: grossLoss > 0 ? grossWin / grossLoss : null,
+      expectancyPct: netPcts.length ? mean(netPcts) : null,
+      payoffRatio: winPcts.length && avgLoss > 0 ? mean(winPcts) / avgLoss : null,
+      maxConsecLosses,
+      fixedFx,
     },
     trades,
     equity,

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { HORIZONS, RISK_LEVEL_LABEL, riskLevel } from '@/lib/engine/risk';
 import { fmtInt, fmtPct, fmtPrice } from '@/lib/num';
 import type { AssetRisk, HorizonKey } from '@/lib/types';
+import PositionSizer from '../PositionSizer';
 import { WithSnapshot } from '../SnapshotProvider';
 import { Chips, FilterBar, PageHead, Select, Toggle } from '../ui';
 
@@ -14,7 +15,11 @@ const MODE_HELP: Record<Mode, string> = {
   hold: 'اگر دارایی را نگه دارید، احتمال افتِ بیش از حد معمول آن افق چقدر است.',
   sell: 'اگر امروز بفروشید، احتمال جاماندن از رشد چقدر است.',
 };
-const GROUP_OF: Record<string, Group> = { usd: 'fx', usdt: 'fx', g18: 'gold', coin: 'gold', ons: 'gold', btc: 'crypto', eth: 'crypto', tse: 'tse' };
+const GROUP_OF: Record<string, Group> = {
+  usd: 'fx', usdt: 'fx',
+  g18: 'gold', coin: 'gold', nim: 'gold', rob: 'gold', ons: 'gold', silver: 'gold', silverOns: 'gold',
+  btc: 'crypto', eth: 'crypto', tse: 'tse',
+};
 const LEVEL_CLASS = ['lv0', 'lv1', 'lv2', 'lv3', 'lv4'] as const;
 const UNIT: Record<string, string> = { toman: 'تومان', usd: 'دلار', point: 'واحد' };
 const SIGNAL: Record<string, string> = { 'entry-low': 'شرایط ورود نسبتاً کم‌ریسک', 'entry-high': 'ورود پرریسک', neutral: 'بدون سیگنال مشخص' };
@@ -165,6 +170,7 @@ export default function RiskView() {
                   </dl>
                 </section>
               ) : null}
+              <PositionSizer assets={snap.risk} />
             </>
           );
         }}

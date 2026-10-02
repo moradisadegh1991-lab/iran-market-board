@@ -4,7 +4,7 @@ import { isNum, msToTehranDate, normSymbol } from '@/lib/num';
 import type { AssetKey } from '@/lib/types';
 import type { TseSymbol } from '@/lib/sources/brsapi';
 
-export const ASSET_KEYS: AssetKey[] = ['usd', 'usdt', 'g18', 'coin', 'ons', 'btc', 'eth', 'tse'];
+export const ASSET_KEYS: AssetKey[] = ['usd', 'usdt', 'g18', 'coin', 'nim', 'rob', 'silver', 'silverOns', 'ons', 'btc', 'eth', 'tse'];
 const DAILY_KEY = 'hist:daily:v1';
 const TSE_KEY = 'hist:tse:v1';
 const MAX_DAILY = 420;
@@ -58,6 +58,18 @@ export function upsertDailyPoint(store: DailyStore, date: string, point: Partial
     store.dates.splice(0, extra);
     for (const k of ASSET_KEYS) store.series[k].splice(0, extra);
   }
+}
+
+/** The last recorded close of `key` on or before `date` — what a holiday or a dead feed falls back to. */
+export function lastClose(store: DailyStore, key: AssetKey, date: string): { date: string; value: number } | null {
+  const series = store.series[key];
+  if (!series) return null;
+  for (let i = store.dates.length - 1; i >= 0; i--) {
+    if (store.dates[i] > date) continue;
+    const v = series[i];
+    if (isNum(v) && v > 0) return { date: store.dates[i], value: v };
+  }
+  return null;
 }
 
 export async function saveDaily(store: DailyStore) {

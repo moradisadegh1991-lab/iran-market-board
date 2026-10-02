@@ -21,6 +21,9 @@ export const NEWS_TOPICS: Topic[] = [
   { id: 'gold', lang: 'fa', q: 'قیمت طلا سکه امامی', assets: ['g18', 'coin'] },
   { id: 'tse', lang: 'fa', q: 'بورس تهران شاخص کل', gdelt: '("Tehran Stock Exchange")', assets: ['tse'] },
   { id: 'iran-policy', lang: 'fa', q: 'مذاکرات هسته ای OR تحریم ایران OR مکانیسم ماشه', gdelt: '(Iran sanctions OR "Iran nuclear")', assets: ['usd', 'coin', 'g18', 'tse'] },
+  // Persian Google News returns nothing to US hosts (Vercel included), so Iran's own story is also
+  // followed in English — 17k headlines 2015–2026 came back for this query in the evaluation
+  { id: 'iran-en', lang: 'en', q: 'Iran sanctions OR "Iran nuclear" OR "Iranian rial" OR "Iran talks"', assets: ['usd', 'coin', 'g18', 'tse'] },
   { id: 'global-gold', lang: 'en', q: 'gold price Fed', gdelt: '("gold price" Fed)', assets: ['g18', 'coin'] },
   { id: 'crypto', lang: 'en', q: 'bitcoin price', gdelt: '(bitcoin price)', assets: ['btc', 'eth'] },
   { id: 'crypto-reg', lang: 'en', q: 'crypto ETF OR SEC crypto OR ethereum', gdelt: '(ethereum OR "crypto ETF")', assets: ['btc', 'eth'] },
@@ -149,6 +152,8 @@ export async function loadNews(start: string, end: string, assets: SimAsset[], d
     let via = 'Google News';
     try {
       items = await fetchGoogleNews(c.topic.q, c.after, c.before, c.topic.lang);
+      // an empty Persian feed is a blocked locale, not a quiet month — fall back instead of caching nothing
+      if (!items.length && c.topic.lang === 'fa') throw new Error('فید فارسی خالی برگشت');
     } catch (e) {
       errors.push(`Google News (${c.topic.id} ${c.after}): ${errMsg(e)}`);
       if (c.topic.gdelt) {

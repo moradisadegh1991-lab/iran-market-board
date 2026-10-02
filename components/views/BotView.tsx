@@ -1,8 +1,9 @@
 'use client';
+import { api } from '@/lib/api';
 import { useState } from 'react';
 import { fmtInt } from '@/lib/num';
 import { WithSnapshot } from '../SnapshotProvider';
-import { PageHead } from '../ui';
+import { AdminActions, PageHead } from '../ui';
 
 const age = (s: number | null) => (s === null ? 'هرگز' : s < 90 ? 'همین حالا' : s < 3600 ? `${fmtInt(s / 60)} دقیقه پیش` : s < 86400 ? `${fmtInt(s / 3600)} ساعت پیش` : `${fmtInt(s / 86400)} روز پیش`);
 
@@ -13,7 +14,7 @@ export default function BotView({ botUsername }: { botUsername: string }) {
   async function send() {
     setState({ busy: true, msg: '' });
     try {
-      const res = await fetch('/api/telegram/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret }, body: '{}' });
+      const res = await fetch(api('/api/telegram/broadcast'), { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-secret': secret }, body: '{}' });
       const j = await res.json();
       if (!res.ok || !j.ok) throw new Error(j.error === 'forbidden' ? 'رمز مدیر اشتباه است.' : j.error || 'ارسال انجام نشد.');
       setState({ busy: false, msg: `ارسال شد: ${j.messages} پیام به ${j.sent} گفتگو${j.failed?.length ? `. ${j.failed.length} مورد ناموفق (${j.failed[0].chat}: ${j.failed[0].error})` : ''}` });
@@ -48,12 +49,12 @@ export default function BotView({ botUsername }: { botUsername: string }) {
         <section className="panel pad">
           <h2>ارسال فوری گزارش</h2>
           <p className="muted">گزارش کامل به کانال و همه مشترکان فرستاده می‌شود.</p>
-          <div className="admin">
+          <AdminActions>
             <input type="password" placeholder="رمز مدیر (ADMIN_SECRET)" value={secret} onChange={(e) => setSecret(e.target.value)} aria-label="رمز مدیر" />
             <button className="btn" onClick={send} disabled={!secret || state.busy}>
               {state.busy ? 'در حال ارسال…' : 'ارسال به تلگرام'}
             </button>
-          </div>
+          </AdminActions>
           {state.msg ? <p className="small" role="status">{state.msg}</p> : null}
         </section>
       </div>

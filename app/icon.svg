@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="مالی من">
+  <defs>
+    <linearGradient id="b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#16213d"/><stop offset=".6" stop-color="#22396b"/><stop offset="1" stop-color="#0d5e66"/></linearGradient>
+    <linearGradient id="c" x1=".2" y1=".1" x2=".8" y2=".95"><stop offset="0" stop-color="#f7d27a"/><stop offset=".55" stop-color="#e2ab35"/><stop offset="1" stop-color="#c38a1e"/></linearGradient>
+  </defs>
+  <!-- the app icon (android-app/assets-src): a gold coin with a rising line -->
+  <rect width="64" height="64" rx="14" fill="url(#b)"/>
+  <circle cx="32" cy="31.6" r="20" fill="url(#c)"/>
+  <polyline points="21.3,39.7 28.2,32 34.1,36.3 43.3,25.8" fill="none" stroke="#1a2848" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="45.6,23.3 45.8,30.7 38.7,25.8" fill="#1a2848" stroke="#1a2848" stroke-width="1.4" stroke-linejoin="round"/>
+</svg>

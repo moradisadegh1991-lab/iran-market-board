@@ -2,8 +2,12 @@ import type { Metadata, Viewport } from 'next';
 import '@fontsource-variable/vazirmatn';
 import '@fontsource/lalezar/arabic-400.css';
 import './globals.css';
+import './finance.css';
 import SnapshotProvider from '@/components/SnapshotProvider';
 import Shell from '@/components/Shell';
+import FinanceProvider from '@/components/finance/FinanceProvider';
+import NotifyProvider from '@/components/NotifyProvider';
+import AppStartup from '@/components/AppStartup';
 import { getSnapshot } from '@/lib/snapshot';
 import type { Snapshot } from '@/lib/types';
 
@@ -11,11 +15,11 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export const metadata: Metadata = {
-  title: { default: 'تابلوی بازار: طلا، ارز، کریپتو و بورس', template: '%s | تابلوی بازار' },
-  description: 'قیمت لحظه‌ای، سناریوی بدترین و بهترین حالت، ریسک، نمودار، غربال بورس و کریپتو و سبد پیشنهادی',
+  title: { default: 'مالی من: دخل و خرج، بودجه، وام و مشاور مالی', template: '%s | مالی من' },
+  description: 'مدیریت مالی شخصی برای ایرانی‌ها: تراکنش‌ها، بودجه، اقساط و چک، اهداف پس‌انداز، دارایی با قیمت روز طلا و ارز، و مشاور مالی هوشمند',
 };
 
-export const viewport: Viewport = { themeColor: '#1A2848', width: 'device-width', initialScale: 1 };
+export const viewport: Viewport = { themeColor: '#1A2848', width: 'device-width', initialScale: 1, viewportFit: 'cover' };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   let initial: Snapshot | null = null;
@@ -28,7 +32,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="fa" dir="rtl">
       <body>
         <SnapshotProvider initial={initial}>
-          <Shell>{children}</Shell>
+          <NotifyProvider>
+            <FinanceProvider>
+              <AppStartup />
+              <Shell>{children}</Shell>
+            </FinanceProvider>
+          </NotifyProvider>
         </SnapshotProvider>
       </body>
     </html>

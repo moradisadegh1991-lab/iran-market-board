@@ -23,7 +23,8 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   try {
     if (body?.action === 'start') {
-      const s = await startSession(validateConfig(body));
+      // the shared site session trades cash only; starting from holdings is the device's own feature
+      const s = await startSession(validateConfig({ ...body, startHoldings: undefined }));
       return NextResponse.json({ ok: true, session: s });
     }
     if (body?.action === 'stop') {

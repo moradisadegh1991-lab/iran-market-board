@@ -172,3 +172,25 @@ export function quantile(a: number[], q: number): number {
   const lo = Math.floor(pos), hi = Math.ceil(pos);
   return s[lo] + (s[hi] - s[lo]) * (pos - lo);
 }
+
+/**
+ * AR(1) variance ratio VR(n) = 1 + 2·Σ(1−k/n)·ρᵏ.
+ * Multi-period variance is n·σ²·VR, not n·σ²: a market that trends (ρ>0 — TSE with its daily
+ * price limits is the local example) travels further over n steps than √n scaling implies.
+ */
+export function varianceRatio(rho: number, n: number): number {
+  if (n <= 1 || Math.abs(rho) < 1e-6) return 1;
+  let s = 0;
+  let pk = 1;
+  const kmax = Math.min(n - 1, 250);
+  for (let k = 1; k <= kmax; k++) {
+    pk *= rho;
+    if (Math.abs(pk) < 1e-6) break;
+    s += (1 - k / n) * pk;
+  }
+  return Math.max(0.3, 1 + 2 * s);
+}
+
+/** Cornish–Fisher quantile: normal z corrected for skew S and excess kurtosis K. */
+export const cornishFisher = (z: number, S: number, K: number) =>
+  z + ((z * z - 1) * S) / 6 + ((z ** 3 - 3 * z) * K) / 24 - ((2 * z ** 3 - 5 * z) * S * S) / 36;

@@ -42,13 +42,22 @@ console.log('scenario A: Capacitor 6 default MainActivity (empty body, no onCrea
   assert.ok(mf.includes('android.permission.INTERNET'), 'existing permission must survive');
   assert.ok(existsSync(join(PKG_DIR, 'SmsReaderPlugin.java')));
   assert.equal(readFileSync(join(PKG_DIR, 'SmsReaderPlugin.java'), 'utf8').split('\n')[0], 'package ir.moradisadegh.marketboard;');
-  console.log('  ✓ registered, permission added, braces balanced');
+  for (const f of ['BankSms.java', 'SmsAsk.java', 'SmsAskReceiver.java', 'SmsChoiceReceiver.java'])
+    assert.ok(existsSync(join(PKG_DIR, f)), f + ' copied with the plugin');
+  assert.ok(!existsSync(join(PKG_DIR, 'BankSmsCli.java')), 'test drivers stay out of the app');
+  assert.ok(mf.includes('android.permission.RECEIVE_SMS'), 'the ask notification needs SMS_RECEIVED');
+  // the SMS receiver only from the system; the button receiver only from the app itself
+  assert.match(mf, /<receiver android:name="\.SmsAskReceiver" android:exported="true" android:permission="android\.permission\.BROADCAST_SMS">\s*<intent-filter>\s*<action android:name="android\.provider\.Telephony\.SMS_RECEIVED" \/>/);
+  assert.match(mf, /<receiver android:name="\.SmsChoiceReceiver" android:exported="false" \/>\s*<\/application>/);
+  console.log('  ✓ registered, permissions added, receivers declared inside <application>, braces balanced');
 
   run(); // second run
   const ma2 = readFileSync(MA, 'utf8');
   assert.equal((ma2.match(/registerPlugin\(SmsReaderPlugin\.class\)/g) || []).length, 1, 'no duplicate registration on re-run');
   assert.equal((readFileSync(MANIFEST, 'utf8').match(/READ_SMS/g) || []).length, 1, 'no duplicate permission on re-run');
   assert.equal((readFileSync(MANIFEST, 'utf8').match(/POST_NOTIFICATIONS/g) || []).length, 1, 'no duplicate notification permission either');
+  assert.equal((readFileSync(MANIFEST, 'utf8').match(/SmsAskReceiver/g) || []).length, 1, 'no duplicate receiver');
+  assert.equal((readFileSync(MANIFEST, 'utf8').match(/SmsChoiceReceiver/g) || []).length, 1, 'no duplicate receiver');
   console.log('  ✓ idempotent: second run changed nothing');
 }
 
