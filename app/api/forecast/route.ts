@@ -25,8 +25,11 @@ const LOOKBACK: Record<string, number> = { w1: 45, m1: 120, m3: 365, y1: 1095 };
 const DAY = 86_400_000;
 
 // the calibration replays the engine ~48 times; the outcome changes once a day at most
-const calCache = new Map<string, { at: number; v: Calibration | null }>();
+const calCache = new Map<string, { at: number; v: Calibration | null; partial?: boolean }>();
 const CAL_TTL = 6 * 3600_000;
+/** a record scored without the long history is retried soon */
+const PARTIAL_TTL = 10 * 60_000;
+const LONG_BUDGET_MS = 6_000;
 
 // The board keeps ~15 months of history — enough for a forecast, too little to score one: a year
 // of 1-year forecasts is a single outcome. So the track record replays the engine over the longest
@@ -90,11 +93,13 @@ export async function GET(req: Request) {
 
     const key = `${meta.key}:${hz.key}`;
     let cal = calCache.get(key);
-    if (!cal || Date.now() - cal.at > CAL_TTL) {
-      const long = await longHistory(meta.key).catch(() => null);
+    if (!cal || Date.now() - cal.at > (cal.partial ? PARTIAL_TTL : CAL_TTL)) {
+      // the long history is only for the track record: never let a slow source push the whole
+      // response past maxDuration — without it the record is scored on the board's history
+      const long = await Promise.race([longHistory(meta.key).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), LONG_BUDGET_MS))]);
       // returns are scale-free, so the long series' own unit does not matter here
       const calInput: ScenarioInput = long && long.length > s.prices.length ? { ...input, dates: long.map((p) => p[0]), prices: long.map((p) => p[1]) } : input;
-      cal = { at: Date.now(), v: calibrate(calInput, hz.key, { window: s.prices.length }) };
+      cal = { at: Date.now(), v: calibrate(calInput, hz.key, { window: s.prices.length }), partial: calInput === input };
       calCache.set(key, cal);
     }
 
