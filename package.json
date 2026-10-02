@@ -24,7 +24,9 @@
     "test:swingv2": "tsx scripts/swing-v2-test.ts",
     "test:import": "tsx scripts/import-test.ts",
     "test:app": "tsx scripts/app-test.ts",
-    "test:sources": "tsx scripts/sources-test.ts"
+    "test:sources": "tsx scripts/sources-test.ts",
+    "test:smsask": "tsx scripts/sms-ask-test.ts",
+    "test:nativesms": "tsx scripts/native-sms-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

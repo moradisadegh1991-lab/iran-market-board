@@ -9,7 +9,7 @@
 //    user presses «یکی کردن با بانک», which sets the opening balance (the one number the app
 //    could not know) so the book agrees with the bank at that moment.
 import { enqueue } from './importers';
-import { newId, type Account, type FinanceData, type Iso, type SmsSource, type Staged } from './model';
+import { newId, type Account, type FinanceData, type Iso, type SmsSource, type Staged, type Txn } from './model';
 
 const TEHRAN = '+03:30'; // Iran has had no DST since 2022
 
@@ -85,10 +85,32 @@ export function learnSources(d: FinanceData, rows: Staged[], now: number): numbe
   return fresh;
 }
 
+const SAME_SMS_MS = 5 * 60_000;
+
+/**
+ * The same SMS seen twice: once by the notification that asked about it as it arrived, once in the
+ * inbox read (receive times a few seconds apart) — or read again after it was booked.
+ */
+export function sameSms(a: { smsKey?: string; at?: number | null; date?: Iso | null }, b: { smsKey?: string; at?: number | null; date?: Iso | null }): boolean {
+  if (!a.smsKey || a.smsKey !== b.smsKey) return false;
+  if (typeof a.at === 'number' && typeof b.at === 'number') return Math.abs(a.at - b.at) <= SAME_SMS_MS;
+  return !!a.date && a.date === b.date;
+}
+
+/** The queued or booked SMS row this message already is, if any. */
+export function seenSms(d: FinanceData, r: Pick<Staged, 'smsKey' | 'at' | 'date'>): { queued?: Staged; booked?: Txn } | null {
+  if (!r.smsKey) return null;
+  const queued = d.inbox.find((x) => sameSms(x, r));
+  if (queued) return { queued };
+  const booked = d.txns.find((t) => sameSms({ smsKey: t.smsKey, at: t.smsAt, date: t.date }, r));
+  return booked ? { booked } : null;
+}
+
 /** SMS rows into the queue: learn the cards first so rows of a linked card arrive with their account. */
 export function queueSms(d: FinanceData, rows: Staged[], now: number): { added: number; newSources: number } {
-  const newSources = learnSources(d, rows, now);
-  return { added: enqueue(d, rows), newSources };
+  const fresh = rows.filter((r) => !seenSms(d, r));
+  const newSources = learnSources(d, fresh, now);
+  return { added: enqueue(d, fresh), newSources };
 }
 
 /** Links a card/account to one of the user's accounts (or unlinks with null) and applies it to the queue. */

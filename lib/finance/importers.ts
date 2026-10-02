@@ -506,6 +506,15 @@ const tehranIso = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: '
 const tehranTime = (ms: number) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms));
 
 /**
+ * Identifies one SMS by its text, whichever way it reached the app (the inbox read, or the
+ * notification that asked about it the moment it arrived — they see the same body, at times a few
+ * seconds apart). Paired with the receive time when comparing (sameSms in sources.ts).
+ */
+export function smsKeyOf(body: string): string {
+  return stableId(['smsbody', norm(body).replace(/\s+/g, ' ').trim()]);
+}
+
+/**
  * Pasted text and the Android inbox go through the same path. A date written in the SMS wins;
  * otherwise the inbox receive time is used (the bank sends within seconds of the transaction).
  */
@@ -520,7 +529,7 @@ export function rowsFromMessages(msgs: SmsMessage[], api: SmsApi, today: Iso, op
     // banks write rial; a message that says only «تومان» is converted (rule 1)
     const k = /تومان/.test(body) && !/ریال|ريال/.test(body) ? 10 : 1;
     const base = {
-      source: 'sms' as const, date, time: timeOf(body) ?? (at ? tehranTime(at) : null), at: at ?? null, bank: address?.trim() || null,
+      source: 'sms' as const, date, time: timeOf(body) ?? (at ? tehranTime(at) : null), at: at ?? null, bank: address?.trim() || null, smsKey: smsKeyOf(body),
       raw: body, accountId: opts.accountId ?? null, importedAt: opts.now ?? Date.now(),
     };
     if (c.kind === 'not') {
@@ -670,6 +679,7 @@ export function commitStaged(d: FinanceData, id: string, inp: CommitInput): stri
     src: s.source,
     ref: s.ref ?? null,
     time: s.time ?? null,
+    ...(s.smsKey ? { smsKey: s.smsKey, smsAt: s.at ?? null } : {}),
   });
   const key = memoryKey(s.description);
   if (cat && key) d.catMemory[key] = cat;

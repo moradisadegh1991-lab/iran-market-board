@@ -59,6 +59,10 @@ export interface Txn {
   ref?: string | null;
   /** 'HH:MM' when the source gave it — orders same-day rows against a bank-stated balance */
   time?: string | null;
+  /** SMS rows: which message it was (smsKeyOf) and when it arrived, so the same SMS — read from the
+   *  inbox and also answered in the «نوعش چیست؟» notification — is never booked twice */
+  smsKey?: string;
+  smsAt?: number | null;
 }
 
 /**
@@ -99,6 +103,8 @@ export interface Staged {
   raw: string;
   /** account the file or SMS belongs to, when known */
   accountId?: string | null;
+  /** SMS: the message itself (smsKeyOf), the same whichever way it was read */
+  smsKey?: string;
   importedAt: number;
 }
 

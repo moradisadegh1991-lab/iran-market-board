@@ -47,6 +47,7 @@ lib/finance/         model (نوع داده، همه به ریال) · calc (م�
                      · importers (گردش حساب/پیامک → صف) · readers (اکسل/CSV/PDF در مرورگر) · sms (همان پارسر اندروید)
                      · phone-sms (خواندن صندوق پیامک گوشی) · migrate (انتقال داده‌های اپ قبلی اندروید)
                      · sources (کارت/حساب و مانده بانک از پیامک، تطبیق با دفتر)
+                     · sms-ask (اعمال جواب اعلان «نوعش چیست؟» در دفتر)
 lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت، خالص) · live-local (جلسه برخط روی دستگاه)
                      · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
@@ -67,8 +68,9 @@ android-app/assets-src/  SVG آیکون (سکه طلایی با خط رو به �
 android-app/res-extra/   آیکون نوار وضعیت اعلان ic_stat_mali در ۵ چگالی (scripts/copy-res-extra.mjs کپی‌اش می‌کند)
 android-app/www/     فقط JS مشترک: sms-parser.js (پارسر پیامک، تست‌شده) و game-engine.js (موتور بازی). اپ قبلی
                      (index.html، app-trade.js، app-notify.js) در مهر ۱۴۰۵ در اپ واحد ادغام و حذف شد — تاریخچه git را ببین
-android-app/native-plugin/   پلاگین Java خواندن پیامک (⚠️ تست‌نشده — بخش ۷ را ببین)
-android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پلاگین) + تست‌هایش
+android-app/native-plugin/   java/: پلاگین SmsReader + BankSms (همان طبقه‌بند sms-parser.js) + SmsAsk و دو گیرنده (اعلان «نوعش چیست؟»)
+                     test/: BankSmsCli (برای scripts/native-sms-test.ts) و robolectric/ (تست‌های اندرویدی) — بخش ۷
+android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پلاگین و گیرنده‌ها) · wire-native-tests.mjs + تست‌هایش
 ```
 
 ## ۳) دیپلوی و حساب‌ها
@@ -157,6 +159,8 @@ android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پل
     `notify(title, body, cat)` (هوک `useNotify`) رد شوند، نه مستقیم از پلاگین.
 15. **‏اعلان محلی گوشی خاموش را بیدار نمی‌کند.** هر چیزی که «وقتی اپ بسته است خبرم کن» را وعده
     بدهد دروغ است مگر اینکه سرویس پس‌زمینه بومی یا push سرور اضافه شود. متن UI همین را می‌گوید.
+    تنها استثنا پیامک بانکی است: گیرنده بومی `SMS_RECEIVED` را اندروید خودش با اپ بسته صدا می‌زند (قاعده ۴۹)؛ ولی کار دفتر
+    (ثبت، هشدار قیمت، جلسه برخط) همچنان فقط با باز بودن اپ انجام می‌شود.
 16. **‏عددی که رقم و واژه فارسی را قاطی دارد، «عدد» نیست.** کلاس `.num` جهت را LTR می‌کند و
     «۲۰٫۱ میلیون تومان» را «میلیون تومان ۲۰٫۱» نشان می‌دهد. برای چنین مقادیری از `.money`
     استفاده کن.
@@ -264,6 +268,21 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
 48. **‏آیکون اپ** از `android-app/assets-src/*.svg` با `render.cjs` به `android-app/assets/*.png` رندر می‌شود و `@capacitor/assets` در
     workflow (`npm run icons`) آیکون تطبیقی، گرد و splash را می‌سازد. نام اپ «مالی من»؛ `appId` عوض نشده و **نباید عوض شود**
     (اندروید آن را اپ دیگری می‌بیند و داده‌ها از دست می‌روند).
+49. **‏«نوعش چیست؟» — اعلان لحظه رسیدن پیامک بانکی، حتی با اپ بسته** (مهر ۱۴۰۵). `SmsAskReceiver` (گیرنده مانیفستی
+    `SMS_RECEIVED` با `android:permission="BROADCAST_SMS"`، مجوز `RECEIVE_SMS` هم‌گروه `READ_SMS`) پیامک را می‌گیرد، `BankSms.java`
+    تصمیم می‌گیرد تراکنش بانکی است یا نه و جهتش چیست، و `SmsAsk` اعلان heads-up (کانال بومی `imb-sms-ask`، importance بالا، قبل از
+    ارسال ساخته می‌شود — قاعده ۱۴) با دکمه‌های **هم‌خوان با جهت بانک** می‌دهد: برداشت ← «هزینه / انتقال به حساب خودم»، واریز ←
+    «درآمد / انتقال از حساب خودم»، بی‌جهت ← «هزینه / درآمد» (کاربر می‌گوید، حدس نمی‌زنیم — قاعده ۳)، به‌علاوه «باز کردن اپ». روی
+    صفحه قفل فقط «پیامک بانکی تازه» (نسخه public) — مبلغ و کارت نه. انتخاب در SharedPreferences گوشی می‌ماند، چون دفتر در
+    localStorage وب‌ویو است و با اپ بسته در دسترس نیست؛ `AppStartup` با باز شدن اپ، هر ۳۰ ثانیه، و فوراً با رویداد `smsChoice`
+    آن را با `applyAsked` (`lib/finance/sms-ask.ts`) اعمال و `clearAsked` می‌کند.
+50. **‏`BankSms.java` نسخه Java همان `sms-parser.js` است، خط‌به‌خط.** هر تغییری در پارسر JS باید در Java هم بیاید؛
+    `npm run test:nativesms` هر دو را روی پیکره تست پارسر + ۲۰٬۰۰۰ پیامک ساختگی اجرا می‌کند و با هر اختلاف می‌شکند (در CI هم).
+    تفاوت‌های regex: `\s` در JS یونیکدی است (ثابت `S`)، `$` بدون m در Java قبل از خط‌شکن آخر هم می‌خورد (`\z`)، `trim` (jsTrim).
+51. **‏یک پیامک = یک تراکنش، از هر راهی که برسد.** گیرنده و خواندن صندوق یک پیامک را با چند ثانیه فاصله می‌بینند؛ `smsKeyOf(body)` روی
+    ردیف صف و تراکنش (`Txn.smsKey/smsAt`) و `sameSms` (همان متن، ±۵ دقیقه؛ بدون زمان، همان روز) تکرار را می‌گیرد. جواب اعلان فقط
+    وقتی مستقیم ثبت می‌شود که هزینه/درآمد باشد، کارت به حسابی وصل باشد (قاعده ۴۵)، مبلغ قطعی و شبیه تراکنش ثبت‌شده‌ای نباشد؛ بقیه با
+    همان جهت در صف می‌مانند. جواب خلاف جهت بانک اعمال نمی‌شود. پیامکی که گوشی درباره‌اش پرسیده، اعلان شمارشی دوم نمی‌گیرد.
 
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
@@ -327,6 +346,7 @@ npm run test:activity
 npm run test:pfrisk && npm run test:swingfx && npm run test:sizing
 npx tsx scripts/live-local-test.ts
 npm run test:finance && npm run test:advisor && npm run test:import && npm run test:app && npm run test:sources
+npm run test:smsask && npm run test:nativesms   # دومی JDK (javac) می‌خواهد
 npx tsx scripts/swing-v2-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts
@@ -337,6 +357,8 @@ npx tsx scripts/walk-forward-test.ts   # کند است، چند دقیقه طو�
 # اپ اندروید (از android-app/)
 node scripts/sms-parser-test.mjs
 node scripts/wire-plugin-test.mjs
+# کد بومی پیامک روی Robolectric (به Android SDK نیاز دارد؛ بعد از cap add android + wire-native-plugin)
+node scripts/wire-native-tests.mjs && (cd android && ./gradlew :app:testDebugUnitTest)
 ```
 
 ‏هیچ صفحه‌ای را بدون دیدنش در مرورگر (حتی هدلس) تحویل نده. روشی که جواب می‌دهد:
@@ -369,21 +391,26 @@ npm uninstall playwright       # قبل از commit پاکش کن
   چنین mock فایلی دیگر در پروژه نگه داشته نشده (فقط برای تست موقت بود)؛ در صورت نیاز
   دوباره بساز، ولی مقادیر واقعی (نه فرضی) بگذار — چند بار در این پروژه، مقدار فرضی در
   mock باعث شد یک باگ واقعی دیده نشود.
-- ‏Android SDK در این محیط نصب نیست، پس پلاگین Java هرگز کامپایل/تست نشده — بخش ۷.
+- ‏Android SDK پیش‌نصب نیست ولی نصب‌شدنی است: commandlinetools از dl.google.com در `/opt/android-sdk`، سپس
+  `sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"` و `sdk.dir` در `android/local.properties`.
+  Maven Central به این sandbox خطای 429 می‌دهد؛ یک init script محلی (`~/.gradle/init.d/`) با آینه
+  `https://maven-central.storage-download.googleapis.com/maven2/` آن را حل می‌کند — این را در ریپو نگذار. KVM نیست، پس شبیه‌ساز
+  اندروید اجرا نمی‌شود؛ Robolectric جایگزین است.
 
-## ۷) ⚠️ چیزی که واقعاً تست نشده: پلاگین بومی پیامک
+## ۷) ⚠️ کد بومی پیامک: کامپایل و تست‌شده روی JVM، نه روی گوشی واقعی
 
-‏`android-app/native-plugin/java/SmsReaderPlugin.java` (۱۱۴ خط) — فقط پیامک خام را می‌خواند،
-هیچ منطقی در آن نیست (منطق در `sms-parser.js` است که کاملاً تست شده). ولی خودِ این فایل Java
-**هیچ‌وقت کامپایل یا روی گوشی واقعی اجرا نشده**، چون Android SDK در هیچ‌کدام از محیط‌های من
-نبوده.
+‏`android-app/native-plugin/java/`: `SmsReaderPlugin` (خواندن صندوق + پل اعلان)، `BankSms` (طبقه‌بند)، `SmsAsk`،
+`SmsAskReceiver`، `SmsChoiceReceiver`. نصبش خودکار است (`npm run wire-plugin`: کپی همه فایل‌ها، ثبت در `MainActivity.java`،
+مجوزها و دو `<receiver>` در مانیفست؛ `test:wireplugin`).
 
-‏نصبش خودکار است: `npm run wire-plugin` (کپی فایل + ثبت در `MainActivity.java` + مجوزها).
-این اسکریپت با هر دو شکل واقعی `MainActivity.java` که Capacitor می‌سازد تست شده
-(`test:wireplugin`)، ولی خودِ کد Java نه.
+‏چه چیزی واقعاً اجرا شده (مهر ۱۴۰۵): کل پروژه با Android SDK محلی کامپایل و `assembleRelease` (با lint) ساخته شد؛
+`BankSms` با `test:nativesms` برابر JS است؛ ۱۳ تست Robolectric (`native-plugin/test/robolectric/SmsAskTest.java`) مسیر کامل را با
+کلاس‌های واقعی فریم‌ورک می‌سنجند: PDU واقعی GSM (UCS-2، چندتکه) → broadcast از خود اندروید → اعلان، کانال، دکمه‌ها، نسخه
+صفحه قفل، آیکون → PendingIntent دکمه → انتخاب ذخیره‌شده. CI همین‌ها را قبل از ساخت APK اجرا می‌کند.
 
-‏**اگر Claude Code به Android SDK دسترسی دارد، اولین کاری که باید بکند این است که این
-پلاگین را واقعاً کامپایل و روی یک گوشی یا شبیه‌ساز واقعی با پیامک بانکی واقعی تست کند.**
+‏چه چیزی هنوز نه: **هیچ‌کدام روی گوشی یا شبیه‌ساز واقعی اجرا نشده** (KVM نبود). رفتارهای مخصوص سازنده (بهینه‌سازی باتری
+سامسونگ که گیرنده اپ «خوابیده» را صدا نمی‌زند، heads-up در One UI، پیامک دو سیم‌کارته) و خودِ متن پیامک بانک‌های واقعی
+(قاعده ۳۳) را باید روی گوشی کاربر سنجید. اولین بازخورد کاربر درباره اعلان را جدی بگیر.
 
 ## ۸) وضعیت گیت‌هاب اکشن‌ها (مهم، همین چند روز پیش رفع شد)
 
@@ -409,10 +436,8 @@ npm uninstall playwright       # قبل از commit پاکش کن
   (`IME_*`, `TSETMC_Nav`, `CODAL_Announcement`) که کاربر هنوز نخریده.
 - ‏**معاملات فیوچرز/اهرمی** — عمداً نساختم چون ریسک نقدشدگی کامل دارد و باید با سقف اهرم
   و لیکویید شبیه‌سازی‌شده طراحی شود؛ منتظر تأیید صریح کاربر.
-- ‏**بخش‌های ExpenseTracker که منتقل نشدند:** اعلان اندروید با دکمه انتخاب دسته مستقیم
-  از نوتیفیکیشن (`NotificationHelper`/`CategoryActionReceiver` در اپ اصلی) — به کد بومی
-  بیشتری نیاز دارد که باز هم تست‌نشده می‌ماند؛ در عوض تراکنش‌های تازه در زبانه «نیازمند
-  تأیید» دیده می‌شوند.
+- ‏**انتخاب دسته از خود اعلان** (`CategoryActionReceiver` در اپ اصلی ExpenseTracker): اعلان «نوعش چیست؟» (قاعده ۴۹)
+  نوع تراکنش را می‌پرسد و دسته از یادگیری/واژه‌های متن می‌آید؛ دکمه دسته در اعلان ساخته نشده (اندروید سه دکمه جا دارد).
 
 ‏همچنین **چهار باگ واقعی در اپ اصلی ExpenseTracker کاربر** (نه در این پورت) پیدا شده و به او
 گزارش شده، ولی خودِ آن اپ اصلاح نشده — اگر روزی از تو خواسته شد به آن پروژه هم سر بزنی،

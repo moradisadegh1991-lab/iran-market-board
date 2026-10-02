@@ -193,6 +193,7 @@ h2 { font-size: 18px; line-height: 1.4; font-weight: 800; margin: 0; color: var(
 .toggle input:checked + .track { background: var(--teal); }
 .toggle input:checked + .track::after { transform: translateX(-14px); }
 .toggle input:focus-visible + .track { outline: 2px solid var(--teal); outline-offset: 2px; }
+.toggle + .toggle { display: flex; margin-top: 12px; }
 .amount { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); }
 .amount input { border: 1px solid var(--line); border-radius: var(--r-s); padding: 6px 10px; width: 12rem; background: var(--surface); direction: ltr; text-align: right; }
 

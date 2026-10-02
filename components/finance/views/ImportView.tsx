@@ -20,7 +20,7 @@ import {
 import { readStatement, ReadError } from '@/lib/finance/readers';
 import { smsParser } from '@/lib/finance/sms';
 import { learnFromCommit, queueSms, reportBalance, stagedAt, unlinkedSources } from '@/lib/finance/sources';
-import { autoReadOn, FIRST_READ_DAYS, lastPhoneRead, readInbox, setAutoRead, useSmsPlugin } from '@/lib/finance/phone-sms';
+import { askOn, autoReadOn, FIRST_READ_DAYS, lastPhoneRead, readInbox, setAskOn, setAutoRead, useSmsPlugin } from '@/lib/finance/phone-sms';
 import { tomanToRial, type FinanceData, type Staged } from '@/lib/finance/model';
 import { Chips, Empty, PageHead, Toggle } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
@@ -222,7 +222,11 @@ function SmsCard({ d }: { d: FinanceData }) {
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneErr, setPhoneErr] = useState<string | null>(null);
   const [auto, setAuto] = useState(false);
-  useEffect(() => setAuto(autoReadOn()), []);
+  const [ask, setAsk] = useState(false);
+  useEffect(() => {
+    setAuto(autoReadOn());
+    setAsk(askOn());
+  }, []);
 
   function queue(r: SmsResult, listIgnored: boolean) {
     let added = 0;
@@ -284,6 +288,23 @@ function SmsCard({ d }: { d: FinanceData }) {
         >
           پیامک‌های بانکی تازه را خودکار بخوان (هنگام باز کردن اپ و هر ۳۰ ثانیه وقتی اپ باز است) و اعلان بده
         </Toggle>
+      ) : null}
+      {plugin?.asked ? (
+        <>
+          <Toggle
+            checked={ask}
+            onChange={(v) => {
+              setAsk(v);
+              setAskOn(v, plugin);
+            }}
+          >
+            همان لحظه رسیدن پیامک بانکی، در اعلان بالای صفحه بپرس هزینه بود، درآمد یا انتقال — حتی وقتی اپ بسته است
+          </Toggle>
+          <p className="muted small">
+            جوابی که در اعلان می‌دهید روی گوشی می‌ماند و با باز شدن اپ اعمال می‌شود: هزینه/درآمدِ کارتی که به حسابی وصل است مستقیم در دفتر ثبت می‌شود،
+            بقیه با همان نوع در صف همین صفحه منتظر حساب یا بررسی می‌مانند. اگر اعلان نیامد، در تنظیمات اندروید «بهینه‌سازی باتری» را برای «مالی من» خاموش کنید.
+          </p>
+        </>
       ) : null}
       {phoneErr ? (
         <p className="fin-err" role="alert">

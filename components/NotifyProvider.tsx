@@ -20,7 +20,8 @@ export interface LogEntry {
   cat: NotifyCat;
 }
 interface Ctx {
-  notify: (title: string, body: string, cat: NotifyCat, route?: string) => void;
+  /** inApp: toast and the list only — for news the phone already showed in its own notification */
+  notify: (title: string, body: string, cat: NotifyCat, route?: string, inApp?: boolean) => void;
   /** notifications since the list was last opened — the badge on the bell */
   unread: number;
   markRead: () => void;
@@ -143,7 +144,7 @@ export default function NotifyProvider({ children }: { children: React.ReactNode
     jset(ALERT_KEYS.alerts, list);
   }, []);
 
-  const notify = useCallback((title: string, body: string, cat: NotifyCat, route?: string) => {
+  const notify = useCallback((title: string, body: string, cat: NotifyCat, route?: string, inApp?: boolean) => {
     const p = prefsRef.current;
     if (!p.on || p[cat] === false) return;
     const entry = { at: Date.now(), title, body, cat };
@@ -156,6 +157,7 @@ export default function NotifyProvider({ children }: { children: React.ReactNode
     setToasts((t) => [...t.slice(-2), { id, title, body }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4800);
 
+    if (inApp) return;
     const plug = plugin();
     if (plug) {
       ensureChannels(plug)

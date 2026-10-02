@@ -5,11 +5,19 @@ import { useEffect, useState } from 'react';
 import { rowsFromMessages, type SmsResult } from './importers';
 import type { Iso } from './model';
 import { smsParser } from './sms';
+import type { AskedSms } from './sms-ask';
 
 export interface SmsPlugin {
-  checkPermission(): Promise<{ granted?: boolean }>;
-  requestPermission(): Promise<{ granted?: boolean }>;
+  /** granted = may read the inbox; receive = may be told when an SMS arrives (the «نوعش چیست؟» notification) */
+  checkPermission(): Promise<{ granted?: boolean; receive?: boolean }>;
+  requestPermission(): Promise<{ granted?: boolean; receive?: boolean }>;
   read(o: { sinceMs: number; limit: number }): Promise<{ messages?: { body?: string; date?: number; address?: string }[] }>;
+  // the notification side (SmsAsk); absent on an APK built before it existed
+  asked?(): Promise<{ on?: boolean; items?: AskedSms[] }>;
+  clearAsked?(o: { keys: string[] }): Promise<{ removed?: number }>;
+  setAsk?(o: { on: boolean }): Promise<void>;
+  launchRoute?(): Promise<{ route?: string | null }>;
+  addListener?(event: 'smsChoice' | 'route', fn: (e: { route?: string }) => void): Promise<{ remove(): void }> | { remove(): void };
 }
 
 export function smsPlugin(): SmsPlugin | null {
@@ -46,6 +54,24 @@ export function autoReadOn(): boolean {
     return false;
   }
 }
+/** «نوعش چیست؟» — ask in a notification the moment a bank SMS arrives. On unless turned off. */
+export const SMS_ASK_KEY = 'imf.smsask.v1';
+export function askOn(): boolean {
+  try {
+    return localStorage.getItem(SMS_ASK_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+export function setAskOn(on: boolean, plugin?: SmsPlugin | null) {
+  try {
+    localStorage.setItem(SMS_ASK_KEY, on ? '1' : '0');
+  } catch {
+    // the phone still gets the setting below
+  }
+  void plugin?.setAsk?.({ on }).catch(() => undefined);
+}
+
 export function setAutoRead(on: boolean) {
   try {
     localStorage.setItem(SMS_AUTO_KEY, on ? '1' : '0');
