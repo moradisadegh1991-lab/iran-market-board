@@ -8,7 +8,8 @@
  */
 import assert from 'node:assert';
 import fs from 'node:fs';
-import { calibrate, calibrationSamples, coneFromRows, FORECAST_HORIZONS, MIN_PERIODS } from '../lib/engine/forecast';
+import { calibrate, calibrateEnsemble, calibrationSamples, coneFromRows, ensembleAt, ensembleRows, FORECAST_HORIZONS, MIN_PERIODS, type EnsembleSeries } from '../lib/engine/forecast';
+import { featureMatrix } from '../lib/engine/forecast-model';
 import { buildScenario, SCENARIO_HORIZONS, type ScenarioInput } from '../lib/engine/scenario';
 import type { ScenarioRow } from '../lib/types';
 
@@ -151,6 +152,43 @@ ok('too little history → no track record rather than a made-up one', () => {
   assert.ok(w && w.periods >= MIN_PERIODS, `${w?.periods}`);
 });
 
+ok('a row with its own 25%/75% puts the inner band exactly there', () => {
+  const rows = [{ days: 30, worst: 80, lo50: 97, base: 102, hi50: 110, best: 130 }];
+  const c = coneFromRows(100, rows, 30, 10);
+  const end = c[c.length - 1];
+  assert.ok(Math.abs(end.p25 - 97) < 1e-9 && Math.abs(end.p75 - 110) < 1e-9 && Math.abs(end.p5 - 80) < 1e-9 && Math.abs(end.p95 - 130) < 1e-9);
+  for (const p of c) assert.ok(p.p5 <= p.p25 && p.p25 <= p.p50 && p.p50 <= p.p75 && p.p75 <= p.p95);
+});
+
+const ens: EnsembleSeries = { dates: inp.dates, prices: inp.prices, feats: featureMatrix(inp.prices) };
+
+ok('ensemble: the average of engine, empirical and analog, ordered, at every horizon', () => {
+  const rows = ensembleRows(inp, ens, inp.prices[inp.prices.length - 1], 460);
+  assert.equal(rows.length, SCENARIO_HORIZONS.length);
+  for (const r of rows) {
+    assert.ok(r.worst <= r.lo50! && r.lo50! <= r.base && r.base <= r.hi50! && r.hi50! <= r.best, `${r.days}`);
+    const { engine, empirical, analog, ensemble } = r.parts;
+    assert.ok(Math.abs(ensemble.q50 - (engine.q50 + empirical.q50 + analog.q50) / 3) < 1e-12);
+    assert.ok(ensemble.pUp >= 0 && ensemble.pUp <= 1);
+    assert.ok(analog.matches.length > 0 && analog.matches.every((m) => m.date < inp.dates[inp.dates.length - 1]));
+  }
+});
+
+ok('ensemble: a forecast on day t is the same whatever happened after t', () => {
+  const t = 900;
+  const crashed: EnsembleSeries = { dates: inp.dates, prices: inp.prices.map((p, i) => (i > t ? p * 0.3 : p)), feats: [] };
+  crashed.feats = featureMatrix(crashed.prices);
+  for (const days of [7, 30, 90, 365]) {
+    const a = ensembleAt(inp, ens, t, days, 460)!;
+    const b = ensembleAt(inp, crashed, t, days, 460)!;
+    assert.ok(a && b);
+    assert.deepEqual(a.ensemble, b.ensemble, `${days}`);
+    // every matched past day had its outcome known by day t
+    const last = Date.parse(`${inp.dates[t]}T00:00:00Z`);
+    for (const m of a.analog.matches) assert.ok(Date.parse(`${m.date}T00:00:00Z`) + days * 86_400_000 <= last);
+  }
+});
+
 // ── real data (scripts/eval/fetch-real.ts); skipped when not downloaded ──
 const real: [string, string, ScenarioInput['unit'], ScenarioInput['group']][] = [
   ['usd', 'daily-usd.json', 'toman', 'fx'],
@@ -179,6 +217,14 @@ if (fs.existsSync('.cache/eval/daily-usd.json')) {
       return c ? `${h.key} ${c.insidePct.toFixed(0)}% [${c.periods}p] (↑${c.abovePct.toFixed(0)} ↓${c.belowPct.toFixed(0)}, err ${c.medianErrPct.toFixed(1)}%)` : `${h.key} —`;
     });
     console.log(`  ${key.padEnd(5)} ${line.join(' · ')}`);
+    if (key !== 'ons') {
+      const es: EnsembleSeries = { dates, prices, feats: featureMatrix(prices) };
+      const le = FORECAST_HORIZONS.map((h) => {
+        const c = calibrateEnsemble(x, es, h.key, 460);
+        return c ? `${h.key} ${c.insidePct.toFixed(0)}% [${c.periods}p] (↑${c.abovePct.toFixed(0)} ↓${c.belowPct.toFixed(0)}, err ${c.medianErrPct.toFixed(1)}%)` : `${h.key} —`;
+      });
+      console.log(`  ${(key + '*').padEnd(5)} ${le.join(' · ')}   ← ensemble`);
+    }
   }
 } else console.log('\n(.cache/eval not present — real-data track record skipped)');
 

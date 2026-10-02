@@ -39,7 +39,8 @@ app/api/             advisor (مشاور Claude، stream) · snapshot · diag ·
                      · swing (backtest/portfolio/scan) · swing-live/{,tick}
                      · holdings · cron/* · telegram/{webhook,setup,broadcast}
 lib/sources/         tgju · goldapi · nobitex · brsapi · coingecko · klines (کندل بایننس/OKX) · history · news · cache
-lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-risk · scenario · forecast (مخروط + کارنامه)
+lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-risk · scenario · forecast (مخروط + کارنامه + ترکیب سه‌روشی)
+                     · forecast-model (توزیع تجربی، الگوهای مشابه/analog، conformal — آزمون‌شده و رد شده)
                      · simulator · signal-v2 (آزمایشی) · live · learning · swing · swing-v2 · swing-portfolio · swing-scan
                      · holdings-analysis · sizing
 lib/telegram/        api · format · handler · paper
@@ -327,6 +328,15 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
     «۰٪» نشان می‌داد).
 60. **‏عدد واقعی را پنهان نکن:** روی داده واقعی، باند ۹۰٪ یک‌ساله برای دلار/سکه/طلا فقط ~۶۵–۷۳٪ مواقع قیمت را نگه داشته و تقریباً همه
     خطاها رو به بالا بوده (جهش ارزی)؛ هفتگی و ماهانه ۸۵–۹۲٪. صفحه زیر ۸۰٪ هشدار می‌دهد. وعده سود نیست (قاعده ۲۲).
+61. **‏دارایی‌های ریالی = ترکیب سه نگاه، دارایی‌های دلاری = موتور سناریو** (مهر ۱۴۰۵، به درخواست «دقیق‌تر، با الگوها، مثل معامله‌گر
+    حرفه‌ای»). `scripts/eval/forecast-eval.ts` روی داده واقعی، هر ۵ روز کاری از ۲۰۱۶، بدون نگاه به آینده سنجید (pinball پنج صدک = قاعده
+    امتیاز درست؛ طراحی ۲۰۱۶–۲۰۲۰، آزمون ۲۰۲۱–۲۰۲۶). نتیجه نسبت به موتور (کمتر بهتر): توزیع تجربی ۱٫۰۳ / ۰٫۸۷؛ **الگوهای مشابه به‌تنهایی
+    ۱٫۰۷ / ۰٫۹۲ — در دوره طراحی از موتور بدتر**؛ میانگین سه‌تایی (`ensembleAt`) ۰٫۹۸۶ / ۰٫۸۸۸ — تنها روشی که در هر دو دوره بهتر بود.
+    برای دلار/سکه/طلا/نیم/ربع/تتر در **همه** افق‌ها و هر دو دوره ≤ ۱٫۰۰ بود (یک‌ساله آزمون ۰٫۶۳–۰٫۷۳، پوشش باند ۹۰٪ از ۴۸–۷۵٪ به ۸۳–۹۷٪)؛
+    برای انس و بیت‌کوین ~۱٫۰۰ و بیت‌کوین یک‌ساله در طراحی ۱٫۱۹ → آن‌ها روی موتور ماندند (`ENSEMBLE_ASSETS`). رد شده‌ها (اندازه‌گیری‌شده):
+    تنظیم پهنا با خطای گذشته (conformal) هر دو دوره بدتر (۱٫۰۰۶ / ۰٫۹۲۶)؛ حباب طلا (نسبت به انس×دلار) به‌عنوان ویژگی الگو اثر پایدار نداشت.
+    «احتمال بالاتر بودن» (pUp) Brier را ۰٫۲۰۹ → ۰٫۱۹۲ بهتر کرد. روی صفحه سه نگاه جدا، ترکیب، و روزهای مشابه گذشته (یکی از هر دوره،
+    `distinctEpisodes`) نشان داده می‌شوند. کارنامه همان ترکیب را می‌سنجد (`calibrateEnsemble`).
 
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
@@ -393,6 +403,7 @@ npm run test:finance && npm run test:advisor && npm run test:import && npm run t
 npm run test:smsask && npm run test:nativesms   # دومی JDK (javac) می‌خواهد
 npm run test:financeplus
 npm run test:forecast
+npx tsx scripts/eval/forecast-eval.ts   # با .cache/eval؛ مقایسه روش‌های پیش‌بینی (~۱ دقیقه)
 npx tsx scripts/swing-v2-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts
