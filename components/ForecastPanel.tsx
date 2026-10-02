@@ -127,7 +127,9 @@ export default function ForecastPanel({ asset, horizon, onChange }: { asset: str
 
         {state === 'error' ? (
           <p className="empty">
-            {err.replace(/[.。]\s*$/, '')}. {/^HTTP|fetch|network/i.test(err) ? 'اتصال برقرار نشد؛ چند دقیقه بعد دوباره امتحان کنید.' : 'دارایی دیگری را انتخاب کنید.'}
+            {/^HTTP|fetch|network|load failed/i.test(err)
+              ? 'پیش‌بینی از سرور نرسید (اتصال اینترنت یا سرور). چند دقیقه بعد دوباره امتحان کنید.'
+              : `${err.replace(/[.。]\s*$/, '')}. دارایی دیگری را انتخاب کنید.`}
           </p>
         ) : shown && shown.cone.length >= 2 ? (
           <ForecastChart history={shown.history} cone={shown.cone} fmt={fmt} />
