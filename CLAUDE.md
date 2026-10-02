@@ -34,12 +34,12 @@ app/                 یک اپ، چهار گروه (components/nav.ts): مالی
                      بازار: market · charts · scenarios · risk · stocks · crypto · portfolio
                      معامله: live (جلسه من روی دستگاه + جلسه مشترک) · swing · simulator
                      ابزار: alerts (هشدار قیمت و اعلان) · game (بازی اقتصاد) · bot
-app/api/             advisor (مشاور Claude، stream) · snapshot · diag · ingest · chart · simulate · paper/{,tick}
+app/api/             advisor (مشاور Claude، stream) · snapshot · diag · ingest · chart · forecast · simulate · paper/{,tick}
                      · live/local (معامله برخط بدون‌حالت، برای اپ) · learning
                      · swing (backtest/portfolio/scan) · swing-live/{,tick}
                      · holdings · cron/* · telegram/{webhook,setup,broadcast}
 lib/sources/         tgju · goldapi · nobitex · brsapi · coingecko · klines (کندل بایننس/OKX) · history · news · cache
-lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-risk · scenario
+lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-risk · scenario · forecast (مخروط + کارنامه)
                      · simulator · signal-v2 (آزمایشی) · live · learning · swing · swing-v2 · swing-portfolio · swing-scan
                      · holdings-analysis · sizing
 lib/telegram/        api · format · handler · paper
@@ -54,7 +54,7 @@ lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · NotifyProvider · AppStartup
                      · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
-                     · Sparkline · RollingNumber · HoldingsPanel · PositionSizer
+                     · Sparkline · RollingNumber · HoldingsPanel · PositionSizer · ForecastPanel/ForecastChart (پیش‌بینی صفحه نمودار)
 components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
                      · PortfolioCompare · views/*
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
@@ -312,6 +312,22 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
 57. **‏ویرایش:** حساب (`editAccount`: موجودی فعلی فقط موجودی اول دوره را جابه‌جا می‌کند)، وام (`editLoan`: اقساط پرداخت‌شده‌ای که تراکنش
     دارند کم یا نوعشان عوض نمی‌شود؛ جدول باقی‌مانده با شرایط تازه)، دارایی (مقدار، تاریخ و مبلغ خرید) و درآمد پیش‌رو.
 
+## ۴-ح) پیش‌بینی در صفحه نمودار (مهر ۱۴۰۵)
+
+‏`/charts` دو حالت دارد: «نمودار قیمت» و «پیش‌بینی» (`?mode=forecast&asset=&h=`). پیش‌بینی هفتگی، ماهانه، ۳ ماهه و یک‌ساله از
+`/api/forecast` (فقط‌خواندنی، CORS باز برای اپ). تست: `npm run test:forecast` (با `.cache/eval` کارنامه واقعی را هم چاپ می‌کند).
+
+58. **‏مدل تازه نیست.** مخروط همان اعداد موتور سناریو (`/scenarios`، صدک ۵/میانه/۹۵ در ۱ روز تا ۱ سال) است؛ `coneFromRows` بینشان
+    میانه را خطی و پهنا را با √زمان پر می‌کند و دقیقاً از ردیف‌های سناریو رد می‌شود (تست قفلش کرده). باند ۵۰٪ از باند ۹۰٪ با نسبت z
+    (۰٫۶۷۴۵/۱٫۶۴۴۹) و همان چولگی ساخته می‌شود.
+59. **‏هر مخروط با کارنامه خودش نشان داده می‌شود** (`calibrate`): موتور در ۴۸ روز گذشته، هر بار فقط با قیمت‌های تا همان روز (قاعده ۴) و
+    فقط با همان تعداد ردیفی که موتور زنده می‌بیند (`window`)، دوباره اجرا و با قیمت واقعی یک افق بعد سنجیده می‌شود. چون تابلو فقط ~۱۵ ماه
+    تاریخچه نگه می‌دارد (`KEEP_DAYS`)، کارنامه از تاریخچه کامل منبع می‌آید (`fetchTgjuHistory(slug, true)` از ۲۰۱۱؛ بایننس ~۱۰۰۰ روز).
+    زیر ۴ پنجره جدا از هم (`MIN_PERIODS`) کارنامه‌ای گزارش نمی‌شود — ۴۸ پیش‌بینی یک‌ساله در دو ماه یک نتیجه است، نه ۴۸ (اولین نسخه همین را
+    «۰٪» نشان می‌داد).
+60. **‏عدد واقعی را پنهان نکن:** روی داده واقعی، باند ۹۰٪ یک‌ساله برای دلار/سکه/طلا فقط ~۶۵–۷۳٪ مواقع قیمت را نگه داشته و تقریباً همه
+    خطاها رو به بالا بوده (جهش ارزی)؛ هفتگی و ماهانه ۸۵–۹۲٪. صفحه زیر ۸۰٪ هشدار می‌دهد. وعده سود نیست (قاعده ۲۲).
+
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
 21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
@@ -376,6 +392,7 @@ npx tsx scripts/live-local-test.ts
 npm run test:finance && npm run test:advisor && npm run test:import && npm run test:app && npm run test:sources
 npm run test:smsask && npm run test:nativesms   # دومی JDK (javac) می‌خواهد
 npm run test:financeplus
+npm run test:forecast
 npx tsx scripts/swing-v2-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts

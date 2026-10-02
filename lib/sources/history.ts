@@ -8,10 +8,10 @@ export type DatedPairs = [string, number][]; // ['YYYY-MM-DD', value] ascending
 
 const KEEP_DAYS = 460;
 
-function tidy(pairs: DatedPairs): DatedPairs {
+function tidy(pairs: DatedPairs, keep = KEEP_DAYS): DatedPairs {
   const m = new Map<string, number>();
   for (const [d, v] of pairs) if (/^\d{4}-\d{2}-\d{2}$/.test(d) && isNum(v) && v > 0) m.set(d, v);
-  return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-KEEP_DAYS);
+  return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-keep);
 }
 
 export const TGJU_SLUGS = {
@@ -25,7 +25,7 @@ export const TGJU_SLUGS = {
   silverOns: 'silver', // USD per ounce
 } as const;
 
-export async function fetchTgjuHistory(slug: string): Promise<DatedPairs> {
+export async function fetchTgjuHistory(slug: string, full = false): Promise<DatedPairs> {
   const json = await fetchJson(`https://api.tgju.org/v1/market/indicator/summary-table-data/${slug}`, { timeoutMs: 20_000 });
   const rows: unknown[] = Array.isArray(json?.data) ? json.data : [];
   const out: DatedPairs = [];
@@ -38,7 +38,9 @@ export async function fetchTgjuHistory(slug: string): Promise<DatedPairs> {
     out.push([`${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`, close]);
   }
   if (out.length < 10) throw new Error(`TGJU ${slug}: ${out.length} rows`);
-  return tidy(out);
+  // `full`: every row TGJU has (since 2011 for the dollar) — for scoring a method on the past
+  // (lib/engine/forecast.ts), not for the board, which keeps the last KEEP_DAYS
+  return full ? tidy(out, Infinity) : tidy(out);
 }
 
 const dEvenToIso = (d: unknown) => {
