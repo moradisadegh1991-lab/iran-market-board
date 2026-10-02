@@ -1,13 +1,15 @@
 'use client';
 import { useRef, useState } from 'react';
-import { accountBalances, netWorth, unitPriceRial } from '@/lib/finance/calc';
-import { deleteAccount } from '@/lib/finance/actions';
+import { accountBalances, netWorth, unitPrice } from '@/lib/finance/calc';
+import { priceOnDay } from '@/lib/finance/prices';
+import { api } from '@/lib/api';
+import { deleteAccount, editAccount } from '@/lib/finance/actions';
 import { ACCOUNT_KIND_LABEL, emptyData, MARKET_ASSETS, newId, normalizeData, tomanToRial, type AccountKind, type FinanceData, type MarketKey } from '@/lib/finance/model';
 import { Empty, PageHead, Toggle } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
 import ClassicMigrate from '../ClassicMigrate';
 import { applyReconcile, createAccountForSource, linkSource, reconcile, sourceLabel } from '@/lib/finance/sources';
-import { Card, confirmDelete, Disclosure, fmtDateFa, fmtPctFa, Money, NumInput, parseAmount, SelectBox, TextInput, TomanInput } from '../kit';
+import { Card, confirmDelete, Disclosure, fmtDateFa, fmtPctFa, JalaliDate, Money, NumInput, parseAmount, SelectBox, TextInput, TomanInput } from '../kit';
 import { download } from './TransactionsView';
 
 const whenFa = (date: string, time?: string | null) => `${fmtDateFa(date)}${time ? `، ${time.replace(/\d/g, (x) => '۰۱۲۳۴۵۶۷۸۹'[+x])}` : ''}`;
@@ -108,6 +110,47 @@ function SmsSources({ d }: { d: FinanceData }) {
   );
 }
 
+/** Name, kind, start date and today's balance of an account; the balance moves only the opening balance. */
+function AccountEdit({ d, id, onDone }: { d: FinanceData; id: string; onDone: () => void }) {
+  const { update } = useFinance();
+  const a = d.accounts.find((x) => x.id === id)!;
+  const current = accountBalances(d)[id] ?? 0;
+  const [name, setName] = useState(a.name);
+  const [kind, setKind] = useState<AccountKind>(a.kind);
+  const [balance, setBalance] = useState(String(Math.round(current / 10)));
+  const [openedOn, setOpenedOn] = useState(a.openedOn);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="fin-grid fin-edit">
+      <TextInput label="نام" value={name} onChange={setName} />
+      <SelectBox<AccountKind> label="نوع" value={kind} onChange={setKind} options={Object.entries(ACCOUNT_KIND_LABEL).map(([k, v]) => ({ key: k as AccountKind, label: v }))} />
+      <TomanInput label="موجودی فعلی (تومان)" value={balance} onChange={setBalance} />
+      <JalaliDate label="تاریخ شروع ثبت این حساب" value={openedOn} onChange={setOpenedOn} />
+      <p className="fin-span muted small">تغییر موجودی فقط «موجودی اول دوره» را جابه‌جا می‌کند؛ تراکنش‌های ثبت‌شده دست نمی‌خورند.</p>
+      <div className="fin-span fin-actions">
+        <button
+          className="btn"
+          onClick={() => {
+            const b = parseAmount(balance);
+            let e: string | null = null;
+            update((dr) => {
+              e = editAccount(dr, id, { name, kind, openedOn, currentRial: Number.isFinite(b) && tomanToRial(b) !== Math.round(current) ? tomanToRial(b) : null });
+            });
+            setErr(e);
+            if (!e) onDone();
+          }}
+        >
+          ذخیره
+        </button>
+        <button className="fin-mini ghost" onClick={onDone}>
+          انصراف
+        </button>
+        {err ? <span className="fin-err">{err}</span> : null}
+      </div>
+    </div>
+  );
+}
+
 function Accounts({ d }: { d: FinanceData }) {
   const { update, today } = useFinance();
   const bal = accountBalances(d);
@@ -115,12 +158,14 @@ function Accounts({ d }: { d: FinanceData }) {
   const [kind, setKind] = useState<AccountKind>('bank');
   const [opening, setOpening] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   return (
     <Card title="حساب‌ها">
       {d.accounts.length ? (
         <ul className="fin-list">
           {d.accounts.map((a) => (
-            <li key={a.id} className={a.archived ? 'muted' : ''}>
+            <li key={a.id} className={`fin-list-block${a.archived ? ' muted' : ''}`}>
+              <div className="fin-list-row">
               <span className="fin-list-main">
                 <b>{a.name}</b>
                 <small>
@@ -131,6 +176,9 @@ function Accounts({ d }: { d: FinanceData }) {
                 <BankBalance d={d} accountId={a.id} />
               </span>
               <Money rial={bal[a.id] ?? 0} />
+              <button className="fin-mini" onClick={() => setEditing(editing === a.id ? null : a.id)} aria-expanded={editing === a.id}>
+                ویرایش
+              </button>
               <button className="fin-mini" onClick={() => update((dr) => void (dr.accounts.find((x) => x.id === a.id)!.archived = !a.archived))}>
                 {a.archived ? 'بازگردانی' : 'بایگانی'}
               </button>
@@ -147,6 +195,8 @@ function Accounts({ d }: { d: FinanceData }) {
               >
                 حذف
               </button>
+              </div>
+              {editing === a.id ? <AccountEdit d={d} id={a.id} onDone={() => setEditing(null)} /> : null}
             </li>
           ))}
         </ul>
@@ -177,8 +227,121 @@ function Accounts({ d }: { d: FinanceData }) {
           </div>
         )}
       </Disclosure>
-      <p className="note">موجودی بعد از ساخت حساب از روی تراکنش‌ها حساب می‌شود. اگر با موجودی واقعی بانک فرق کرد، یک تراکنش «سایر» برای تطبیق ثبت کنید.</p>
+      <p className="note">موجودی بعد از ساخت حساب از روی تراکنش‌ها حساب می‌شود. اگر با موجودی واقعی بانک فرق کرد، از «ویرایش» موجودی فعلی را بنویسید.</p>
     </Card>
+  );
+}
+
+const USD_QUOTED: MarketKey[] = ['btc', 'eth'];
+
+async function chartPoints(asset: string): Promise<[number, number][]> {
+  const r = await fetch(api(`/api/chart?asset=${encodeURIComponent(asset)}&tf=1y`));
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || j.error || !Array.isArray(j.points)) throw new Error(j.error || `HTTP ${r.status}`);
+  return j.points;
+}
+
+/**
+ * Purchase date and what was paid. «قیمت روز خرید» fills the total from the close of that day —
+ * or, when the market was shut (Friday, a holiday), of the last trading day before it, and says so.
+ */
+function PurchaseFields({ assetKey, qty, boughtOn, setBoughtOn, cost, setCost }: { assetKey: MarketKey; qty: number; boughtOn: string; setBoughtOn: (v: string) => void; cost: string; setCost: (v: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  async function fill() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const p = await priceOnDay(assetKey, USD_QUOTED.includes(assetKey) ? 'usd' : 'toman', boughtOn, chartPoints);
+      if (!p) return setNote('قیمت آن روز در دسترس نیست (تاریخچه فقط یک سال گذشته را دارد). مبلغ را دستی بنویسید.');
+      setCost(String(Math.round((p.rial * qty) / 10)));
+      setNote(
+        p.date === boughtOn
+          ? `قیمت ${fmtDateFa(p.date)}: هر واحد ${Math.round(p.rial / 10).toLocaleString('fa-IR')} تومان.`
+          : `${fmtDateFa(boughtOn)} بازار تعطیل بود یا قیمتی ثبت نشد؛ قیمت آخرین روز کاری قبل از آن (${fmtDateFa(p.date)}) گذاشته شد: هر واحد ${Math.round(p.rial / 10).toLocaleString('fa-IR')} تومان.`,
+      );
+    } catch (e) {
+      setNote(`دریافت قیمت ممکن نشد (${e instanceof Error ? e.message : String(e)}).`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <JalaliDate label="تاریخ خرید (اختیاری)" value={boughtOn} onChange={setBoughtOn} yearsBack={10} yearsAhead={0} />
+      <TomanInput label="کل مبلغ خرید (تومان، اختیاری)" value={cost} onChange={setCost} placeholder="برای دیدن سود و زیان" />
+      <div className="fin-span fin-actions">
+        <button className="fin-mini" type="button" onClick={fill} disabled={busy || !(qty > 0)}>
+          {busy ? 'در حال گرفتن قیمت…' : 'قیمت روز خرید را بگذار'}
+        </button>
+        {note ? (
+          <span className="muted small" role="status">
+            {note}
+          </span>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function AssetEdit({ d, id, onDone }: { d: FinanceData; id: string; onDone: () => void }) {
+  const { update, today } = useFinance();
+  const a = d.assets.find((x) => x.id === id)!;
+  const meta = a.key ? MARKET_ASSETS.find((x) => x.key === a.key) : null;
+  const [qty, setQty] = useState(String(a.qty ?? ''));
+  const [boughtOn, setBoughtOn] = useState(a.boughtOn ?? today);
+  const [cost, setCost] = useState(a.costRial ? String(Math.round(a.costRial / 10)) : '');
+  const [name, setName] = useState(a.name);
+  const [value, setValue] = useState(a.valueRial ? String(Math.round(a.valueRial / 10)) : '');
+  const [liquid, setLiquid] = useState(!!a.liquid);
+  return (
+    <div className="fin-grid fin-edit">
+      {a.kind === 'market' && a.key && meta ? (
+        <>
+          <NumInput label={`مقدار (${meta.unit})`} value={qty} onChange={setQty} step={meta.step} />
+          <PurchaseFields assetKey={a.key} qty={parseAmount(qty)} boughtOn={boughtOn} setBoughtOn={setBoughtOn} cost={cost} setCost={setCost} />
+        </>
+      ) : (
+        <>
+          <TextInput label="عنوان" value={name} onChange={setName} />
+          <TomanInput label="ارزش تقریبی امروز (تومان)" value={value} onChange={setValue} />
+          <div className="fin-span">
+            <Toggle checked={liquid} onChange={setLiquid}>
+              ظرف یک هفته قابل فروش است
+            </Toggle>
+          </div>
+        </>
+      )}
+      <div className="fin-span fin-actions">
+        <button
+          className="btn"
+          onClick={() => {
+            update((dr) => {
+              const x = dr.assets.find((y) => y.id === id);
+              if (!x) return;
+              if (x.kind === 'market') {
+                const q = parseAmount(qty);
+                if (q > 0) x.qty = q;
+                const c = parseAmount(cost);
+                x.costRial = c > 0 ? tomanToRial(c) : null;
+                x.boughtOn = c > 0 ? boughtOn : null;
+              } else {
+                if (name.trim()) x.name = name.trim();
+                const v = parseAmount(value);
+                if (v > 0) x.valueRial = tomanToRial(v);
+                x.liquid = liquid;
+              }
+            });
+            onDone();
+          }}
+        >
+          ذخیره
+        </button>
+        <button className="fin-mini ghost" onClick={onDone}>
+          انصراف
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -191,8 +354,12 @@ function Assets({ d }: { d: FinanceData }) {
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
   const [liquid, setLiquid] = useState(false);
+  const [boughtOn, setBoughtOn] = useState(today);
+  const [cost, setCost] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
   const meta = MARKET_ASSETS.find((x) => x.key === key)!;
-  const unit = unitPriceRial(key, items);
+  const unitP = unitPrice(key, items);
+  const unit = unitP?.rial ?? null;
   return (
     <Card title="دارایی‌ها">
       <dl className="fin-kpis tight">
@@ -227,17 +394,31 @@ function Assets({ d }: { d: FinanceData }) {
           </dd>
         </div>
       </dl>
-      {nw.unpriced.length ? <p className="banner warn">قیمت لحظه‌ای این موارد در دسترس نیست و در جمع حساب نشده‌اند: {nw.unpriced.join('، ')}</p> : null}
+      {nw.unpriced.length ? <p className="banner warn">قیمت این موارد در دسترس نیست و در جمع حساب نشده‌اند: {nw.unpriced.join('، ')}</p> : null}
+      {nw.lastPriced.length ? (
+        <p className="banner info">
+          بازار بسته است (جمعه یا تعطیل) یا قیمت لحظه‌ای نرسید؛ این دارایی‌ها با آخرین قیمت ثبت‌شده حساب شده‌اند:{' '}
+          {nw.lastPriced.map((x) => `${x.name} (${fmtDateFa(x.asOf)})`).join('، ')}
+        </p>
+      ) : null}
       {d.assets.length ? (
         <ul className="fin-list">
           {d.assets.map((a) => {
-            const v = nw.byAsset.find((x) => x.id === a.id)?.rial ?? null;
+            const row = nw.byAsset.find((x) => x.id === a.id);
+            const v = row?.rial ?? null;
             const m = a.key ? MARKET_ASSETS.find((x) => x.key === a.key) : null;
             return (
-              <li key={a.id}>
+              <li key={a.id} className="fin-list-block">
+                <div className="fin-list-row">
                 <span className="fin-list-main">
                   <b>{a.name}</b>
-                  <small>{a.kind === 'market' ? `${(a.qty ?? 0).toLocaleString('fa-IR', { maximumFractionDigits: 6 })} ${m?.unit ?? ''} · قیمت لحظه‌ای` : a.liquid ? 'قابل نقد شدن سریع' : 'غیرنقد'}</small>
+                  <small>
+                    {a.kind === 'market'
+                      ? `${(a.qty ?? 0).toLocaleString('fa-IR', { maximumFractionDigits: 6 })} ${m?.unit ?? ''} · ${row?.asOf ? `آخرین قیمت ${fmtDateFa(row.asOf)}` : 'قیمت لحظه‌ای'}`
+                      : a.liquid
+                        ? 'قابل نقد شدن سریع'
+                        : 'غیرنقد'}
+                  </small>
                   {a.costRial && v !== null ? (
                     <small>
                       خرید <Money rial={a.costRial} short />
@@ -247,9 +428,14 @@ function Assets({ d }: { d: FinanceData }) {
                   ) : null}
                 </span>
                 <Money rial={v} />
+                <button className="fin-mini" onClick={() => setEditing(editing === a.id ? null : a.id)} aria-expanded={editing === a.id}>
+                  ویرایش
+                </button>
                 <button className="fin-mini ghost" onClick={() => confirmDelete(`«${a.name}»`) && update((dr) => void (dr.assets = dr.assets.filter((x) => x.id !== a.id)))}>
                   حذف
                 </button>
+                </div>
+                {editing === a.id ? <AssetEdit d={d} id={a.id} onDone={() => setEditing(null)} /> : null}
               </li>
             );
           })}
@@ -264,7 +450,14 @@ function Assets({ d }: { d: FinanceData }) {
             {mode === 'market' ? (
               <>
                 <SelectBox<MarketKey> label="دارایی" value={key} onChange={setKey} options={MARKET_ASSETS.map((x) => ({ key: x.key, label: x.label }))} />
-                <NumInput label={`مقدار (${meta.unit})`} value={qty} onChange={setQty} step={meta.step} hint={unit ? `قیمت هر ${meta.unit}: ${Math.round(unit / 10).toLocaleString('fa-IR')} تومان` : 'قیمت فعلاً در دسترس نیست'} />
+                <NumInput
+                  label={`مقدار (${meta.unit})`}
+                  value={qty}
+                  onChange={setQty}
+                  step={meta.step}
+                  hint={unit ? `قیمت هر ${meta.unit}: ${Math.round(unit / 10).toLocaleString('fa-IR')} تومان${unitP?.asOf ? ` (آخرین قیمت، ${fmtDateFa(unitP.asOf)})` : ''}` : 'قیمت فعلاً در دسترس نیست'}
+                />
+                <PurchaseFields assetKey={key} qty={parseAmount(qty)} boughtOn={boughtOn} setBoughtOn={setBoughtOn} cost={cost} setCost={setCost} />
               </>
             ) : (
               <>
@@ -284,8 +477,10 @@ function Assets({ d }: { d: FinanceData }) {
                   if (mode === 'market') {
                     const q = parseAmount(qty);
                     if (!(q > 0)) return;
-                    update((dr) => void dr.assets.push({ id: newId('s'), name: meta.label, kind: 'market', key, qty: q }));
+                    const c = parseAmount(cost);
+                    update((dr) => void dr.assets.push({ id: newId('s'), name: meta.label, kind: 'market', key, qty: q, costRial: c > 0 ? tomanToRial(c) : null, boughtOn: c > 0 ? boughtOn : null }));
                     setQty('');
+                    setCost('');
                   } else {
                     const v = parseAmount(value);
                     if (!name.trim() || !(v > 0)) return;

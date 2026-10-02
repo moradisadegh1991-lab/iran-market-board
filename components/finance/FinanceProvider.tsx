@@ -1,7 +1,8 @@
 'use client';
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { emptyData, normalizeData, type FinanceData } from '@/lib/finance/model';
 import type { PriceItem } from '@/lib/finance/calc';
+import { normalizeMemo, PRICE_MEMO_KEY, rememberPrices, withLastPrices, type PriceMemo } from '@/lib/finance/prices';
 import { tehranDate } from '@/lib/num';
 import { useSnapshot } from '../SnapshotProvider';
 
@@ -95,7 +96,29 @@ export default function FinanceProvider({ children }: { children: React.ReactNod
     [persist],
   );
 
-  const items: PriceItem[] = snap?.live.items ?? [];
+  // the last price of each item, for a board that lacks one (holiday, feed down, offline start)
+  const [memo, setMemo] = useState<PriceMemo>({});
+  useEffect(() => {
+    try {
+      setMemo(normalizeMemo(JSON.parse(localStorage.getItem(PRICE_MEMO_KEY) ?? 'null')));
+    } catch {
+      // no memory yet
+    }
+  }, []);
+  const board = snap?.live.items;
+  useEffect(() => {
+    if (!board?.length) return;
+    setMemo((m) => {
+      const next = rememberPrices(m, board, tehranDate());
+      try {
+        localStorage.setItem(PRICE_MEMO_KEY, JSON.stringify(next));
+      } catch {
+        // memory only
+      }
+      return next;
+    });
+  }, [board]);
+  const items: PriceItem[] = useMemo(() => withLastPrices(board ?? [], memo), [board, memo]);
   return <FinanceCtx.Provider value={{ data, today, items, update, replace, saveError }}>{children}</FinanceCtx.Provider>;
 }
 

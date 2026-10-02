@@ -60,6 +60,18 @@ export function upsertDailyPoint(store: DailyStore, date: string, point: Partial
   }
 }
 
+/** The last recorded close of `key` on or before `date` — what a holiday or a dead feed falls back to. */
+export function lastClose(store: DailyStore, key: AssetKey, date: string): { date: string; value: number } | null {
+  const series = store.series[key];
+  if (!series) return null;
+  for (let i = store.dates.length - 1; i >= 0; i--) {
+    if (store.dates[i] > date) continue;
+    const v = series[i];
+    if (isNum(v) && v > 0) return { date: store.dates[i], value: v };
+  }
+  return null;
+}
+
 export async function saveDaily(store: DailyStore) {
   await kv.set(DAILY_KEY, store);
 }

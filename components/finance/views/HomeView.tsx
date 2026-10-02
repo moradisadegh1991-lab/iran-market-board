@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { budgetStatus, cashForecast, goalPlan, health, monthLabel, monthOf, monthTotals, netWorth, upcoming } from '@/lib/finance/calc';
+import { budgetStatus, cashForecast, goalPlan, health, monthForecast, monthLabel, monthOf, monthTotals, netWorth, shiftMonth, upcoming } from '@/lib/finance/calc';
 import type { FinanceData } from '@/lib/finance/model';
 import { isNum } from '@/lib/num';
 import { PageHead } from '../../ui';
@@ -77,6 +77,7 @@ function Home({ d }: { d: FinanceData }) {
   const nw = netWorth(d, items, today);
   const al = alerts(d, items, today);
   const budgets = budgetStatus(d, m, today).slice(0, 5);
+  const next = monthForecast(d, shiftMonth(m, 1), today);
   const fresh = !d.txns.length && !d.loans.length && !d.assets.length && d.accounts.every((a) => a.openingRial === 0);
 
   return (
@@ -89,7 +90,7 @@ function Home({ d }: { d: FinanceData }) {
       {fresh ? <Onboarding /> : null}
 
       <dl className="fin-kpis">
-        <Stat label="دارایی خالص" sub={nw.unpriced.length ? `بدون قیمت: ${nw.unpriced.join('، ')}` : 'دارایی‌ها + طلب − بدهی'}>
+        <Stat label="دارایی خالص" sub={nw.unpriced.length ? `بدون قیمت: ${nw.unpriced.join('، ')}` : nw.lastPriced.length ? `${nw.lastPriced.length.toLocaleString('fa-IR')} دارایی با آخرین قیمت (بازار بسته)` : 'دارایی‌ها + طلب − بدهی'}>
           <Money rial={nw.netRial} short />
         </Stat>
         <Stat label="پول در دسترس" sub="حساب‌ها + دارایی نقدشونده">
@@ -103,6 +104,9 @@ function Home({ d }: { d: FinanceData }) {
         </Stat>
         <Stat label="نرخ پس‌انداز این ماه" sub="سهم درآمدی که ماند">
           <span className={isNum(t.savingsRatePct) ? (t.savingsRatePct >= 0 ? 'up' : 'down') : ''}>{fmtPctFa(t.savingsRatePct)}</span>
+        </Stat>
+        <Stat label={`پس‌انداز پیش‌بینی ${monthLabel(shiftMonth(m, 1))}`} sub={<Link href="/budget">درآمد پیش‌رو − اقساط و خرج</Link>}>
+          <Money rial={next.netRial} short signed className={next.netRial >= 0 ? 'up' : 'down'} />
         </Stat>
       </dl>
 

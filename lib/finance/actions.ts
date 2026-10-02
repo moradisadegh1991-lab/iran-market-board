@@ -1,16 +1,25 @@
 // Mutations that touch more than one list at once. Kept pure (they mutate a draft passed in) so the
 // UI and scripts/finance-test.ts exercise the exact same code.
 import type { Due } from './calc';
-import { monthKey, monthOf } from './calc';
-import { newId, type FinanceData, type Iso } from './model';
+import { accountBalances, monthKey, monthOf } from './calc';
+import { newId, type AccountKind, type FinanceData, type Iso, type Loan } from './model';
 
 /**
  * Mark an obligation as settled AND record the money movement, so the account balance and the
  * month's spending agree with what actually happened. Installments settle strictly in order:
  * paying "installment 5" while 4 is open would make the remaining-principal figure wrong.
  */
-export function settleDue(d: FinanceData, due: Due, accountId: string, date: Iso): string | null {
-  const amountRial = Math.abs(due.rial);
+export function settleDue(d: FinanceData, due: Due, accountId: string, date: Iso, actualRial?: number | null): string | null {
+  // what actually came in or went out when it differs from the plan (a salary with overtime, a late fee)
+  const amountRial = actualRial != null && Number.isFinite(actualRial) && actualRial > 0 ? Math.round(actualRial) : Math.abs(due.rial);
+  if (due.type === 'income') {
+    const inc = (d.incomes ?? []).find((x) => x.id === due.refId);
+    if (!inc) return 'درآمد پیدا نشد.';
+    const mk = due.monthKey ?? (inc.repeat === 'once' ? 'once' : monthKey(monthOf(date)));
+    if (!inc.receivedMonths.includes(mk)) inc.receivedMonths.push(mk);
+    d.txns.push({ id: newId('t'), date, kind: 'income', amountRial, accountId, categoryId: inc.categoryId ?? 'i-other', note: inc.name, link: { type: 'income', id: inc.id, mk } });
+    return null;
+  }
   if (due.type === 'loan') {
     const l = d.loans.find((x) => x.id === due.refId);
     if (!l) return 'وام پیدا نشد.';
@@ -69,6 +78,9 @@ export function deleteTxn(d: FinanceData, id: string): void {
   } else if (link.type === 'cheque') {
     const c = d.cheques.find((x) => x.id === link.id);
     if (c) c.status = 'pending';
+  } else if (link.type === 'income') {
+    const inc = (d.incomes ?? []).find((x) => x.id === link.id);
+    if (inc) inc.receivedMonths = inc.receivedMonths.filter((m) => m !== link.mk);
   } else if (link.type === 'bill') {
     const b = d.bills.find((x) => x.id === link.id);
     if (b) {
@@ -82,6 +94,43 @@ export function deleteTxn(d: FinanceData, id: string): void {
 export function deleteAccount(d: FinanceData, id: string): string | null {
   if (d.txns.some((t) => t.accountId === id || t.toAccountId === id)) return 'این حساب تراکنش دارد؛ به‌جای حذف، آن را بایگانی کنید.';
   d.accounts = d.accounts.filter((a) => a.id !== id);
+  return null;
+}
+
+/**
+ * Edits an account. A new current balance moves only the opening balance, so every transaction
+ * stays as recorded and the book shows exactly the balance the user typed.
+ */
+export function editAccount(d: FinanceData, id: string, patch: { name?: string; kind?: AccountKind; openedOn?: Iso; currentRial?: number | null }): string | null {
+  const a = d.accounts.find((x) => x.id === id);
+  if (!a) return 'حساب پیدا نشد.';
+  if (patch.name !== undefined) {
+    if (!patch.name.trim()) return 'نام حساب خالی است.';
+    a.name = patch.name.trim();
+  }
+  if (patch.kind) a.kind = patch.kind;
+  if (patch.openedOn && /^\d{4}-\d{2}-\d{2}$/.test(patch.openedOn)) a.openedOn = patch.openedOn;
+  if (patch.currentRial != null) {
+    if (!Number.isFinite(patch.currentRial)) return 'موجودی نامعتبر است.';
+    a.openingRial += Math.round(patch.currentRial) - (accountBalances(d)[id] ?? 0);
+  }
+  return null;
+}
+
+/**
+ * Edits a loan. Installments already paid stay paid — their transactions are in the book — so the
+ * loan cannot be shortened below them; the remaining schedule follows the new terms.
+ */
+export function editLoan(d: FinanceData, id: string, next: Omit<Loan, 'id'>): string | null {
+  const l = d.loans.find((x) => x.id === id);
+  if (!l) return 'وام پیدا نشد.';
+  if (!next.name.trim()) return 'عنوان را بنویسید.';
+  if (!(next.principalRial > 0) || !(next.months >= 1) || !(next.annualRatePct >= 0) || !Number.isInteger(next.months)) return 'مبلغ، نرخ و تعداد اقساط را درست وارد کنید.';
+  if (!Number.isInteger(next.paidCount) || next.paidCount < 0 || next.paidCount > next.months) return 'تعداد اقساط پرداخت‌شده نامعتبر است.';
+  const booked = Math.max(0, ...d.txns.filter((t) => t.link?.type === 'loan' && t.link.id === id).map((t) => t.link!.n ?? 0));
+  if (next.paidCount < booked) return `قسط ${booked.toLocaleString('fa-IR')} در دفتر ثبت شده؛ برای کم کردن اقساط پرداخت‌شده، اول تراکنش آن قسط را حذف کنید.`;
+  if (next.direction !== l.direction && booked) return 'برای این وام قسط ثبت شده؛ نوع (بدهی/طلب) را نمی‌شود عوض کرد.';
+  Object.assign(l, { ...next, name: next.name.trim() });
   return null;
 }
 

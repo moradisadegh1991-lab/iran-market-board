@@ -6,6 +6,7 @@ import type { PortfolioHorizon, Profile } from '@/lib/types';
 import { WithSnapshot } from '../SnapshotProvider';
 import { Chips, FilterBar, PageHead } from '../ui';
 import HoldingsPanel from '../HoldingsPanel';
+import PortfolioCompare from '../finance/PortfolioCompare';
 
 const CLS_CLASS = { cash: 'c-cash', usd: 'c-usd', gold: 'c-gold', equity: 'c-equity', btc: 'c-btc', spec: 'c-spec' } as const;
 
@@ -107,6 +108,7 @@ export default function PortfolioView() {
                   ))}
                 </ul>
               </section>
+              <PortfolioCompare lines={p.lines} title={`سبد پیشنهادی ${PROFILE_LABEL[prof]} ${HORIZON_LABEL[horizon]}`} />
             </>
           );
         }}

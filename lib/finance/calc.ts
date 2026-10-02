@@ -3,7 +3,7 @@
 //
 // Units: inputs and outputs are RIAL unless a name says otherwise (`…Toman`).
 import { isoToJalali, jalaliMonthLength, jalaliToIso, JALALI_MONTHS } from '@/lib/jalali';
-import type { Bill, Cheque, FinanceData, Goal, Iso, Loan, MarketKey, Txn } from './model';
+import type { Bill, Cheque, ExpectedIncome, FinanceData, Goal, Iso, Loan, MarketKey, Txn } from './model';
 
 // ── dates ──────────────────────────────────────────────────────────────────
 
@@ -225,7 +225,7 @@ export interface Due {
   /** + money coming in, − money going out */
   rial: number;
   label: string;
-  type: 'loan' | 'cheque' | 'bill';
+  type: 'loan' | 'cheque' | 'bill' | 'income';
   refId: string;
   n?: number;
   monthKey?: string;
@@ -248,6 +248,29 @@ export function billDueDates(b: Bill, today: Iso, horizon: Iso): { date: Iso; mk
   return out;
 }
 
+/**
+ * Dates an expected income has not been received for, up to `horizon`: monthly ones from their first
+ * month (a salary that is late shows as overdue), a one-off one on its date until it is received.
+ */
+export function incomeDueDates(x: ExpectedIncome, today: Iso, horizon: Iso): { date: Iso; mk: string }[] {
+  if (!x.active) return [];
+  if (x.repeat === 'once') return x.date && x.date <= horizon && !x.receivedMonths.includes('once') ? [{ date: x.date, mk: 'once' }] : [];
+  const out: { date: Iso; mk: string }[] = [];
+  const [fy, fm] = x.fromMonth.split('-').map(Number);
+  const cur = monthOf(today);
+  const idx = (j: JMonth) => j.jy * 12 + j.jm;
+  // never more than a year back, whatever fromMonth says
+  let m: JMonth = fy && fm >= 1 && fm <= 12 ? { jy: fy, jm: fm } : cur;
+  if (idx(m) < idx(cur) - 12) m = shiftMonth(cur, -12);
+  for (; ; m = shiftMonth(m, 1)) {
+    const date = dayInMonth(m, x.day);
+    if (date > horizon) break;
+    const mk = monthKey(m);
+    if (!x.receivedMonths.includes(mk)) out.push({ date, mk });
+  }
+  return out;
+}
+
 export function upcoming(d: FinanceData, today: Iso, days = 30): Due[] {
   const horizon = addDays(today, days);
   const out: Due[] = [];
@@ -266,6 +289,11 @@ export function upcoming(d: FinanceData, today: Iso, days = 30): Due[] {
   for (const b of d.bills) {
     for (const x of billDueDates(b, today, horizon)) {
       out.push({ key: `bill:${b.id}:${x.mk}`, date: x.date, rial: -b.amountRial, label: b.name, type: 'bill', refId: b.id, monthKey: x.mk, overdue: x.date < today });
+    }
+  }
+  for (const inc of d.incomes ?? []) {
+    for (const x of incomeDueDates(inc, today, horizon)) {
+      out.push({ key: `income:${inc.id}:${x.mk}`, date: x.date, rial: inc.amountRial, label: inc.name, type: 'income', refId: inc.id, monthKey: x.mk, overdue: x.date < today });
     }
   }
   return out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.rial - b.rial));
@@ -297,27 +325,107 @@ export function cashForecast(d: FinanceData, today: Iso, days = 30): { points: F
   return { points, low, startRial };
 }
 
+// ── month forecast: what comes in and goes out by the end of a month ──────
+
+export interface MonthForecast {
+  month: JMonth;
+  /** income already recorded in the month */
+  incomeActualRial: number;
+  /** still to come: the expected incomes the user entered (or, with none entered, the average) */
+  incomeExpectedRial: number;
+  incomeBasis: 'entered' | 'average' | 'none';
+  /** expected incomes of the month not received yet, for the list */
+  incomeLines: { label: string; date: Iso; rial: number; overdue: boolean }[];
+  expenseActualRial: number;
+  /** installments, bills and issued cheques still due in the month */
+  obligationsRial: number;
+  /** everyday spending still to come, at the pace of the last 90 days (without bills and installments) */
+  everydayRial: number;
+  /** income − expense for the whole month, actual + expected */
+  netRial: number;
+}
+
+/**
+ * The month as it will probably end: what is already recorded, plus what is known to come
+ * (expected incomes, installments, bills, cheques), plus everyday spending at its recent pace for
+ * the days left. With no expected income entered, the average monthly income stands in for it and
+ * the basis says so — a forecast built on a guess must look like one.
+ */
+export function monthForecast(d: FinanceData, m: JMonth, today: Iso): MonthForecast {
+  const { from, to } = monthBounds(m);
+  // a month that has not started has nothing recorded yet (future-dated entries are plans, not actuals)
+  const actual = today >= from ? totalsBetween(d, from, today < to ? today : to) : { incomeRial: 0, expenseRial: 0 };
+  const past = to < today;
+  const horizon = daysBetween(today, to);
+  const dues = horizon >= 0 ? upcoming(d, today, horizon).filter((x) => x.date >= from && x.date <= to) : [];
+  const incomeLines = dues.filter((x) => x.type === 'income').map((x) => ({ label: x.label, date: x.date, rial: x.rial, overdue: x.overdue }));
+  const obligationsRial = -dues.filter((x) => x.rial < 0).reduce((s, x) => s + x.rial, 0);
+  const chequesIn = dues.filter((x) => x.type === 'cheque' && x.rial > 0).reduce((s, x) => s + x.rial, 0);
+  const loansIn = dues.filter((x) => x.type === 'loan' && x.rial > 0).reduce((s, x) => s + x.rial, 0);
+
+  let incomeExpectedRial = incomeLines.reduce((s, x) => s + x.rial, 0) + chequesIn + loansIn;
+  let incomeBasis: MonthForecast['incomeBasis'] = (d.incomes ?? []).some((x) => x.active) ? 'entered' : 'none';
+  const avg = monthlyAverages(d, today);
+  if (incomeBasis === 'none' && !past && avg.incomeRial > 0) {
+    incomeExpectedRial += Math.max(0, avg.incomeRial - actual.incomeRial);
+    incomeBasis = 'average';
+  }
+
+  // everyday spending: expenses that are not an installment/bill/cheque payment, over the last 90 days
+  const start = addDays(today, -89);
+  const dated = d.txns.filter((t) => t.kind === 'expense' && t.date <= today).map((t) => t.date);
+  let everydayRial = 0;
+  if (dated.length && !past) {
+    const first = dated.reduce((a, b) => (a < b ? a : b));
+    const s0 = first > start ? first : start;
+    const basisDays = Math.max(30, daysBetween(s0, today) + 1);
+    const everyday = d.txns.filter((t) => t.kind === 'expense' && !t.link && t.date >= s0 && t.date <= today).reduce((s, t) => s + t.amountRial, 0);
+    const daysLeft = today < from ? daysBetween(from, to) + 1 : Math.max(0, daysBetween(today, to));
+    everydayRial = (everyday / basisDays) * daysLeft;
+  }
+  return {
+    month: m,
+    incomeActualRial: actual.incomeRial,
+    incomeExpectedRial,
+    incomeBasis,
+    incomeLines,
+    expenseActualRial: actual.expenseRial,
+    obligationsRial,
+    everydayRial,
+    netRial: actual.incomeRial + incomeExpectedRial - actual.expenseRial - obligationsRial - everydayRial,
+  };
+}
+
 // ── assets & net worth ─────────────────────────────────────────────────────
 
 export interface PriceItem {
   key: string;
   price: number | null;
   unit: 'toman' | 'usd' | 'point';
+  /** not a live quote: the last price on record, from this day (holiday, feed down — prices.ts) */
+  asOf?: string | null;
 }
 
 /**
- * Rial price of one unit of a market asset. Items quoted in USD (BTC, ETH) are converted with the
- * board's own tether rate — never added as if their dollar price were toman (CLAUDE.md rule 2).
+ * Rial price of one unit of a market asset, and the day it is from when it is not live. Items
+ * quoted in USD (BTC, ETH) are converted with the board's own tether rate — never added as if
+ * their dollar price were toman (CLAUDE.md rule 2); the older of the two dates is the price's date.
  */
-export function unitPriceRial(key: MarketKey, items: PriceItem[]): number | null {
+export function unitPrice(key: MarketKey, items: PriceItem[]): { rial: number; asOf: Iso | null } | null {
   const it = items.find((x) => x.key === key);
   if (!it || typeof it.price !== 'number' || !(it.price > 0)) return null;
-  if (it.unit === 'toman') return it.price * 10;
+  if (it.unit === 'toman') return { rial: it.price * 10, asOf: it.asOf ?? null };
   if (it.unit === 'usd') {
     const usdt = items.find((x) => x.key === 'usdt');
-    return usdt && usdt.unit === 'toman' && typeof usdt.price === 'number' && usdt.price > 0 ? it.price * usdt.price * 10 : null;
+    if (!(usdt && usdt.unit === 'toman' && typeof usdt.price === 'number' && usdt.price > 0)) return null;
+    const dates = [it.asOf, usdt.asOf].filter((x): x is string => !!x).sort();
+    return { rial: it.price * usdt.price * 10, asOf: dates[0] ?? null };
   }
   return null;
+}
+
+export function unitPriceRial(key: MarketKey, items: PriceItem[]): number | null {
+  return unitPrice(key, items)?.rial ?? null;
 }
 
 export interface NetWorth {
@@ -328,9 +436,11 @@ export interface NetWorth {
   receivableRial: number;
   debtRial: number;
   netRial: number;
-  /** market assets that could not be priced right now (feed down) — excluded, not zeroed silently */
+  /** market assets with no price at all, not even a last one — excluded, not zeroed silently */
   unpriced: string[];
-  byAsset: { id: string; name: string; rial: number | null; liquid: boolean }[];
+  /** market assets valued at the last price on record (market closed, feed down), with its day */
+  lastPriced: { name: string; asOf: Iso }[];
+  byAsset: { id: string; name: string; rial: number | null; liquid: boolean; asOf?: Iso | null }[];
 }
 
 export function netWorth(d: FinanceData, items: PriceItem[], today: Iso): NetWorth {
@@ -340,17 +450,19 @@ export function netWorth(d: FinanceData, items: PriceItem[], today: Iso): NetWor
   let manualRial = 0;
   let liquidExtra = 0;
   const unpriced: string[] = [];
+  const lastPriced: NetWorth['lastPriced'] = [];
   const byAsset: NetWorth['byAsset'] = [];
   for (const a of d.assets) {
     if (a.kind === 'market' && a.key) {
-      const p = unitPriceRial(a.key, items);
-      const v = p === null ? null : p * (a.qty ?? 0);
+      const p = unitPrice(a.key, items);
+      const v = p === null ? null : p.rial * (a.qty ?? 0);
       if (v === null) unpriced.push(a.name);
       else {
         marketRial += v;
         liquidExtra += v;
+        if (p!.asOf) lastPriced.push({ name: a.name, asOf: p!.asOf });
       }
-      byAsset.push({ id: a.id, name: a.name, rial: v, liquid: true });
+      byAsset.push({ id: a.id, name: a.name, rial: v, liquid: true, asOf: p?.asOf ?? null });
     } else {
       const v = a.valueRial ?? 0;
       manualRial += v;
@@ -374,6 +486,7 @@ export function netWorth(d: FinanceData, items: PriceItem[], today: Iso): NetWor
     debtRial,
     netRial: cashRial + marketRial + manualRial + receivableRial - debtRial,
     unpriced,
+    lastPriced,
     byAsset,
   };
 }
@@ -524,6 +637,15 @@ export function advisorSummary(d: FinanceData, items: PriceItem[], today: Iso) {
       };
     }),
     monthlyBillsToman: T(h.monthlyBillsRial),
+    // amounts only: the names the user gave expected incomes stay on the device (rule 7)
+    expectedIncome: {
+      monthlyToman: T((d.incomes ?? []).filter((x) => x.active && x.repeat === 'monthly').reduce((s, x) => s + x.amountRial, 0)),
+      oneOffNext90DaysToman: T(upcoming(d, today, 90).filter((x) => x.type === 'income' && (d.incomes ?? []).find((i) => i.id === x.refId)?.repeat === 'once').reduce((s, x) => s + x.rial, 0)),
+    },
+    nextMonthForecast: (() => {
+      const f = monthForecast(d, shiftMonth(cur, 1), today);
+      return { month: monthLabel(f.month), incomeToman: T(f.incomeExpectedRial), incomeBasis: f.incomeBasis, obligationsToman: T(f.obligationsRial), everydaySpendingToman: T(f.everydayRial), savingsToman: T(f.netRial) };
+    })(),
     next30Days: {
       outflowToman: T(-dues.filter((x) => x.rial < 0).reduce((s, x) => s + x.rial, 0)),
       inflowToman: T(dues.filter((x) => x.rial > 0).reduce((s, x) => s + x.rial, 0)),

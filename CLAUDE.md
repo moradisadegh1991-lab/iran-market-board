@@ -48,13 +48,15 @@ lib/finance/         model (نوع داده، همه به ریال) · calc (م�
                      · phone-sms (خواندن صندوق پیامک گوشی) · migrate (انتقال داده‌های اپ قبلی اندروید)
                      · sources (کارت/حساب و مانده بانک از پیامک، تطبیق با دفتر)
                      · sms-ask (اعمال جواب اعلان «نوعش چیست؟» در دفتر)
+                     · prices (آخرین قیمت در بازار بسته، قیمت روز خرید) · compare (سبد من در برابر سبد پیشنهادی، دارایی‌های قابل معامله برخط)
 lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت، خالص) · live-local (جلسه برخط روی دستگاه)
                      · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · NotifyProvider · AppStartup
                      · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
                      · Sparkline · RollingNumber · HoldingsPanel · PositionSizer
-components/finance/  FinanceProvider (localStorage) · kit · TxnForm · DueList · Markdown · views/*
+components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
+                     · PortfolioCompare · views/*
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
                      · Crypto · Portfolio · Bot
 scripts/             تست‌های آفلاین همه با tsx اجرا می‌شوند — بخش ۵ را ببین
@@ -284,6 +286,32 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
     وقتی مستقیم ثبت می‌شود که هزینه/درآمد باشد، کارت به حسابی وصل باشد (قاعده ۴۵)، مبلغ قطعی و شبیه تراکنش ثبت‌شده‌ای نباشد؛ بقیه با
     همان جهت در صف می‌مانند. جواب خلاف جهت بانک اعمال نمی‌شود. پیامکی که گوشی درباره‌اش پرسیده، اعلان شمارشی دوم نمی‌گیرد.
 
+## ۴-ز) درآمد پیش‌رو، آخرین قیمت، مقایسه سبد، معامله با دارایی‌ها، ویرایش (مهر ۱۴۰۵)
+
+‏تست: `npm run test:financeplus` (۱۵ بررسی).
+
+52. **‏درآمد پیش‌رو مثل قبض است، برعکس.** `ExpectedIncome` (ماهانه با روز واریز، یا یک‌باره با تاریخ) تا «دریافت شد» پیش‌بینی است؛
+    `upcoming()` آن را با `type: 'income'` می‌آورد، پس فهرست سررسیدها و `cashForecast` خودشان حسابش می‌کنند. «دریافت شد» مبلغ واقعی را
+    می‌پرسد (`settleDue(..., actualRial)`) و تراکنش درآمد با `link: {type:'income', mk}` می‌سازد؛ حذف آن تراکنش دوباره آن ماه را باز
+    می‌کند. ماه‌های قبل از `fromMonth` هرگز پرسیده نمی‌شوند؛ حقوق دیرشده «گذشته» نشان داده می‌شود.
+53. **‏پیش‌بینی ماه** (`monthForecast`) = ثبت‌شده + درآمد پیش‌رو − ثبت‌شده − اقساط/قبض/چک باقی‌مانده − خرج روزمره با سرعت ۹۰ روز
+    (فقط هزینه‌های بی‌`link`، تا اقساط و قبض دوبار شمرده نشوند). بدون درآمد پیش‌رو، میانگین درآمد جایش می‌نشیند و `incomeBasis: 'average'`
+    روی صفحه گفته می‌شود. به مشاور فقط مبالغ می‌رود، نه نام درآمدها (قاعده ۷؛ تست قفلش کرده).
+54. **‏بازار بسته = آخرین قیمت، با تاریخ، نه «بدون قیمت».** دو لایه: سرور ردیف خالی تابلو را با `lastClose` از تاریخچه روزانه پر و
+    `BoardItem.asOf` را تاریخ می‌زند؛ دستگاه آخرین قیمت هر ردیف را در `imf.pricememo.v1` نگه می‌دارد (`withLastPrices`). `unitPrice()`
+    تاریخ را برمی‌گرداند (برای BTC/ETH قدیمی‌ترِ دو تاریخ ارز و تتر) و `netWorth.lastPriced` آن‌ها را جدا می‌گوید. قیمت روز خرید
+    (`priceOnOrBefore`/`priceOnDay`) اگر آن روز بازار تعطیل بوده، قیمت **آخرین روز کاری قبل** را می‌دهد — هرگز روز بعد (نگاه به آینده،
+    قاعده ۴) — و برای دارایی دلاری تتر همان روز (قاعده ۹). فقط یک سال اخیر (`/api/chart?tf=1y`).
+55. **‏مقایسه سبد** (`compareWithSuggested`) دارایی‌ها را به همان شش دسته سبد پیشنهادی می‌برد (طلا = طلای ۱۸، سکه‌ها، نقره؛ دلار = دلار و
+    تتر؛ BTC/ETH)؛ حساب‌ها اختیاری به «درآمد ثابت ریالی» می‌روند. دارایی دستی (ملک، خودرو، رهن) و بی‌قیمت کنار گذاشته و **نام برده**
+    می‌شوند. مبالغ خرید/فروش جمعشان صفر است.
+56. **‏معامله برخط با دارایی‌های خودم** فقط در «جلسه من»: `config.startHoldings` (دلار، طلای ۱۸، سکه امامی، BTC، ETH) با `seedHoldings`
+    پیش از اولین تیک به موقعیت با قیمت زنده تبدیل می‌شود، حد ضرر با همان فرمول خرید موتور، و `capitalToman` = نقد + ارزش دارایی‌ها.
+    موتور با قواعد پروفایل با آن‌ها رفتار می‌کند (مثلاً بیت‌کوینِ بالای سقف کریپتو همان بازبینی اول کم می‌شود). `untouchedValueToman`
+    معیار «اگر دست نمی‌زدید» است. کاغذی است: دفتر هرگز تغییر نمی‌کند. جلسه مشترک `/api/paper` عمداً `startHoldings` را دور می‌ریزد.
+57. **‏ویرایش:** حساب (`editAccount`: موجودی فعلی فقط موجودی اول دوره را جابه‌جا می‌کند)، وام (`editLoan`: اقساط پرداخت‌شده‌ای که تراکنش
+    دارند کم یا نوعشان عوض نمی‌شود؛ جدول باقی‌مانده با شرایط تازه)، دارایی (مقدار، تاریخ و مبلغ خرید) و درآمد پیش‌رو.
+
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
 21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
@@ -347,6 +375,7 @@ npm run test:pfrisk && npm run test:swingfx && npm run test:sizing
 npx tsx scripts/live-local-test.ts
 npm run test:finance && npm run test:advisor && npm run test:import && npm run test:app && npm run test:sources
 npm run test:smsask && npm run test:nativesms   # دومی JDK (javac) می‌خواهد
+npm run test:financeplus
 npx tsx scripts/swing-v2-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts

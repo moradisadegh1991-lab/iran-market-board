@@ -12,7 +12,7 @@
 .fin-cols > .fin-card { margin: 16px 0 0; }
 
 /* KPI tiles */
-.fin-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
+.fin-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 16px 0; }
 .fin-kpis.tight { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 12px 0 4px; }
 .fin-stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); padding: 12px 14px; box-shadow: var(--shadow); min-width: 0; }
 .fin-kpis.tight .fin-stat { box-shadow: none; background: #f8f9fb; }
@@ -179,3 +179,27 @@ b.fin-raw { display: block; font-weight: 400; }
 /* ── bank-stated balance under an account ── */
 .bank-balance { display: grid; gap: 4px; justify-items: start; margin-top: 4px; }
 .bank-balance small { color: var(--ink-2); }
+
+/* month forecast (Incomes.tsx) */
+.fin-forecast-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.fin-forecast { background: #f8f9fb; border-radius: 12px; padding: 12px 14px; }
+.fin-forecast h3 { margin: 0 0 8px; font-size: 15px; }
+.fin-forecast dl { margin: 0 0 6px; display: grid; gap: 6px; }
+.fin-forecast dl > div { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; font-size: 13.5px; }
+.fin-forecast dt { color: var(--ink-2); }
+.fin-forecast dd { margin: 0; white-space: nowrap; }
+.fin-forecast .sub dt { font-size: 12px; color: var(--muted); }
+.fin-forecast .total { border-top: 1px solid var(--line); padding-top: 6px; font-weight: 700; }
+.fin-receive { display: inline-flex; gap: 6px; align-items: center; }
+.fin-receive .fin-input { width: 9rem; }
+.fin-edit { background: #f8f9fb; border-radius: 10px; padding: 10px; margin-top: 8px; }
+
+/* my holdings vs the suggested portfolio */
+.cmp-bars { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; margin: 10px 0 12px; }
+.cmp-bars .alloc { margin: 0; }
+.cmp-bars small { color: var(--muted); font-size: 12px; }
+.cmp-table td small { display: block; font-size: 12px; }
+.cmp-table th, .cmp-table td { padding: 9px 6px; }
+.cmp-table thead th, .cmp-table th.sym { white-space: normal; }
+.cmp-table td .money { display: inline-block; white-space: normal; }
+.cmp-table td .fin-money { white-space: normal; }

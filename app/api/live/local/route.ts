@@ -18,8 +18,8 @@ import { NextResponse } from 'next/server';
 import { errMsg } from '@/lib/http';
 import { isNum } from '@/lib/num';
 import { getLearnedParams } from '@/lib/learning';
-import { ACTIVITY_LABEL, PROFILES, applyActivity, type SimAsset } from '@/lib/engine/simulator';
-import { createSession, finishSession, liveTick, type LiveSession } from '@/lib/engine/live';
+import { ACTIVITY_LABEL, PROFILES, SIM_ASSETS, applyActivity, type SimAsset } from '@/lib/engine/simulator';
+import { createSession, finishSession, liveTick, seedHoldings, type LiveSession } from '@/lib/engine/live';
 import { buildContext, scaleParamsForSession, validateConfig } from '@/lib/paper';
 
 export const dynamic = 'force-dynamic';
@@ -78,15 +78,26 @@ export async function POST(req: Request) {
       const config = validateConfig(body?.config);
       const params = applyActivity(scaleParamsForSession(await getLearnedParams(), config.days), config.activity ?? 'normal');
       const s = createSession(now.toString(36) + Math.random().toString(36).slice(2, 6), config, params, now);
+      // first review immediately, so the session does not sit idle until the next app open
+      const ctx = await buildContext(now, config.assets, config.useNews);
+      let fromHoldings = '';
+      if (config.startHoldings?.length) {
+        const seed = seedHoldings(s, ctx);
+        if (!seed.seeded.length) throw new Error('برای دارایی‌های انتخاب‌شده الان قیمت زنده‌ای در دسترس نیست؛ کمی بعد دوباره امتحان کنید.');
+        if (s.config.capitalToman < 1_000_000) throw new Error('ارزش دارایی‌ها و نقد روی هم باید دست‌کم ۱ میلیون تومان باشد.');
+        const label = (a: string) => SIM_ASSETS.find((x) => x.key === a)?.label ?? a;
+        fromHoldings =
+          ` شامل دارایی‌های خودتان: ${seed.seeded.map(label).join('، ')} به ارزش ${Math.round(seed.valueRial / 10).toLocaleString('fa-IR')} تومان با قیمت همین لحظه` +
+          (seed.skipped.length ? ` (${seed.skipped.map(label).join('، ')} قیمت زنده نداشت و کنار ماند)` : '') +
+          '. معامله کاغذی است و دارایی‌های دفترتان دست نمی‌خورند.';
+      }
       s.events.unshift({
         at: now, kind: 'start',
         text:
-          `شروع با ${config.capitalToman.toLocaleString('fa-IR')} تومان، پروفایل ${PROFILES[config.profile].label}، ` +
+          `شروع با ${s.config.capitalToman.toLocaleString('fa-IR')} تومان، پروفایل ${PROFILES[config.profile].label}، ` +
           `موتور نسخه ${params.version.toLocaleString('fa-IR')}، بازبینی هر ${config.reviewEveryDays.toLocaleString('fa-IR')} روز، ` +
-          `سبک ${ACTIVITY_LABEL[config.activity ?? 'normal']}. این جلسه فقط روی همین گوشی ذخیره می‌شود.`,
+          `سبک ${ACTIVITY_LABEL[config.activity ?? 'normal']}.${fromHoldings} این جلسه فقط روی همین گوشی ذخیره می‌شود.`,
       });
-      // first review immediately, so the session does not sit idle until the next app open
-      const ctx = await buildContext(now, config.assets, config.useNews);
       const out = liveTick(s, ctx);
       if (ctx.dataNote) s.events.unshift({ at: now, kind: 'data', text: ctx.dataNote });
       return NextResponse.json({ session: s, newTrades: out.newTrades, newEvents: out.newEvents, finished: out.finished }, { headers: { 'Cache-Control': 'no-store' } });

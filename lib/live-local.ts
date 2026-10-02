@@ -63,10 +63,17 @@ export interface LiveReply {
   finished: boolean;
 }
 
-export async function callLocal(action: 'start' | 'tick' | 'stop', prefs?: LivePrefs, session?: LiveSession | null): Promise<LiveReply> {
+/** `startHoldings`: start from the user's own holdings (paper only — the book is not touched). */
+export async function callLocal(action: 'start' | 'tick' | 'stop', prefs?: LivePrefs, session?: LiveSession | null, startHoldings?: { asset: string; qty: number }[]): Promise<LiveReply> {
   const body =
     action === 'start'
-      ? { action, config: { capitalToman: prefs!.capital, profile: prefs!.profile, assets: prefs!.liveAssets, days: prefs!.liveDays, activity: prefs!.activity, useNews: true } }
+      ? {
+          action,
+          config: {
+            capitalToman: prefs!.capital, profile: prefs!.profile, assets: prefs!.liveAssets, days: prefs!.liveDays, activity: prefs!.activity, useNews: true,
+            ...(startHoldings?.length ? { startHoldings } : {}),
+          },
+        }
       : { action, session };
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 70_000);

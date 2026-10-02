@@ -3,21 +3,23 @@ import { useState } from 'react';
 import { effectiveAnnualPct, loanSchedule, loanState, monthKey, monthOf, dayInMonth } from '@/lib/finance/calc';
 import { newId, tomanToRial, type Cheque, type ChequeStatus, type FinanceData, type Loan } from '@/lib/finance/model';
 import { Empty, PageHead } from '../../ui';
+import { editLoan } from '@/lib/finance/actions';
 import DueList from '../DueList';
 import { useFinance, WithBook } from '../FinanceProvider';
 import { Card, confirmDelete, Disclosure, fmtDateFa, fmtPctFa, JalaliDate, Money, NumInput, parseAmount, SelectBox, TextInput, TomanInput } from '../kit';
 
 const CHEQUE_STATUS: Record<ChequeStatus, string> = { pending: 'در انتظار', cleared: 'پاس شد', bounced: 'برگشت خورد' };
 
-function LoanForm({ onSave }: { onSave: (l: Loan) => void }) {
+/** New loan, or edit one (`initial`); `onSave` returns an error message to show, or null. */
+function LoanForm({ initial, onSave }: { initial?: Loan; onSave: (l: Loan) => string | null | void }) {
   const { today } = useFinance();
-  const [name, setName] = useState('');
-  const [direction, setDirection] = useState<Loan['direction']>('borrowed');
-  const [amount, setAmount] = useState('');
-  const [rate, setRate] = useState('23');
-  const [months, setMonths] = useState('36');
-  const [first, setFirst] = useState(today);
-  const [paid, setPaid] = useState('0');
+  const [name, setName] = useState(initial?.name ?? '');
+  const [direction, setDirection] = useState<Loan['direction']>(initial?.direction ?? 'borrowed');
+  const [amount, setAmount] = useState(initial ? String(Math.round(initial.principalRial / 10)) : '');
+  const [rate, setRate] = useState(initial ? String(initial.annualRatePct) : '23');
+  const [months, setMonths] = useState(initial ? String(initial.months) : '36');
+  const [first, setFirst] = useState(initial?.firstDueDate ?? today);
+  const [paid, setPaid] = useState(initial ? String(initial.paidCount) : '0');
   const [err, setErr] = useState<string | null>(null);
   const P = parseAmount(amount);
   const r = parseAmount(rate);
@@ -34,6 +36,7 @@ function LoanForm({ onSave }: { onSave: (l: Loan) => void }) {
       <JalaliDate label="سررسید اولین قسط" value={first} onChange={setFirst} />
       <NumInput label="اقساطی که تا امروز پرداخت شده" value={paid} onChange={setPaid} />
       <div className="fin-span">
+        {initial ? <p className="muted small">اقساطی که در دفتر ثبت شده‌اند همان‌طور می‌مانند؛ جدول اقساط باقی‌مانده با شرایط تازه دوباره حساب می‌شود.</p> : null}
         {preview ? (
           <p className="muted small">
             قسط ماهانه <Money rial={preview[0].paymentRial} /> · کل سود <Money rial={preview.reduce((s, x) => s + x.interestRial, 0)} /> · نرخ مؤثر سالانه {fmtPctFa(effectiveAnnualPct(r), 1)}
@@ -48,7 +51,8 @@ function LoanForm({ onSave }: { onSave: (l: Loan) => void }) {
             if (!name.trim()) return setErr('عنوان را بنویسید.');
             if (!(P > 0) || !(n > 0) || !(r >= 0)) return setErr('مبلغ، نرخ و تعداد اقساط را درست وارد کنید.');
             if (pc < 0 || pc > n) return setErr('تعداد اقساط پرداخت‌شده نامعتبر است.');
-            onSave({ id: newId('l'), name: name.trim(), direction, principalRial: tomanToRial(P), annualRatePct: r, months: n, firstDueDate: first, paidCount: pc });
+            const e = onSave({ id: initial?.id ?? newId('l'), name: name.trim(), direction, principalRial: tomanToRial(P), annualRatePct: r, months: n, firstDueDate: first, paidCount: pc });
+            setErr(e || null);
           }}
         >
           ذخیره
@@ -62,6 +66,7 @@ function LoanForm({ onSave }: { onSave: (l: Loan) => void }) {
 function Loans({ d }: { d: FinanceData }) {
   const { update, today } = useFinance();
   const [open, setOpen] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   return (
     <Card title="وام‌ها، اقساط و قرض‌ها">
       {d.loans.length ? (
@@ -90,10 +95,28 @@ function Loans({ d }: { d: FinanceData }) {
                   <button className="fin-mini" onClick={() => setOpen(open === l.id ? null : l.id)} aria-expanded={open === l.id}>
                     جدول اقساط
                   </button>
+                  <button className="fin-mini" onClick={() => setEditing(editing === l.id ? null : l.id)} aria-expanded={editing === l.id}>
+                    ویرایش
+                  </button>
                   <button className="fin-mini ghost" onClick={() => confirmDelete(`«${l.name}»`) && update((dr) => void (dr.loans = dr.loans.filter((x) => x.id !== l.id)))}>
                     حذف
                   </button>
                 </div>
+                {editing === l.id ? (
+                  <div className="fin-edit">
+                    <LoanForm
+                      initial={l}
+                      onSave={(next) => {
+                        let err: string | null = null;
+                        update((dr) => {
+                          err = editLoan(dr, l.id, next);
+                        });
+                        if (!err) setEditing(null);
+                        return err;
+                      }}
+                    />
+                  </div>
+                ) : null}
                 {sched ? (
                   <div className="table-scroll">
                     <table className="t fin-table">

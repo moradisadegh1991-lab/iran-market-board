@@ -8,7 +8,8 @@ import { fetchGoldApi, parseGoldApi } from '@/lib/sources/goldapi';
 import { fetchNobitexStats, fetchNobitexTradable, parseNobitex } from '@/lib/sources/nobitex';
 import { fetchBrsGoldCurrency, fetchBrsIndex, fetchBrsSymbols, parseBrsIndex, parseBrsSymbols, parseBrsTetherRial, type TseSymbol } from '@/lib/sources/brsapi';
 import { fetchCgMarkets, type CgCoin } from '@/lib/sources/coingecko';
-import { dailyMap, loadDaily, loadTse, saveDaily, saveTse, upsertDailyPoint, upsertTseDay } from '@/lib/history';
+import { isoToJalaliLabel } from '@/lib/jalali';
+import { ASSET_KEYS, dailyMap, lastClose, loadDaily, loadTse, saveDaily, saveTse, upsertDailyPoint, upsertTseDay } from '@/lib/history';
 import { recordIntraday } from '@/lib/intraday';
 import { buildSeries, coinSeries, loadSeriesInputs, type SeriesInputs } from '@/lib/series';
 import { computeRisk } from '@/lib/engine/risk';
@@ -16,7 +17,7 @@ import { candidateSymbols, screenCrypto } from '@/lib/engine/crypto';
 import { screenTse } from '@/lib/engine/tse';
 import { buildPortfolios } from '@/lib/engine/portfolio';
 import { betaVs, buildScenario, returnCorrelation } from '@/lib/engine/scenario';
-import type { AssetRisk, AssetScenario, BoardItem, CryptoRow, GoldRoute, Profile, RiskAssetKey, Snapshot, SourceStatus } from '@/lib/types';
+import type { AssetKey, AssetRisk, AssetScenario, BoardItem, CryptoRow, GoldRoute, Profile, RiskAssetKey, Snapshot, SourceStatus } from '@/lib/types';
 
 const SNAP_KEY = 'snapshot:v2';
 const LOCK_KEY = 'snapshot:lock';
@@ -157,6 +158,18 @@ async function buildSnapshot(): Promise<Snapshot> {
     tse: isTseTradingDay(now) ? idx?.value : null,
   };
   upsertDailyPoint(daily, today, livePoint);
+  // No live quote (Friday, a holiday, a source that is down): show the last close on record, dated,
+  // instead of an empty row — the finance book values holdings with it too (lib/finance/prices.ts).
+  for (const it of items) {
+    if (isNum(it.price) && it.price > 0) continue;
+    if (!(ASSET_KEYS as string[]).includes(it.key)) continue;
+    const lc = lastClose(daily, it.key as AssetKey, today);
+    if (!lc) continue;
+    it.price = it.unit === 'toman' ? rialToToman(lc.value) : lc.value;
+    it.changePct = null;
+    it.asOf = lc.date;
+    it.note = `آخرین قیمت ثبت‌شده، ${isoToJalaliLabel(lc.date)}`;
+  }
   const lastDailyWrite = (await kv.get<number>('hist:daily:lastWrite')) ?? 0;
   if (Date.now() - lastDailyWrite > 10 * 60 * 1000) {
     await saveDaily(daily);

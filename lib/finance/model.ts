@@ -52,7 +52,7 @@ export interface Txn {
   categoryId?: string | null;
   note?: string;
   /** set when the transaction was created by paying a loan installment / bill / cheque */
-  link?: { type: 'loan' | 'bill' | 'cheque'; id: string; n?: number } | null;
+  link?: { type: 'loan' | 'bill' | 'cheque' | 'income'; id: string; n?: number; mk?: string } | null;
   /** where it came from; absent = typed in by hand */
   src?: 'statement' | 'sms' | 'classic';
   /** bank tracking / document number, when the statement or SMS had one */
@@ -151,6 +151,28 @@ export interface Bill {
   active: boolean;
 }
 
+/**
+ * Money the user expects: a salary or rent every month, or a one-off payment (a bonus, a project
+ * fee, a deposit coming back). It is a forecast until the user marks it received, which records
+ * the income transaction (settleDue) — the same way a bill is an obligation until it is paid.
+ */
+export interface ExpectedIncome {
+  id: string;
+  name: string;
+  amountRial: number;
+  repeat: 'monthly' | 'once';
+  /** monthly: Jalali day of month it arrives (1–31; clamped to the month's length) */
+  day: number;
+  /** once: the date it is expected */
+  date: Iso | null;
+  categoryId: string | null;
+  /** monthly: the first Jalali month it is expected ('jy-jm') — earlier months are never asked about */
+  fromMonth: string;
+  /** monthly: months already received ('jy-jm'); once: ['once'] when received */
+  receivedMonths: string[];
+  active: boolean;
+}
+
 export interface Goal {
   id: string;
   name: string;
@@ -209,6 +231,8 @@ export interface FinanceData {
   loans: Loan[];
   cheques: Cheque[];
   bills: Bill[];
+  /** salaries and other income the user expects (forecast until received) */
+  incomes: ExpectedIncome[];
   goals: Goal[];
   assets: Asset[];
   settings: Settings;
@@ -269,6 +293,7 @@ export function emptyData(today: Iso): FinanceData {
     loans: [],
     cheques: [],
     bills: [],
+    incomes: [],
     goals: [],
     assets: [],
     settings: { ...DEFAULT_SETTINGS },
@@ -300,6 +325,9 @@ export function normalizeData(raw: unknown, today: Iso): FinanceData {
     loans: arr<Loan>(raw.loans),
     cheques: arr<Cheque>(raw.cheques),
     bills: arr<Bill>(raw.bills).map((b) => ({ ...b, paidMonths: arr<string>(b.paidMonths) })),
+    incomes: arr<ExpectedIncome>(raw.incomes)
+      .filter((x) => x && typeof x.amountRial === 'number' && x.amountRial > 0 && (x.repeat === 'monthly' || x.repeat === 'once'))
+      .map((x) => ({ ...x, receivedMonths: arr<string>(x.receivedMonths), active: x.active !== false })),
     goals: arr<Goal>(raw.goals),
     assets: arr<Asset>(raw.assets),
     inbox: arr<Staged>(raw.inbox).filter((x) => x && typeof x.amountRial === 'number' && x.amountRial > 0),

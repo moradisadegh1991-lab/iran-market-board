@@ -6,6 +6,7 @@ import { PageHead } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
 import { Bar, Card, confirmDelete, fmtPctFa, fmtToman, Money, parseAmount, SelectBox, TextInput } from '../kit';
 import { MonthNav } from './TransactionsView';
+import { Incomes, MonthForecastCard } from '../Incomes';
 
 /** Average of the last three complete months per category, rounded up to a 100-thousand-toman step. */
 function suggestion(d: FinanceData, today: string): Map<string, number> {
@@ -47,7 +48,11 @@ function Budget({ d }: { d: FinanceData }) {
     <>
       <PageHead title="بودجه ماهانه">
         برای هر دسته سقف ماهانه بگذارید. خط عمودی روی نوار نشان می‌دهد چند درصد از ماه گذشته؛ اگر خرج از آن جلو بزند، هشدار می‌گیرید.
+        حقوق و درآمدهایی را که منتظرشان هستید هم این‌جا وارد کنید تا پیش‌بینی ماه درست شود.
       </PageHead>
+
+      <MonthForecastCard d={d} />
+      <Incomes d={d} />
 
       <Card>
         <MonthNav m={m} setM={setM} max={shiftMonth(monthOf(today), 1)} />

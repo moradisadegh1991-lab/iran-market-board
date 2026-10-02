@@ -4,8 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { fmtDateTimeFa, fmtInt, isNum } from '@/lib/num';
 import { ACTIVITY_LABEL, PROFILES, SIM_ASSETS, type Activity, type SimAsset, type SimProfile } from '@/lib/engine/simulator';
-import type { LiveSession, LiveTrade } from '@/lib/engine/live';
-import { AdminActions, Chips, MultiChips, PageHead, Pct } from '../ui';
+import { untouchedValueToman, type LiveSession, type LiveTrade } from '@/lib/engine/live';
+import { holdingsForLive } from '@/lib/finance/compare';
+import { useFinance } from '../finance/FinanceProvider';
+import Link from 'next/link';
+import { AdminActions, Chips, MultiChips, PageHead, Pct, Toggle } from '../ui';
 import TradeEntry, { tomanWords } from '../TradeEntry';
 import { useNotify } from '../NotifyProvider';
 import { callLocal, loadLivePrefs, loadLocalSession, saveLivePrefs, tradeNote } from '@/lib/live-local';
@@ -43,6 +46,9 @@ type Mode = 'device' | 'shared';
 
 export default function LiveView() {
   const { notify } = useNotify();
+  const { data: book } = useFinance();
+  const [fromHoldings, setFromHoldings] = useState(false);
+  const mine = book ? holdingsForLive(book) : { holdings: [], unsupported: [] };
   const [mode, setMode] = useState<Mode>('device');
   const [state, setState] = useState<PaperState | null>(null);
   const [local, setLocal] = useState<LiveSession | null>(null);
@@ -94,15 +100,16 @@ export default function LiveView() {
     setBusy(true);
     setActionErr(null);
     try {
-      const prefs = { capital: Number(capital), profile, liveAssets: assets, liveDays: Number(days), activity };
-      if (action === 'start') saveLivePrefs(prefs);
-      const r = await callLocal(action, prefs, local);
+      const useMine = action === 'start' && fromHoldings && mine.holdings.length > 0;
+      const prefs = { capital: useMine ? Number(capital) || 0 : Number(capital), profile, liveAssets: assets, liveDays: Number(days), activity };
+      if (action === 'start' && !useMine) saveLivePrefs(prefs);
+      const r = await callLocal(action, prefs, local, useMine ? mine.holdings : undefined);
       setLocal(r.session);
       r.newTrades.forEach((t) => {
         const n = tradeNote(t);
         notify(n.title, n.body, 'trade');
       });
-      if (action === 'start') notify('معامله برخط شروع شد', `سرمایه ${tomanWords(prefs.capital)} · فقط روی همین دستگاه`, 'trade');
+      if (action === 'start') notify('معامله برخط شروع شد', `سرمایه ${tomanWords(r.session.config.capitalToman)}${useMine ? ' با دارایی‌های خودتان' : ''} · فقط روی همین دستگاه`, 'trade');
       else if (r.finished) notify('معامله برخط پایان یافت', 'گزارش نهایی آماده است.', 'trade');
     } catch (e) {
       setActionErr(e instanceof Error ? e.message : String(e));
@@ -162,6 +169,8 @@ export default function LiveView() {
   const equityToman = lastEq?.equity ?? shown?.config.capitalToman ?? null;
   const returnPct = isNum(equityToman) && shown ? (equityToman / shown.config.capitalToman - 1) * 100 : null;
   const daysLeft = active ? Math.max(0, Math.ceil((active.endsAt - nowMs) / 86400000)) : null;
+  // started from the user's holdings: what doing nothing would be worth now
+  const untouched = shown ? untouchedValueToman(shown, nowMs) : null;
 
   const lines: EquityLine[] = shown
     ? [{ key: 'live', label: 'ارزش سبد', color: 'var(--teal)', width: 2, points: shown.equity.map((p) => ({ date: p.date, value: p.equity, t: p.at })) }]
@@ -222,7 +231,21 @@ export default function LiveView() {
                 <div className="v big">{fmtInt(active.trades.length)}</div>
                 <span className="muted">آخرین بررسی: {fmtDateTimeFa(active.lastTickAt)}</span>
               </div>
+              {isNum(untouched) ? (
+                <div>
+                  <div className="k">اگر به دارایی‌ها دست نمی‌زدید</div>
+                  <div className="v big">{tomanWords(untouched)}</div>
+                  {isNum(equityToman) ? (
+                    <span className={equityToman >= untouched ? 'up' : 'down'}>
+                      معامله‌ها {equityToman >= untouched ? 'جلوتر' : 'عقب‌تر'}: {tomanWords(Math.abs(equityToman - untouched))}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
+            {active.config.startHoldings?.length ? (
+              <p className="muted small">این جلسه با دارایی‌های خودتان شروع شده؛ معامله کاغذی است و دارایی‌های دفترتان تغییری نمی‌کنند.</p>
+            ) : null}
           </div>
 
           <div>
@@ -301,15 +324,41 @@ export default function LiveView() {
                   <div className="k">معاملات</div>
                   <div className="v big">{fmtInt(shown.trades.length)}</div>
                 </div>
+                {isNum(untouched) ? (
+                  <div>
+                    <div className="k">اگر دست نمی‌زدید</div>
+                    <div className="v big">{tomanWords(untouched)}</div>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
 
           <div className="ticket panel pad">
             <h2 id="ticket-h">شروع معامله برخط</h2>
+            {device ? (
+              <div className="live-mine">
+                <Toggle checked={fromHoldings} onChange={setFromHoldings}>
+                  با دارایی‌های خودم شروع کن (از «حساب و دارایی»)
+                </Toggle>
+                {fromHoldings ? (
+                  mine.holdings.length ? (
+                    <p className="muted small">
+                      موتور با همین‌ها شروع می‌کند و خودش تصمیم می‌گیرد نگه دارد، بفروشد یا بخرد:{' '}
+                      {mine.holdings.map((h) => `${META[h.asset].label} ${h.qty.toLocaleString('fa-IR', { maximumFractionDigits: 6 })} ${META[h.asset].unit}`).join('، ')}
+                      {mine.unsupported.length ? ` · در معامله برخط نیستند: ${mine.unsupported.join('، ')}` : ''}. کاغذی است؛ دفتر شما تغییر نمی‌کند.
+                    </p>
+                  ) : (
+                    <p className="empty">
+                      دارایی قابل معامله‌ای (دلار، طلای ۱۸، سکه امامی، بیت‌کوین، اتریوم) در <Link href="/accounts">حساب و دارایی</Link> ثبت نکرده‌اید.
+                    </p>
+                  )
+                ) : null}
+              </div>
+            ) : null}
             <div className="ticket-grid">
               <label className="field cap-field">
-                <span className="field-label">سرمایه اولیه (تومان)</span>
+                <span className="field-label">{device && fromHoldings ? 'نقد اضافه کنار دارایی‌ها (تومان، اختیاری)' : 'سرمایه اولیه (تومان)'}</span>
                 <input inputMode="numeric" value={capital} onChange={(e) => setCapital(e.target.value.replace(/[^\d]/g, ''))} />
                 <small className="muted">{isNum(Number(capital)) && Number(capital) > 0 ? tomanWords(Number(capital)) : ''}</small>
               </label>
@@ -340,7 +389,11 @@ export default function LiveView() {
             </div>
             {device ? (
               <div className="admin">
-                <button className="btn run" disabled={busy || !assets.length || !(Number(capital) >= 1_000_000)} onClick={start}>
+                <button
+                  className="btn run"
+                  disabled={busy || (fromHoldings ? !mine.holdings.length : !assets.length || !(Number(capital) >= 1_000_000))}
+                  onClick={start}
+                >
                   {busy ? 'در حال شروع…' : 'شروع معامله برخط من'}
                 </button>
               </div>

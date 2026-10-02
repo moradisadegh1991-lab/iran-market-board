@@ -23,6 +23,11 @@ export interface BoardItem {
   note?: string;
   /** ~30 downsampled closes for the row's inline trend line (display unit) */
   spark?: number[];
+  /**
+   * Set when no live quote came in (a holiday, a feed that is down) and `price` is the last close
+   * recorded on this date instead — shown as «آخرین قیمت» so it is never mistaken for a live one.
+   */
+  asOf?: string;
 }
 
 /** One way of buying gold, reduced to what it actually costs per gram of pure metal. */
