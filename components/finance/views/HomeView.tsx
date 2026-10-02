@@ -9,6 +9,7 @@ import { useFinance, WithBook } from '../FinanceProvider';
 import { Bar, Card, fmtDateFa, fmtPctFa, Money, Stat } from '../kit';
 import TxnForm from '../TxnForm';
 import ClassicMigrate from '../ClassicMigrate';
+import { unlinkedSources } from '@/lib/finance/sources';
 
 export const QUICK_QUESTIONS = [
   'وضعیت مالی این ماهم را خلاصه کن؛ کجا باید خرجم را کم کنم؟',
@@ -28,6 +29,8 @@ function alerts(d: FinanceData, items: ReturnType<typeof useFinance>['items'], t
   const dues = upcoming(d, today, 30);
   const overdue = dues.filter((x) => x.overdue);
   if (overdue.length) out.push({ tone: 'bad', text: `${overdue.length.toLocaleString('fa-IR')} قسط/چک/قبض سررسید گذشته و ثبت‌نشده دارید.`, href: '/debts' });
+  const fresh = unlinkedSources(d);
+  if (fresh.length) out.push({ tone: 'warn', text: `${fresh.length.toLocaleString('fa-IR')} کارت یا حساب از پیامک‌ها شناسایی شده؛ به حساب‌هایتان وصلشان کنید تا مانده بانک هم دیده شود.`, href: '/accounts' });
   if (d.inbox.length) out.push({ tone: 'warn', text: `${d.inbox.length.toLocaleString('fa-IR')} تراکنش از گردش حساب یا پیامک منتظر تأیید شماست؛ تا تأیید نشوند در مانده‌ها حساب نمی‌شوند.`, href: '/import' });
   const fc = cashForecast(d, today, 30);
   if (fc.low.balanceRial < 0)

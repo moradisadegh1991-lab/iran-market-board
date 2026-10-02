@@ -6,8 +6,107 @@ import { ACCOUNT_KIND_LABEL, emptyData, MARKET_ASSETS, newId, normalizeData, tom
 import { Empty, PageHead, Toggle } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
 import ClassicMigrate from '../ClassicMigrate';
+import { applyReconcile, createAccountForSource, linkSource, reconcile, sourceLabel } from '@/lib/finance/sources';
 import { Card, confirmDelete, Disclosure, fmtDateFa, fmtPctFa, Money, NumInput, parseAmount, SelectBox, TextInput, TomanInput } from '../kit';
 import { download } from './TransactionsView';
+
+const whenFa = (date: string, time?: string | null) => `${fmtDateFa(date)}${time ? `، ${time.replace(/\d/g, (x) => '۰۱۲۳۴۵۶۷۸۹'[+x])}` : ''}`;
+
+/** What the bank last said is in this account, against the book at that same moment. */
+function BankBalance({ d, accountId }: { d: FinanceData; accountId: string }) {
+  const { update } = useFinance();
+  const r = reconcile(d, accountId);
+  if (!r) return null;
+  const off = Math.abs(r.diffRial) >= 10; // under one toman is rounding
+  return (
+    <span className="bank-balance">
+      <small>
+        طبق {r.via === 'sms' ? 'آخرین پیامک' : 'گردش حساب'} بانک ({whenFa(r.date, r.time)}): <Money rial={r.reportedRial} />
+        {off ? (
+          <>
+            {' '}
+            · دفتر در همان لحظه: <Money rial={r.bookRial} /> · اختلاف <Money rial={r.diffRial} signed className={r.diffRial > 0 ? 'up' : 'down'} />
+          </>
+        ) : (
+          ' · با دفتر یکی است ✓'
+        )}
+      </small>
+      {off ? (
+        <>
+          {r.pending ? <small className="muted">{r.pending.toLocaleString('fa-IR')} تراکنش این حساب هنوز در صف «ورود از بانک» است؛ اول آن‌ها را ثبت کنید.</small> : null}
+          <button
+            className="fin-mini"
+            onClick={() => {
+              if (!window.confirm('موجودی اول دوره این حساب طوری تنظیم شود که دفتر با مانده‌ای که بانک گفته یکی شود؟ تراکنش‌ها دست نمی‌خورند.')) return;
+              update((dr) => void applyReconcile(dr, accountId));
+            }}
+          >
+            یکی کردن با بانک
+          </button>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+/** Cards and bank accounts the app found in SMS: link each to an account, or make one for it. */
+function SmsSources({ d }: { d: FinanceData }) {
+  const { update, today } = useFinance();
+  const [showIgnored, setShowIgnored] = useState(false);
+  const list = (d.smsSources ?? []).filter((s) => showIgnored || !s.ignored).sort((a, b) => b.lastAt - a.lastAt);
+  if (!(d.smsSources ?? []).length) return null;
+  const accounts = d.accounts.filter((a) => !a.archived);
+  return (
+    <Card title="کارت‌ها و حساب‌های شناخته‌شده از پیامک">
+      <p className="muted small">
+        از پیامک‌های بانکی پیدا شده‌اند. هر کدام را به یکی از حساب‌هایتان وصل کنید تا تراکنش‌های بعدی‌اش خودکار به همان حساب برود و مانده‌ای که بانک می‌گوید کنار موجودی دفتر دیده
+        شود.
+      </p>
+      <ul className="fin-list">
+        {list.map((s) => (
+          <li key={s.key} className={s.ignored ? 'muted' : ''} data-testid="sms-source">
+            <span className="fin-list-main">
+              <b>{sourceLabel(s)}</b>
+              <small>
+                {s.count.toLocaleString('fa-IR')} پیامک · آخرین: {new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(s.lastAt))}
+                {s.lastBalanceRial !== null ? ' · آخرین مانده: ' : ''}
+                {s.lastBalanceRial !== null ? <Money rial={s.lastBalanceRial} /> : null}
+              </small>
+            </span>
+            <select
+              className="fin-input sm"
+              aria-label={`حساب ${sourceLabel(s)}`}
+              value={s.accountId ?? ''}
+              onChange={(e) => update((dr) => linkSource(dr, s.key, e.target.value || null))}
+            >
+              <option value="">— وصل نیست —</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            {!s.accountId ? (
+              <>
+                <button className="fin-mini" onClick={() => update((dr) => void createAccountForSource(dr, s.key, sourceLabel(s), today))}>
+                  ساخت حساب تازه
+                </button>
+                <button className="fin-mini ghost" onClick={() => update((dr) => void (dr.smsSources.find((x) => x.key === s.key)!.ignored = !s.ignored))}>
+                  {s.ignored ? 'برگرداندن' : 'مال من نیست'}
+                </button>
+              </>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {(d.smsSources ?? []).some((s) => s.ignored) ? (
+        <button className="linkish" onClick={() => setShowIgnored((v) => !v)}>
+          {showIgnored ? 'پنهان کردن موارد کنارگذاشته' : 'نمایش موارد کنارگذاشته'}
+        </button>
+      ) : null}
+    </Card>
+  );
+}
 
 function Accounts({ d }: { d: FinanceData }) {
   const { update, today } = useFinance();
@@ -27,7 +126,9 @@ function Accounts({ d }: { d: FinanceData }) {
                 <small>
                   {ACCOUNT_KIND_LABEL[a.kind]}
                   {a.archived ? ' · بایگانی' : ''}
+                  {(d.smsSources ?? []).filter((s) => s.accountId === a.id).map((s) => ` · ${sourceLabel(s)}`).join('')}
                 </small>
+                <BankBalance d={d} accountId={a.id} />
               </span>
               <Money rial={bal[a.id] ?? 0} />
               <button className="fin-mini" onClick={() => update((dr) => void (dr.accounts.find((x) => x.id === a.id)!.archived = !a.archived))}>
@@ -297,6 +398,7 @@ function Page({ d }: { d: FinanceData }) {
     <>
       <PageHead title="حساب‌ها و دارایی‌ها">موجودی حساب‌ها، دارایی‌هایی که با قیمت روز ارزش‌گذاری می‌شوند، تنظیمات محاسبه و پشتیبان‌گیری.</PageHead>
       <Accounts d={d} />
+      <SmsSources d={d} />
       <Assets d={d} />
       <SettingsCard d={d} />
       <Backup d={d} />

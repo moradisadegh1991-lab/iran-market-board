@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useSnapshot } from './SnapshotProvider';
+import { useNotify } from './NotifyProvider';
 import { fmtDateTimeFa } from '@/lib/num';
 import { BOTTOM_TABS, NAV_GROUPS, pageOf } from './nav';
 
@@ -70,6 +71,7 @@ function Tiles({ path, onPick }: { path: string; onPick?: () => void }) {
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { snap, busy, error, refresh } = useSnapshot();
+  const { unread } = useNotify();
   const [more, setMore] = useState(false);
   const failing = snap?.sources.filter((s) => !s.ok && s.ageSec === null).length ?? 0;
   const here = pageOf(path);
@@ -101,7 +103,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <span className={`dot ${error ? 'bad' : failing ? 'warn' : 'ok'}`} title={error ?? (failing ? `${failing} منبع در دسترس نیست` : 'همه منابع در دسترس')} />
             ) : null}
             <span className="when">{snap ? fmtDateTimeFa(snap.generatedAt) : 'در حال دریافت…'}</span>
-            <Link href="/alerts" className="icon-btn" aria-label="هشدار و اعلان‌ها">
+            <Link href="/alerts" className="icon-btn bell" aria-label={unread ? `هشدار و اعلان‌ها، ${unread.toLocaleString('fa-IR')} اعلان تازه` : 'هشدار و اعلان‌ها'}>
+              {unread ? <span className="badge">{unread > 9 ? '۹+' : unread.toLocaleString('fa-IR')}</span> : null}
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0" />
               </svg>

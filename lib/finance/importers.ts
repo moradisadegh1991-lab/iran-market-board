@@ -451,6 +451,7 @@ interface SmsTx {
   channel: string | null;
   accountNo: string | null;
   isFee?: boolean;
+  bankNameInSms?: string | null;
 }
 
 /** Splits a paste of several SMS: blank lines, or a new bank header line, start a new message. */
@@ -497,6 +498,8 @@ export function rowsFromSms(text: string, api: SmsApi, today: Iso, opts: { accou
 export interface SmsMessage {
   body: string;
   at?: number;
+  /** the sender, from the phone inbox (a bank's short code or name) */
+  address?: string;
 }
 
 const tehranIso = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
@@ -509,14 +512,17 @@ const tehranTime = (ms: number) => new Intl.DateTimeFormat('en-GB', { timeZone: 
 export function rowsFromMessages(msgs: SmsMessage[], api: SmsApi, today: Iso, opts: { accountId?: string | null; now?: number } = {}): SmsResult {
   const rows: Staged[] = [];
   const ignored: SmsResult['ignored'] = [];
-  for (const { body: rawBody, at } of msgs) {
+  for (const { body: rawBody, at, address } of msgs) {
     const body = rawBody.trim();
     if (body.length <= 8) continue;
     const c = api.classify(body);
     const date = smsDate(body, today) ?? (at ? tehranIso(at) : null);
     // banks write rial; a message that says only «تومان» is converted (rule 1)
     const k = /تومان/.test(body) && !/ریال|ريال/.test(body) ? 10 : 1;
-    const base = { source: 'sms' as const, date, time: timeOf(body) ?? (at ? tehranTime(at) : null), raw: body, accountId: opts.accountId ?? null, importedAt: opts.now ?? Date.now() };
+    const base = {
+      source: 'sms' as const, date, time: timeOf(body) ?? (at ? tehranTime(at) : null), at: at ?? null, bank: address?.trim() || null,
+      raw: body, accountId: opts.accountId ?? null, importedAt: opts.now ?? Date.now(),
+    };
     if (c.kind === 'not') {
       ignored.push({ text: body, reason: 'پیام بانکی تراکنش نبود (رمز یک‌بار مصرف، تبلیغ یا پیام اپراتور)' });
       continue;
@@ -544,6 +550,8 @@ export function rowsFromMessages(msgs: SmsMessage[], api: SmsApi, today: Iso, op
       balanceRial: t.balance === null ? null : t.balance * k,
       description: [t.channel, t.cardLast4 ? `کارت ${t.cardLast4}` : null, t.accountNo ? `حساب ${t.accountNo}` : null].filter(Boolean).join(' · ') || norm(body).slice(0, 80),
       card: t.cardLast4,
+      accountNo: t.accountNo,
+      bank: t.bankNameInSms || base.bank,
       fee: !!t.isFee,
     });
   }
@@ -661,6 +669,7 @@ export function commitStaged(d: FinanceData, id: string, inp: CommitInput): stri
     note: s.description.slice(0, 120),
     src: s.source,
     ref: s.ref ?? null,
+    time: s.time ?? null,
   });
   const key = memoryKey(s.description);
   if (cat && key) d.catMemory[key] = cat;

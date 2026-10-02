@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { accountBalances } from '@/lib/finance/calc';
 import {
@@ -18,6 +19,7 @@ import {
 } from '@/lib/finance/importers';
 import { readStatement, ReadError } from '@/lib/finance/readers';
 import { smsParser } from '@/lib/finance/sms';
+import { learnFromCommit, queueSms, reportBalance, stagedAt, unlinkedSources } from '@/lib/finance/sources';
 import { autoReadOn, FIRST_READ_DAYS, lastPhoneRead, readInbox, setAutoRead, useSmsPlugin } from '@/lib/finance/phone-sms';
 import { tomanToRial, type FinanceData, type Staged } from '@/lib/finance/model';
 import { Chips, Empty, PageHead, Toggle } from '../../ui';
@@ -88,10 +90,13 @@ function StatementCard({ d }: { d: FinanceData }) {
       }
       const before = accountBalances(d)[accountId] ?? null;
       let added = 0;
+      const last = [...res.rows].reverse().find((r) => r.balanceRial !== null && r.balanceRial !== undefined);
       update((dr) => {
         added = enqueue(dr, res.rows);
+        // the file's last running balance is what the bank says is in this account
+        const at = last ? stagedAt(last) : null;
+        if (last && at !== null) reportBalance(dr, accountId, last.balanceRial!, at, 'statement');
       });
-      const last = [...res.rows].reverse().find((r) => r.balanceRial !== null && r.balanceRial !== undefined);
       setReport({
         name: pages ? `${file.name} (${faN(pages)} صفحه)` : file.name,
         rows: res.rows.length,
@@ -211,7 +216,7 @@ function SmsCard({ d }: { d: FinanceData }) {
   const accounts = useAccounts(d);
   const [accountId, setAccountId] = useState(() => accounts.find((a) => a.kind === 'bank')?.id ?? '');
   const [text, setText] = useState('');
-  const [result, setResult] = useState<{ added: number; read: number; ignored: { text: string; reason: string }[]; ignoredCount: number } | null>(null);
+  const [result, setResult] = useState<{ added: number; read: number; ignored: { text: string; reason: string }[]; ignoredCount: number; newSources: number } | null>(null);
 
   const plugin = useSmsPlugin();
   const [phoneBusy, setPhoneBusy] = useState(false);
@@ -221,11 +226,12 @@ function SmsCard({ d }: { d: FinanceData }) {
 
   function queue(r: SmsResult, listIgnored: boolean) {
     let added = 0;
+    let newSources = 0;
     update((dr) => {
-      added = enqueue(dr, r.rows);
+      ({ added, newSources } = queueSms(dr, r.rows, Date.now()));
     });
     // from the phone inbox, "ignored" is every personal SMS too — count them, never list them
-    setResult({ added, read: r.rows.length, ignored: listIgnored ? r.ignored : [], ignoredCount: r.ignored.length });
+    setResult({ added, read: r.rows.length, ignored: listIgnored ? r.ignored : [], ignoredCount: r.ignored.length, newSources });
   }
 
   function read() {
@@ -276,7 +282,7 @@ function SmsCard({ d }: { d: FinanceData }) {
             setAutoRead(v);
           }}
         >
-          هر بار که اپ باز می‌شود، پیامک‌های بانکی تازه را بخوان و به صف بررسی ببر
+          پیامک‌های بانکی تازه را خودکار بخوان (هنگام باز کردن اپ و هر ۳۰ ثانیه وقتی اپ باز است) و اعلان بده
         </Toggle>
       ) : null}
       {phoneErr ? (
@@ -298,6 +304,12 @@ function SmsCard({ d }: { d: FinanceData }) {
             {faN(result.read)} تراکنش خوانده شد؛ {faN(result.added)} ردیف تازه به صف بررسی رفت{result.read > result.added ? ` (${faN(result.read - result.added)} تا قبلاً در صف بود)` : ''}.
             {result.ignoredCount ? ` ${faN(result.ignoredCount)} پیام تراکنش بانکی نبود.` : ''}
           </p>
+          {result.newSources ? (
+            <p className="banner info">
+              {faN(result.newSources)} کارت یا حساب تازه در پیامک‌ها شناسایی شد. در <Link href="/accounts">حساب و دارایی</Link> به حساب‌هایتان وصلشان کنید تا تراکنش‌ها و مانده بانکشان
+              خودکار به همان حساب برود.
+            </p>
+          ) : null}
           {result.ignored.length ? (
             <details className="fin-details">
               <summary>پیام‌های کنار گذاشته</summary>
@@ -391,7 +403,11 @@ function Queue({ d }: { d: FinanceData }) {
         }
         const e = commitStaged(dr, id, { choice: v.choice, accountId: v.accountId, otherAccountId: v.otherAccountId || null, categoryId: v.categoryId || null, date: v.date || null, amountRial: v.amountRial });
         if (e) errs[id] = e;
-        else done++;
+        else {
+          done++;
+          // the card on this row now knows its account; its next SMS arrive already assigned
+          learnFromCommit(dr, r.s, v.accountId);
+        }
       }
     });
     setErrors((x) => {
@@ -405,6 +421,12 @@ function Queue({ d }: { d: FinanceData }) {
   if (!rows.length)
     return (
       <Card title="صف بررسی">
+        {/* the last bulk booking empties the queue: its confirmation must still show */}
+        {note ? (
+          <p className="fin-ok" role="status">
+            {note}
+          </p>
+        ) : null}
         <Empty>صف خالی است. یک فایل گردش حساب بدهید یا پیامک بچسبانید.</Empty>
       </Card>
     );
@@ -569,6 +591,12 @@ function Import({ d }: { d: FinanceData }) {
         گردش حساب بانک یا پیامک‌های بانکی را بدهید تا لازم نباشد تراکنش‌ها را یکی‌یکی تایپ کنید. همه‌چیز اول به «صف بررسی» می‌رود و فقط با تأیید شما در دفتر ثبت می‌شود. فایل و
         پیامک از همین مرورگر بیرون نمی‌رود.
       </PageHead>
+      {unlinkedSources(d).length ? (
+        <p className="banner info">
+          {faN(unlinkedSources(d).length)} کارت یا حساب از پیامک‌ها شناسایی شده که هنوز به حسابی وصل نیست. <Link href="/accounts">وصلشان کنید</Link> تا تراکنش‌ها و مانده
+          بانکشان خودکار به همان حساب برود.
+        </p>
+      ) : null}
       <div className="fin-cols">
         <StatementCard d={d} />
         <SmsCard d={d} />

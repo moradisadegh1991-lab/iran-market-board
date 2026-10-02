@@ -1,6 +1,7 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { ALERT_KEYS, checkBoard, normalizeAlerts, normalizePrefs, NOTIFY_CATS, type NotifyCat, type NotifyPrefs, type PriceAlert } from '@/lib/alerts';
+import { useRouter } from 'next/navigation';
+import { ALERT_KEYS, checkBoard, normalizeAlerts, normalizePrefs, NOTIFY_CATS, sinceLastSeen, type NotifyCat, type NotifyPrefs, type PriceAlert, type SeenPrices } from '@/lib/alerts';
 import { tehranDate } from '@/lib/num';
 import { useSnapshot } from './SnapshotProvider';
 
@@ -19,7 +20,10 @@ export interface LogEntry {
   cat: NotifyCat;
 }
 interface Ctx {
-  notify: (title: string, body: string, cat: NotifyCat) => void;
+  notify: (title: string, body: string, cat: NotifyCat, route?: string) => void;
+  /** notifications since the list was last opened — the badge on the bell */
+  unread: number;
+  markRead: () => void;
   prefs: NotifyPrefs;
   setPrefs: (p: NotifyPrefs) => void;
   alerts: PriceAlert[];
@@ -55,8 +59,11 @@ interface LocalNotifications {
   createChannel(o: { id: string; name: string; description: string; importance: number; visibility: number }): Promise<void>;
   checkPermissions(): Promise<{ display: string }>;
   requestPermissions(): Promise<{ display: string }>;
-  schedule(o: { notifications: { id: number; title: string; body: string; channelId: string }[] }): Promise<unknown>;
+  schedule(o: { notifications: { id: number; title: string; body: string; channelId: string; extra?: Record<string, string> }[] }): Promise<unknown>;
+  addListener?(event: 'localNotificationActionPerformed', fn: (e: { notification?: { extra?: { route?: string } } }) => void): Promise<{ remove: () => void }> | { remove: () => void };
 }
+/** where a tap on each kind of notification lands */
+const ROUTE: Record<NotifyCat, string> = { trade: '/live', alert: '/alerts', move: '/market', sms: '/import', data: '/bot' };
 function plugin(): LocalNotifications | null {
   const c = (window as { Capacitor?: { Plugins?: { LocalNotifications?: LocalNotifications } } }).Capacitor;
   return c?.Plugins?.LocalNotifications ?? null;
@@ -66,7 +73,8 @@ let channelsReady: Promise<void> | null = null;
 function ensureChannels(p: LocalNotifications) {
   channelsReady ??= Promise.all(
     NOTIFY_CATS.map((c) =>
-      p.createChannel({ id: `imb-${c.k}`, name: c.t, description: c.d, importance: c.k === 'trade' || c.k === 'alert' ? 4 : 3, visibility: 1 }).catch(() => undefined),
+      // importance 4 = heads-up: the notice slides over whatever is on the screen
+      p.createChannel({ id: `imb-${c.k}`, name: c.t, description: c.d, importance: c.k === 'data' ? 3 : 4, visibility: 1 }).catch(() => undefined),
     ),
   ).then(() => undefined);
   return channelsReady;
@@ -85,6 +93,8 @@ export default function NotifyProvider({ children }: { children: React.ReactNode
   const [log, setLog] = useState<LogEntry[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [native, setNative] = useState(false);
+  const [readAt, setReadAt] = useState(0);
+  const router = useRouter();
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
 
@@ -93,6 +103,34 @@ export default function NotifyProvider({ children }: { children: React.ReactNode
     setAlertsState(normalizeAlerts(jget(ALERT_KEYS.alerts, [])));
     setLog(jget<LogEntry[]>(ALERT_KEYS.log, []).filter((e) => e && typeof e.title === 'string'));
     setNative(!!plugin());
+    setReadAt(jget<number>(ALERT_KEYS.readAt, 0));
+  }, []);
+
+  // a tap on a notification in the phone's shade opens the page it is about
+  useEffect(() => {
+    const plug = plugin();
+    if (!plug?.addListener) return;
+    let handle: { remove: () => void } | null = null;
+    let gone = false;
+    Promise.resolve(plug.addListener('localNotificationActionPerformed', (e) => {
+      const route = e?.notification?.extra?.route;
+      if (route && route.startsWith('/')) router.push(route);
+    }))
+      .then((h) => {
+        handle = h;
+        if (gone) h.remove();
+      })
+      .catch(() => undefined);
+    return () => {
+      gone = true;
+      handle?.remove();
+    };
+  }, [router]);
+
+  const markRead = useCallback(() => {
+    const now = Date.now();
+    setReadAt(now);
+    jset(ALERT_KEYS.readAt, now);
   }, []);
 
   const setPrefs = useCallback((p: NotifyPrefs) => {
@@ -105,7 +143,7 @@ export default function NotifyProvider({ children }: { children: React.ReactNode
     jset(ALERT_KEYS.alerts, list);
   }, []);
 
-  const notify = useCallback((title: string, body: string, cat: NotifyCat) => {
+  const notify = useCallback((title: string, body: string, cat: NotifyCat, route?: string) => {
     const p = prefsRef.current;
     if (!p.on || p[cat] === false) return;
     const entry = { at: Date.now(), title, body, cat };
@@ -124,7 +162,7 @@ export default function NotifyProvider({ children }: { children: React.ReactNode
         .then(() => plug.checkPermissions())
         .then((perm) => (perm?.display === 'granted' ? perm : plug.requestPermissions()))
         .then((perm) => {
-          if (perm?.display === 'granted') return plug.schedule({ notifications: [{ id, title, body, channelId: `imb-${cat}` }] });
+          if (perm?.display === 'granted') return plug.schedule({ notifications: [{ id, title, body, channelId: `imb-${cat}`, extra: { route: route ?? ROUTE[cat] } }] });
         })
         .catch(() => undefined); // a failed notification must never break what triggered it
       return;
@@ -162,10 +200,14 @@ export default function NotifyProvider({ children }: { children: React.ReactNode
     if (r.notes.length) setAlerts(r.alerts);
     if (r.seen) jset(ALERT_KEYS.seen, r.seen);
     r.notes.forEach((n) => notify(n.title, n.body, n.cat));
+    // back after being away: how the main prices moved since the last board seen
+    const v = sinceLastSeen(snap.live.items, jget<SeenPrices | null>(ALERT_KEYS.lastPrices, null), p, Date.now());
+    if (v.note) notify(v.note.title, v.note.body, v.note.cat);
+    if (Object.keys(v.seen.prices).length) jset(ALERT_KEYS.lastPrices, v.seen);
   }, [snap, notify, setAlerts]);
 
   return (
-    <NotifyCtx.Provider value={{ notify, prefs, setPrefs, alerts, setAlerts, log, askPermission, native }}>
+    <NotifyCtx.Provider value={{ notify, unread: log.filter((e) => e.at > readAt).length, markRead, prefs, setPrefs, alerts, setAlerts, log, askPermission, native }}>
       {children}
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (

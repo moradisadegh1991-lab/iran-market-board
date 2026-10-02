@@ -175,3 +175,7 @@ b.fin-raw { display: block; font-weight: 400; }
 .fin-kpis:not(.tight) > .fin-stat:first-child dt, .fin-kpis:not(.tight) > .fin-stat:first-child .fin-stat-sub { color: #c9d2e4; }
 .fin-kpis:not(.tight) > .fin-stat:first-child dd:not(.fin-stat-sub) { color: #fff; font-size: 24px; }
 .migrate-card { border-color: #ecd28f; background: #fffaf0; }
+
+/* ── bank-stated balance under an account ── */
+.bank-balance { display: grid; gap: 4px; justify-items: start; margin-top: 4px; }
+.bank-balance small { color: var(--ink-2); }

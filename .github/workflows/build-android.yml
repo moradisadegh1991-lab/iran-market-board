@@ -95,6 +95,13 @@ jobs:
         working-directory: android-app
         run: node scripts/wire-native-plugin.mjs
 
+      # Launcher icon (adaptive + legacy), splash, and the status-bar notification icon that
+      # capacitor.config.json names as LocalNotifications.smallIcon. Sources: android-app/assets
+      # (rendered from assets-src/*.svg) and android-app/res-extra.
+      - name: App icon, splash and notification icon
+        working-directory: android-app
+        run: npm run icons
+
       # Every build gets a higher versionCode, so the phone installs it as an update over the
       # previous one (keeping the app's data) instead of refusing it.
       - name: Version from the run number
@@ -148,6 +155,16 @@ jobs:
       - name: Build the APK
         working-directory: android-app/android
         run: chmod +x gradlew && ./gradlew assembleRelease --no-daemon
+
+      - name: Check the APK carries the icons and name
+        run: |
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt2"
+          APK=$(find android-app/android -name '*release*.apk' | head -1)
+          "$AAPT" dump badging "$APK" | grep -E "^package:|application-label:|application-icon-640" || true
+          # a smallIcon missing from the resources makes notifications fail silently (CLAUDE.md rule 14)
+          "$AAPT" dump resources "$APK" | grep -q "drawable/ic_stat_mali" || { echo "::error::notification icon ic_stat_mali is not in the APK"; exit 1; }
+          "$AAPT" dump resources "$APK" | grep -q "mipmap/ic_launcher_foreground" || { echo "::error::adaptive launcher icon missing"; exit 1; }
+          echo "icons OK"
 
       - name: Collect the APK
         id: apk

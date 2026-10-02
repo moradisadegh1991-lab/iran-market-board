@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <!-- status-bar icon: white on transparent, Android tints it -->
+  <circle cx="48" cy="48" r="38" fill="none" stroke="#fff" stroke-width="8"/>
+  <polyline points="27,60 41,45 52,53 67,36" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="72,30 73,46 58,37" fill="#fff" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>
+</svg>

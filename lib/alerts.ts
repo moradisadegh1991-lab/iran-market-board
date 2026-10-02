@@ -10,6 +10,10 @@ export const ALERT_KEYS = {
   alerts: 'imb.notif.alerts.v1',
   seen: 'imb.notif.seen.v1',
   log: 'imb.notif.log.v1',
+  /** prices at the last board seen, for the «since you were last here» notice on opening the app */
+  lastPrices: 'imf.notif.lastprices.v1',
+  /** when the notification list was last opened — newer entries show as a badge on the bell */
+  readAt: 'imf.notif.readat.v1',
 } as const;
 
 export type NotifyCat = 'trade' | 'alert' | 'move' | 'sms' | 'data';
@@ -133,4 +137,38 @@ export function checkBoard(items: BoardItem[], prefs: NotifyPrefs, alerts: Price
     }
   }
   return { notes, alerts: out, seen };
+}
+
+export interface SeenPrices {
+  at: number;
+  prices: Record<string, number>;
+}
+/** the board items worth a «since you were last here» line, in the order they are listed */
+const VISIT_KEYS = ['usd', 'usdt', 'g18', 'coin', 'btc', 'eth', 'tse'];
+/** below this gap the app was not really «away»: boards arrive every minute while it is open */
+export const AWAY_MS = 30 * 60_000;
+
+/**
+ * On opening the app (the first board after being away ≥ 30 min): how the main prices moved
+ * since the board the user last saw. Only moves of at least half the daily-move threshold are
+ * listed, three at most; nothing when nothing moved that much.
+ */
+export function sinceLastSeen(items: BoardItem[], last: SeenPrices | null, prefs: NotifyPrefs, now: number): { note: Note | null; seen: SeenPrices } {
+  const prices: Record<string, number> = {};
+  for (const it of items) if (VISIT_KEYS.includes(it.key) && isNum(it.price) && it.price > 0) prices[it.key] = it.price;
+  const seen = { at: now, prices };
+  if (!prefs.on || !prefs.move || !last || now - last.at < AWAY_MS) return { note: null, seen };
+  const thr = Math.abs(prefs.movePct) / 2;
+  const moves = VISIT_KEYS.filter((k) => prices[k] && last.prices[k])
+    .map((k) => ({ k, label: items.find((i) => i.key === k)!.label, pct: (prices[k] / last.prices[k] - 1) * 100 }))
+    .filter((m) => Math.abs(m.pct) >= thr)
+    .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct))
+    .slice(0, 3);
+  if (!moves.length) return { note: null, seen };
+  const hours = (now - last.at) / 3_600_000;
+  const since = hours >= 48 ? `${Math.round(hours / 24).toLocaleString('fa-IR')} روز پیش` : hours >= 1 ? `${Math.round(hours).toLocaleString('fa-IR')} ساعت پیش` : 'نیم ساعت پیش';
+  return {
+    note: { title: `قیمت‌ها از آخرین بازدید (${since})`, body: moves.map((m) => `${m.label} ${pct(m.pct)}`).join(' · '), cat: 'move' },
+    seen,
+  };
 }

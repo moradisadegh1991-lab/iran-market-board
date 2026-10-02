@@ -9,7 +9,8 @@
     "open": "cap open android",
     "test:sms": "node scripts/sms-parser-test.mjs",
     "wire-plugin": "node scripts/wire-native-plugin.mjs",
-    "test:wireplugin": "node scripts/wire-plugin-test.mjs"
+    "test:wireplugin": "node scripts/wire-plugin-test.mjs",
+    "icons": "capacitor-assets generate --android --iconBackgroundColor '#1a2848' --splashBackgroundColor '#1a2848' && node scripts/copy-res-extra.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",
@@ -20,6 +21,7 @@
     "@capacitor/share": "^6.0.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.1.2"
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/assets": "^3.0.5"
   }
 }

@@ -6,6 +6,7 @@
 // category the user had already given them, so one tap books them — and an entry the old app
 // could not place (direction unknown, half-read SMS) is still asked about (rule 3).
 import type { Asset, FinanceData, Iso, MarketKey, Staged } from './model';
+import { learnSources } from './sources';
 
 export const CLASSIC_KEYS = {
   tx: 'imb.tx.v1',
@@ -108,13 +109,12 @@ export function migrateClassic(d: FinanceData, c: ClassicData, accountId: string
   const catName = new Map([...c.cats, ...c.inCats].map((x) => [x.id, x.name]));
   const have = new Set(d.inbox.map((x) => x.id));
   const booked = new Set(d.txns.map((t) => t.ref).filter(Boolean));
-  let queued = 0;
+  const fresh: Staged[] = [];
   const push = (s: Staged) => {
     // a row already booked from an earlier run carries the old id in its ref
     if (have.has(s.id) || booked.has(s.ref ?? '')) return;
     have.add(s.id);
-    d.inbox.push(s);
-    queued++;
+    fresh.push(s);
   };
 
   for (const t of c.tx) {
@@ -133,6 +133,9 @@ export function migrateClassic(d: FinanceData, c: ClassicData, accountId: string
       description: t.note?.trim() || [t.channel, t.card ? `کارت ${t.card}` : null, t.accountNo ? `حساب ${t.accountNo}` : null, t.bank].filter(Boolean).join(' · ') || 'تراکنش نسخه قبلی',
       ref: `classic:${t.id}`,
       card: t.card ?? null,
+      accountNo: t.accountNo ?? null,
+      bank: t.bank ?? null,
+      at: t.at,
       fee: !!t.fee,
       transfer: !!t.transfer,
       categoryId: cat,
@@ -159,6 +162,11 @@ export function migrateClassic(d: FinanceData, c: ClassicData, accountId: string
       importedAt: now,
     });
   }
+
+  // the old app's cards and accounts (and their last stated balance) become detected sources
+  learnSources(d, fresh, now);
+  d.inbox.push(...fresh);
+  const queued = fresh.length;
 
   let assets = 0;
   const assetIds = new Set(d.assets.map((a) => a.id));

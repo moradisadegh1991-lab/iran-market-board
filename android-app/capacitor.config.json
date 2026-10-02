@@ -1,11 +1,11 @@
 {
   "appId": "ir.moradisadegh.marketboard",
-  "appName": "تابلوی بازار",
+  "appName": "مالی من",
   "webDir": "dist",
   "bundledWebRuntime": false,
   "android": {
     "allowMixedContent": false,
-    "backgroundColor": "#1C2C52"
+    "backgroundColor": "#1A2848"
   },
   "server": {
     "androidScheme": "https",
@@ -13,9 +13,13 @@
   },
   "plugins": {
     "SplashScreen": {
-      "backgroundColor": "#1C2C52",
+      "backgroundColor": "#1A2848",
       "launchAutoHide": true,
       "launchShowDuration": 600
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_mali",
+      "iconColor": "#D9A02A"
     }
   }
 }

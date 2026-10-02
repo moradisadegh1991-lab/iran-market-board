@@ -46,6 +46,7 @@ lib/telegram/        api · format · handler · paper
 lib/finance/         model (نوع داده، همه به ریال) · calc (محاسبات خالص) · actions (تسویه/حذف چندجدولی)
                      · importers (گردش حساب/پیامک → صف) · readers (اکسل/CSV/PDF در مرورگر) · sms (همان پارسر اندروید)
                      · phone-sms (خواندن صندوق پیامک گوشی) · migrate (انتقال داده‌های اپ قبلی اندروید)
+                     · sources (کارت/حساب و مانده بانک از پیامک، تطبیق با دفتر)
 lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت، خالص) · live-local (جلسه برخط روی دستگاه)
                      · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
@@ -62,6 +63,8 @@ middleware.ts        CORS فقط روی مسیرهای فقط-خواندنی، �
 
 android-app/dist/    (git-ignored) خروجی scripts/build-app-web.mjs = webDir: کل اپ
 android-app/ci/      ci-release.jks — کلید ثابت امضای بیلد CI (بخش ۴-ه)
+android-app/assets-src/  SVG آیکون (سکه طلایی با خط رو به بالا) + render.cjs → assets/ (ورودی @capacitor/assets)
+android-app/res-extra/   آیکون نوار وضعیت اعلان ic_stat_mali در ۵ چگالی (scripts/copy-res-extra.mjs کپی‌اش می‌کند)
 android-app/www/     فقط JS مشترک: sms-parser.js (پارسر پیامک، تست‌شده) و game-engine.js (موتور بازی). اپ قبلی
                      (index.html، app-trade.js، app-notify.js) در مهر ۱۴۰۵ در اپ واحد ادغام و حذف شد — تاریخچه git را ببین
 android-app/native-plugin/   پلاگین Java خواندن پیامک (⚠️ تست‌نشده — بخش ۷ را ببین)
@@ -245,6 +248,23 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
 44. **‏هشدار قیمت** (`lib/alerts.ts`، خالص) با هر snapshot تازه در `NotifyProvider` بررسی می‌شود؛ یک بار شلیک و خاموش می‌شود؛ جهش
     روزانه اولین بار بی‌صدا ثبت می‌شود و بیش از سه مورد خلاصه می‌شود. مقدار هشدار به واحد خود آیتم تابلو است (تومان، یا دلار برای BTC/ETH).
 
+45. **‏کارت و حساب از پیامک** (`lib/finance/sources.ts`، تست `npm run test:sources`): هر پیامکی که کارت (۴ رقم آخر) یا شماره حساب دارد
+    یک «منبع» در `data.smsSources` می‌سازد با آخرین مانده‌ای که بانک گفته. **اپ هرگز حدس نمی‌زند کارت ناشناس مال کدام حساب است**؛
+    کاربر در «حساب و دارایی» وصلش می‌کند یا حساب تازه برایش می‌سازد (یا با ثبت اولین ردیفش در صف، `learnFromCommit`). بعد از وصل،
+    پیامک‌های بعدی آن کارت با حسابش وارد صف می‌شوند. همه مسیرهای پیامک (چسباندن، دکمه گوشی، خواندن خودکار، انتقال اپ قبلی) از
+    `queueSms` رد می‌شوند.
+46. **‏مانده بانک دفتر را خودش عوض نمی‌کند.** `Account.reported` آخرین مانده بانک (پیامک یا ستون مانده گردش حساب) است؛ `reconcile`
+    آن را با دفتر **در همان لحظه** مقایسه می‌کند (تراکنش‌های تا آن تاریخ/ساعت؛ `Txn.time` از پیامک می‌آید) و «یکی کردن با بانک» فقط
+    موجودی اول دوره را تنظیم می‌کند — تنها عددی که اپ نمی‌توانست بداند. ردیف‌های در صف دلیل معمول اختلاف‌اند و نشان داده می‌شوند.
+47. **‏اعلان روی صفحه گوشی:** همه کانال‌ها جز «وضعیت داده» importance ۴ (heads-up) دارند؛ آیکون نوار وضعیت `ic_stat_mali` در
+    `android-app/res-extra` است و `capacitor.config.json` آن را `LocalNotifications.smallIcon` می‌گذارد — workflow با `aapt2` چک
+    می‌کند که در APK باشد (قاعده ۱۴). لمس اعلان صفحه‌اش را باز می‌کند (`extra.route`). در اپ باز، صندوق پیامک هر ۳۰ ثانیه بررسی
+    می‌شود (`AppStartup`, `SMS_POLL_MS`)؛ اعلان پیامک فقط تعداد را می‌گوید. بار اول اجرای اپ دو مجوز (اعلان، پیامک) یک بار پرسیده
+    می‌شود. با باز کردن اپ بعد از ≥۳۰ دقیقه، «قیمت‌ها از آخرین بازدید» (`sinceLastSeen`) می‌آید. اپ بسته بیدار نمی‌شود (قاعده ۱۵).
+48. **‏آیکون اپ** از `android-app/assets-src/*.svg` با `render.cjs` به `android-app/assets/*.png` رندر می‌شود و `@capacitor/assets` در
+    workflow (`npm run icons`) آیکون تطبیقی، گرد و splash را می‌سازد. نام اپ «مالی من»؛ `appId` عوض نشده و **نباید عوض شود**
+    (اندروید آن را اپ دیگری می‌بیند و داده‌ها از دست می‌روند).
+
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
 21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
@@ -306,7 +326,7 @@ npm run test:swingpf && npm run test:swingscan && npm run test:swinghist
 npm run test:activity
 npm run test:pfrisk && npm run test:swingfx && npm run test:sizing
 npx tsx scripts/live-local-test.ts
-npm run test:finance && npm run test:advisor && npm run test:import && npm run test:app
+npm run test:finance && npm run test:advisor && npm run test:import && npm run test:app && npm run test:sources
 npx tsx scripts/swing-v2-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts

@@ -633,3 +633,5 @@ ol.list { counter-reset: n; }
 .toast { pointer-events: auto; width: min(460px, 100%); background: var(--lapis); color: #f3f5fa; border-radius: 14px; padding: 10px 14px; box-shadow: 0 8px 24px rgba(12, 20, 38, 0.3); display: grid; gap: 2px; animation: rise 0.2s ease-out; border-inline-start: 4px solid var(--saffron); }
 .toast b { font-size: 14.5px; }
 .toast span { font-size: 13px; color: #c9d2e4; }
+.icon-btn.bell { position: relative; }
+.icon-btn .badge { position: absolute; top: -4px; inset-inline-start: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: #e5484d; color: #fff; font-size: 11px; font-weight: 800; display: grid; place-items: center; line-height: 1; box-shadow: 0 0 0 2px var(--lapis); }

@@ -23,7 +23,8 @@
     "test:advisor": "tsx scripts/advisor-test.ts",
     "test:swingv2": "tsx scripts/swing-v2-test.ts",
     "test:import": "tsx scripts/import-test.ts",
-    "test:app": "tsx scripts/app-test.ts"
+    "test:app": "tsx scripts/app-test.ts",
+    "test:sources": "tsx scripts/sources-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

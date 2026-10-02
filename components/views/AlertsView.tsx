@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NOTIFY_CATS, type PriceAlert } from '@/lib/alerts';
 import { isNum } from '@/lib/num';
 import { useNotify } from '../NotifyProvider';
@@ -12,7 +12,11 @@ const unitLabel = (u?: string) => (u === 'usd' ? 'دلار' : u === 'point' ? '�
 const timeFa = (ms: number) => new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
 
 export default function AlertsView() {
-  const { prefs, setPrefs, alerts, setAlerts, log, askPermission, native, notify } = useNotify();
+  const { prefs, setPrefs, alerts, setAlerts, log, askPermission, native, notify, markRead, unread } = useNotify();
+  // opening the list reads it: the bell's badge clears (and again for notices that arrive while here)
+  useEffect(() => {
+    if (unread) markRead();
+  }, [unread, markRead]);
   const { snap } = useSnapshot();
   const items = useMemo(() => (snap?.live.items ?? []).filter((i) => isNum(i.price)), [snap]);
   const [asset, setAsset] = useState('');

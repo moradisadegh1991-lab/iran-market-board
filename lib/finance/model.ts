@@ -25,6 +25,11 @@ export interface Account {
   openingRial: number;
   openedOn: Iso;
   archived?: boolean;
+  /**
+   * The latest balance the bank itself stated (an SMS «مانده» or a statement's running balance).
+   * Shown next to the book balance; it never changes the book by itself (see sources.ts).
+   */
+  reported?: { rial: number; date: Iso; time?: string | null; via: 'sms' | 'statement' } | null;
 }
 
 export type CategoryKind = 'expense' | 'income';
@@ -52,6 +57,8 @@ export interface Txn {
   src?: 'statement' | 'sms' | 'classic';
   /** bank tracking / document number, when the statement or SMS had one */
   ref?: string | null;
+  /** 'HH:MM' when the source gave it — orders same-day rows against a bank-stated balance */
+  time?: string | null;
 }
 
 /**
@@ -75,6 +82,12 @@ export interface Staged {
   description: string;
   ref?: string | null;
   card?: string | null;
+  /** account number the SMS named */
+  accountNo?: string | null;
+  /** bank name in the SMS, or the sender it came from */
+  bank?: string | null;
+  /** receive time (ms) when known — the phone inbox gives it */
+  at?: number | null;
   fee?: boolean;
   /** the parser could only half-read the source: the user should check the amount */
   uncertainAmount?: boolean;
@@ -197,6 +210,25 @@ export interface FinanceData {
   inbox: Staged[];
   /** description key → category the user chose last time, so the next import pre-fills it */
   catMemory: Record<string, string>;
+  /** cards and bank accounts seen in SMS, with the balance the bank last stated (sources.ts) */
+  smsSources: SmsSource[];
+}
+
+/** A card or bank account that bank SMS mention — found automatically, linked to an account by the user. */
+export interface SmsSource {
+  /** 'card:4417' | 'acc:0123456789' */
+  key: string;
+  kind: 'card' | 'account';
+  /** last four digits of the card, or the account number */
+  ref: string;
+  bank: string | null;
+  accountId: string | null;
+  ignored?: boolean;
+  count: number;
+  firstAt: number;
+  lastAt: number;
+  lastBalanceRial: number | null;
+  lastBalanceAt: number | null;
 }
 
 export const DEFAULT_CATEGORIES: Category[] = [
@@ -236,6 +268,7 @@ export function emptyData(today: Iso): FinanceData {
     settings: { ...DEFAULT_SETTINGS },
     inbox: [],
     catMemory: {},
+    smsSources: [],
   };
 }
 
@@ -265,6 +298,7 @@ export function normalizeData(raw: unknown, today: Iso): FinanceData {
     assets: arr<Asset>(raw.assets),
     inbox: arr<Staged>(raw.inbox).filter((x) => x && typeof x.amountRial === 'number' && x.amountRial > 0),
     catMemory: isObj(raw.catMemory) ? (raw.catMemory as Record<string, string>) : {},
+    smsSources: arr<SmsSource>(raw.smsSources).filter((x) => x && typeof x.key === 'string' && (x.kind === 'card' || x.kind === 'account')),
     settings: {
       inflationPct: finite(s.inflationPct, DEFAULT_SETTINGS.inflationPct),
       safeYieldPct: finite(s.safeYieldPct, DEFAULT_SETTINGS.safeYieldPct),

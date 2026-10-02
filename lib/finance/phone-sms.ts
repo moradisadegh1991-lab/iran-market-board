@@ -2,14 +2,14 @@
 // android-app/native-plugin (CLAUDE.md §7: compiled in CI, never yet run on a real phone).
 // Messages never leave the device; they are parsed here and queued for the user's review.
 import { useEffect, useState } from 'react';
-import { enqueue, rowsFromMessages, type SmsResult } from './importers';
-import type { FinanceData, Iso } from './model';
+import { rowsFromMessages, type SmsResult } from './importers';
+import type { Iso } from './model';
 import { smsParser } from './sms';
 
 export interface SmsPlugin {
   checkPermission(): Promise<{ granted?: boolean }>;
   requestPermission(): Promise<{ granted?: boolean }>;
-  read(o: { sinceMs: number; limit: number }): Promise<{ messages?: { body?: string; date?: number }[] }>;
+  read(o: { sinceMs: number; limit: number }): Promise<{ messages?: { body?: string; date?: number; address?: string }[] }>;
 }
 
 export function smsPlugin(): SmsPlugin | null {
@@ -38,9 +38,10 @@ export function lastPhoneRead(): number | null {
   }
 }
 
+/** On unless the user turned it off; it only does anything inside the APK with SMS permission. */
 export function autoReadOn(): boolean {
   try {
-    return localStorage.getItem(SMS_AUTO_KEY) === '1';
+    return localStorage.getItem(SMS_AUTO_KEY) !== '0';
   } catch {
     return false;
   }
@@ -66,7 +67,7 @@ export async function readInbox(plugin: SmsPlugin, today: Iso, accountId: string
   }
   const since = lastPhoneRead() ?? Date.now() - FIRST_READ_DAYS * 86_400_000;
   const res = await plugin.read({ sinceMs: since, limit: 1000 });
-  const msgs = (res?.messages ?? []).map((m) => ({ body: String(m.body ?? ''), at: Number(m.date) || undefined }));
+  const msgs = (res?.messages ?? []).map((m) => ({ body: String(m.body ?? ''), at: Number(m.date) || undefined, address: m.address ? String(m.address) : undefined }));
   const out = rowsFromMessages(msgs, smsParser, today, { accountId });
   const newest = Math.max(since, ...msgs.map((m) => m.at ?? 0));
   try {
@@ -77,6 +78,3 @@ export async function readInbox(plugin: SmsPlugin, today: Iso, accountId: string
   return out;
 }
 
-export function queueRows(d: FinanceData, r: SmsResult): number {
-  return enqueue(d, r.rows);
-}

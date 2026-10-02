@@ -4,7 +4,7 @@
  * Run: npx tsx scripts/app-test.ts
  */
 import assert from 'node:assert';
-import { checkBoard, DEFAULT_PREFS, normalizeAlerts, normalizePrefs, type BoardItem } from '../lib/alerts';
+import { AWAY_MS, checkBoard, DEFAULT_PREFS, normalizeAlerts, normalizePrefs, sinceLastSeen, type BoardItem } from '../lib/alerts';
 import { classicCount, CLASSIC_KEYS, migrateClassic, parseClassic } from '../lib/finance/migrate';
 import { choicesFor, commitStaged, defaultChoice, suggestCategory } from '../lib/finance/importers';
 import { emptyData, normalizeData } from '../lib/finance/model';
@@ -55,6 +55,22 @@ ok('preferences and alerts from the old app are read as they were stored', () =>
   assert.deepEqual(normalizePrefs({ on: true, sms: false, movePct: 5 }), { ...DEFAULT_PREFS, sms: false, movePct: 5 });
   assert.deepEqual(normalizePrefs('garbage'), DEFAULT_PREFS);
   assert.equal(normalizeAlerts([{ asset: 'usd', value: -1 }, { asset: 'usd', value: 10 }, null]).length, 1);
+});
+
+ok('on opening after being away: the main prices that moved, biggest first, three at most', () => {
+  const items = board({ usd: [105_000, 0], coin: [98_000_000, 0], g18: [10_050_000, 0], btc: [70_000, 0], eth: [2_000, 0] });
+  const last = { at: NOW - 3 * 3_600_000, prices: { usd: 100_000, coin: 100_000_000, g18: 10_000_000, btc: 60_000, eth: 2_000 } };
+  const r = sinceLastSeen(items, last, DEFAULT_PREFS, NOW);
+  assert.match(r.note!.title, /۳ ساعت پیش/);
+  assert.equal(r.note!.cat, 'move');
+  assert.deepEqual(r.note!.body.split(' · ').map((x) => x.split(' ')[0]), ['btc', 'دلار', 'سکه'], 'g18 +0.5% and eth 0% are below half the 2% threshold');
+  assert.equal(r.seen.prices.usd, 105_000);
+  // while the app stays open boards arrive every minute: no notice
+  assert.equal(sinceLastSeen(items, { ...last, at: NOW - AWAY_MS + 60_000 }, DEFAULT_PREFS, NOW).note, null);
+  // first ever run, or moves off: nothing, but the prices are stored
+  assert.equal(sinceLastSeen(items, null, DEFAULT_PREFS, NOW).note, null);
+  assert.equal(sinceLastSeen(items, last, { ...DEFAULT_PREFS, move: false }, NOW).note, null);
+  assert.equal(sinceLastSeen(items, { at: NOW - 3 * 86_400_000, prices: last.prices }, DEFAULT_PREFS, NOW).note!.title.includes('۳ روز پیش'), true);
 });
 
 // what the earlier app actually stored (shapes from android-app/www/index.html before Mehr 1405)
