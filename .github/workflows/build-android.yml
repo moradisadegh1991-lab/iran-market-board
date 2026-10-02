@@ -99,13 +99,6 @@ jobs:
         working-directory: android-app
         run: node scripts/wire-native-plugin.mjs
 
-      # «نوعش چیست؟»: an SMS_RECEIVED broadcast → notification with the type buttons → the stored
-      # choice, on Robolectric (the real Android framework classes on the JVM)
-      - name: Test the native SMS notification code
-        working-directory: android-app
-        run: |
-          node scripts/wire-native-tests.mjs
-          cd android && chmod +x gradlew && ./gradlew :app:testDebugUnitTest --no-daemon
 
       # Launcher icon (adaptive + legacy), splash, and the status-bar notification icon that
       # capacitor.config.json names as LocalNotifications.smallIcon. Sources: android-app/assets
@@ -113,6 +106,15 @@ jobs:
       - name: App icon, splash and notification icon
         working-directory: android-app
         run: npm run icons
+
+      # «نوعش چیست؟»: an SMS_RECEIVED broadcast → notification with the type buttons → the stored
+      # choice, on Robolectric (the real Android framework classes on the JVM). After the icons step:
+      # the tests check the notification carries the status-bar icon the APK ships with.
+      - name: Test the native SMS notification code
+        working-directory: android-app
+        run: |
+          node scripts/wire-native-tests.mjs
+          cd android && chmod +x gradlew && ./gradlew :app:testDebugUnitTest --no-daemon
 
       # Every build gets a higher versionCode, so the phone installs it as an update over the
       # previous one (keeping the app's data) instead of refusing it.
