@@ -1,7 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { Component, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { LESSONS, lessonById, questionById, TRACKS, type Lesson, type QuizQ } from '@/lib/learn/lessons';
 import { dueDeck, emptyLearn, finishLesson, LEARN_KEY, MASTERED, nextLesson, normalizeLearn, progress, review, type LearnState } from '@/lib/learn/review';
 import { tehranDate } from '@/lib/num';
@@ -251,17 +250,61 @@ function Review({ s, save, today, onExit }: { s: LearnState; save: (x: LearnStat
   );
 }
 
+/**
+ * Whatever goes wrong inside a lesson stays inside the section: the message (to report) and a way
+ * back, instead of the app-wide error page.
+ */
+class LearnBoundary extends Component<{ children: ReactNode; onReset: () => void }, { err: Error | null }> {
+  state = { err: null as Error | null };
+  static getDerivedStateFromError(err: Error) {
+    return { err };
+  }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <section className="panel learn-lesson" role="alert" data-testid="learn-error">
+        <h2>این بخش با خطا روبه‌رو شد</h2>
+        <p>پیشرفت شما ذخیره است. اگر تکرار شد، از همین پیام عکس بفرستید تا رفع شود:</p>
+        <pre className="learn-err" dir="ltr">
+          {String(this.state.err?.message || this.state.err).slice(0, 400)}
+        </pre>
+        <button
+          className="btn run"
+          onClick={() => {
+            this.setState({ err: null });
+            this.props.onReset();
+          }}
+        >
+          بازگشت به درس‌ها
+        </button>
+      </section>
+    );
+  }
+}
+
+type View = { kind: 'home' } | { kind: 'lesson'; id: string } | { kind: 'review' };
+
 /** «آموزش»: short lessons, quizzes from memory, and a spaced daily review. */
 export default function LearnView() {
-  const params = useSearchParams();
-  const router = useRouter();
   const { s, save, ready } = useLearn();
   const [today, setToday] = useState('2000-01-01');
-  useEffect(() => setToday(tehranDate()), []);
-  const open = params.get('l');
-  const reviewing = params.get('review') === '1';
-  const lesson = open ? lessonById(open) : null;
-  const go = (q: string) => router.push(`/learn${q}`, { scroll: true });
+  // which screen is shown is plain state, not a route change: moving between lessons never asks the
+  // router (or, in the app, the local file server) for anything
+  const [view, setView] = useState<View>({ kind: 'home' });
+  useEffect(() => {
+    setToday(tehranDate());
+    // a link into a lesson (/learn?l=…) still opens it
+    const q = new URLSearchParams(window.location.search);
+    const l = q.get('l');
+    if (l && lessonById(l)) setView({ kind: 'lesson', id: l });
+    else if (q.get('review') === '1') setView({ kind: 'review' });
+  }, []);
+  const show = (v: View) => {
+    setView(v);
+    window.scrollTo({ top: 0 });
+  };
+  const home = () => show({ kind: 'home' });
+  const lesson = view.kind === 'lesson' ? lessonById(view.id) : null;
 
   if (!ready)
     return (
@@ -272,13 +315,17 @@ export default function LearnView() {
   if (lesson)
     return (
       <div className="wrap learn">
-        <LessonPlayer key={lesson.id} lesson={lesson} s={s} save={save} today={today} onExit={() => go('')} />
+        <LearnBoundary onReset={home}>
+          <LessonPlayer key={lesson.id} lesson={lesson} s={s} save={save} today={today} onExit={home} />
+        </LearnBoundary>
       </div>
     );
-  if (reviewing)
+  if (view.kind === 'review')
     return (
       <div className="wrap learn">
-        <Review s={s} save={save} today={today} onExit={() => go('')} />
+        <LearnBoundary onReset={home}>
+          <Review s={s} save={save} today={today} onExit={home} />
+        </LearnBoundary>
       </div>
     );
 
@@ -286,81 +333,83 @@ export default function LearnView() {
   const nxt = nextLesson(s, LESSONS);
   return (
     <div className="wrap learn">
-      <PageHead title="آموزش مالی">
-        اقتصاد، بازار و نظم مالی به زبان ساده، در درس‌های چنددقیقه‌ای. هر درس با چند سؤال از حافظه تمام می‌شود و همان سؤال‌ها با فاصله‌ای که کم‌کم بیشتر می‌شود (۱، ۳، ۷، ۱۶ و ۳۵ روز) برای مرور
-        برمی‌گردند — دو روشی که پژوهش‌های یادگیری بیشترین پشتوانه را برایشان دارند. هر جا عددی «سنجیده‌شده» آمده، روی داده واقعی همین اپ سنجیده شده است.
-      </PageHead>
+      <LearnBoundary onReset={home}>
+        <PageHead title="آموزش مالی">
+          اقتصاد، بازار و نظم مالی به زبان ساده، در درس‌های چنددقیقه‌ای. هر درس با چند سؤال از حافظه تمام می‌شود و همان سؤال‌ها با فاصله‌ای که کم‌کم بیشتر می‌شود (۱، ۳، ۷، ۱۶ و ۳۵ روز) برای مرور
+          برمی‌گردند — دو روشی که پژوهش‌های یادگیری بیشترین پشتوانه را برایشان دارند. هر جا عددی «سنجیده‌شده» آمده، روی داده واقعی همین اپ سنجیده شده است.
+        </PageHead>
 
-      <section className="panel learn-top" aria-label="پیشرفت">
-        <dl className="fin-kpis tight">
-          <div className="fin-stat">
-            <dt>درس‌های تمام‌شده</dt>
-            <dd>
-              {fa(p.lessonsDone)} از {fa(p.lessonsTotal)}
-            </dd>
+        <section className="panel learn-top" aria-label="پیشرفت">
+          <dl className="fin-kpis tight">
+            <div className="fin-stat">
+              <dt>درس‌های تمام‌شده</dt>
+              <dd>
+                {fa(p.lessonsDone)} از {fa(p.lessonsTotal)}
+              </dd>
+            </div>
+            <div className="fin-stat">
+              <dt>کارت‌های جاافتاده</dt>
+              <dd>
+                {fa(p.strong)} از {fa(p.cards)}
+              </dd>
+              <dd className="fin-stat-sub">مرور فاصله‌دار ۱۶ روزه به بعد</dd>
+            </div>
+            <div className="fin-stat">
+              <dt>روزهای یادگیری این هفته</dt>
+              <dd>{fa(p.activeDays7)} روز</dd>
+            </div>
+          </dl>
+          <div className="learn-cta">
+            {p.dueToday ? (
+              <button className="btn run" onClick={() => show({ kind: 'review' })} data-testid="learn-review-btn">
+                مرور امروز ({fa(p.dueToday)} کارت)
+              </button>
+            ) : null}
+            {nxt ? (
+              <button className={p.dueToday ? 'fin-mini' : 'btn run'} onClick={() => show({ kind: 'lesson', id: nxt.id })}>
+                درس بعدی: {nxt.title}
+              </button>
+            ) : (
+              <p className="muted">همه درس‌ها را تمام کرده‌اید؛ مرور روزانه را ادامه دهید.</p>
+            )}
           </div>
-          <div className="fin-stat">
-            <dt>کارت‌های جاافتاده</dt>
-            <dd>
-              {fa(p.strong)} از {fa(p.cards)}
-            </dd>
-            <dd className="fin-stat-sub">مرور فاصله‌دار ۱۶ روزه به بعد</dd>
-          </div>
-          <div className="fin-stat">
-            <dt>روزهای یادگیری این هفته</dt>
-            <dd>{fa(p.activeDays7)} روز</dd>
-          </div>
-        </dl>
-        <div className="learn-cta">
-          {p.dueToday ? (
-            <button className="btn run" onClick={() => go('?review=1')} data-testid="learn-review-btn">
-              مرور امروز ({fa(p.dueToday)} کارت)
-            </button>
-          ) : null}
-          {nxt ? (
-            <button className={p.dueToday ? 'fin-mini' : 'btn run'} onClick={() => go(`?l=${nxt.id}`)}>
-              درس بعدی: {nxt.title}
-            </button>
-          ) : (
-            <p className="muted">همه درس‌ها را تمام کرده‌اید؛ مرور روزانه را ادامه دهید.</p>
-          )}
-        </div>
-      </section>
+        </section>
 
-      {TRACKS.map((t) => {
-        const ls = LESSONS.filter((l) => l.track === t.key);
-        return (
-          <section key={t.key} className="panel learn-track" aria-labelledby={`tr-${t.key}`}>
-            <h2 id={`tr-${t.key}`}>
-              <span aria-hidden="true">{t.icon}</span> {t.title}
-            </h2>
-            <p className="muted small">{t.blurb}</p>
-            <ul className="learn-list">
-              {ls.map((l) => {
-                const done = s.lessons[l.id];
-                const cards = l.quiz.map((q) => s.cards[q.id]).filter(Boolean);
-                const mastered = cards.length && cards.every((c) => c!.box >= MASTERED);
-                return (
-                  <li key={l.id}>
-                    <button onClick={() => go(`?l=${l.id}`)} className={done ? 'done' : ''}>
-                      <span className="learn-li-t">
-                        {done ? <span aria-label="تمام‌شده">✓ </span> : null}
-                        {l.title}
-                      </span>
-                      <span className="learn-li-s muted small">
-                        {l.summary} · {fa(l.minutes)} دقیقه
-                        {done ? ` · ${mastered ? 'کاملاً جاافتاده' : `آزمون اول ${fa(Math.round(done.score * 100))}٪`}` : ''}
-                      </span>
-                    </button>
-                    {s.plans[l.id] ? <p className="learn-myplan small">برنامه شما: {s.plans[l.id]}</p> : null}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        );
-      })}
-      <p className="note">پیشرفت و برنامه‌های شما فقط روی همین دستگاه می‌ماند و به هیچ سروری فرستاده نمی‌شود.</p>
+        {TRACKS.map((t) => {
+          const ls = LESSONS.filter((l) => l.track === t.key);
+          return (
+            <section key={t.key} className="panel learn-track" aria-labelledby={`tr-${t.key}`}>
+              <h2 id={`tr-${t.key}`}>
+                <span aria-hidden="true">{t.icon}</span> {t.title}
+              </h2>
+              <p className="muted small">{t.blurb}</p>
+              <ul className="learn-list">
+                {ls.map((l) => {
+                  const done = s.lessons[l.id];
+                  const cards = l.quiz.map((q) => s.cards[q.id]).filter(Boolean);
+                  const mastered = cards.length && cards.every((c) => c!.box >= MASTERED);
+                  return (
+                    <li key={l.id}>
+                      <button onClick={() => show({ kind: 'lesson', id: l.id })} className={done ? 'done' : ''}>
+                        <span className="learn-li-t">
+                          {done ? <span aria-label="تمام‌شده">✓ </span> : null}
+                          {l.title}
+                        </span>
+                        <span className="learn-li-s muted small">
+                          {l.summary} · {fa(l.minutes)} دقیقه
+                          {done ? ` · ${mastered ? 'کاملاً جاافتاده' : `آزمون اول ${fa(Math.round(done.score * 100))}٪`}` : ''}
+                        </span>
+                      </button>
+                      {s.plans[l.id] ? <p className="learn-myplan small">برنامه شما: {s.plans[l.id]}</p> : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          );
+        })}
+        <p className="note">پیشرفت و برنامه‌های شما فقط روی همین دستگاه می‌ماند و به هیچ سروری فرستاده نمی‌شود.</p>
+      </LearnBoundary>
     </div>
   );
 }

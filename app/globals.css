@@ -423,6 +423,7 @@ h2 { font-size: 18px; line-height: 1.4; font-weight: 800; margin: 0; color: var(
 .learn-why.ok { background: var(--up-soft); }
 .learn-why.no { background: var(--down-soft); }
 .learn-why .btn { margin-top: 8px; }
+.learn-err { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; background: var(--line-soft); border-radius: var(--r-s); padding: 8px 10px; max-height: 12em; overflow: auto; }
 .learn-plan { margin-top: 14px; display: grid; gap: 6px; justify-items: start; }
 .learn-plan h3 { margin: 0; }
 .learn-plan textarea { width: 100%; }
