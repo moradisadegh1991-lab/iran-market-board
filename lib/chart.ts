@@ -38,6 +38,8 @@ export interface ChartData {
   tf: Timeframe;
   resolution: 'intraday' | 'daily';
   points: [number, number][]; // [ms, value in display unit]
+  /** daily history just before `points` (?warm=1), for indicators that need a window (MA200) */
+  warmup?: [number, number][];
   stats: { first: number; last: number; changePct: number; high: number; low: number } | null;
   note?: string;
 }
@@ -52,7 +54,10 @@ function withStats(base: Omit<ChartData, 'stats'>): ChartData {
   return { ...base, stats: { first, last, changePct: (last / first - 1) * 100, high: Math.max(...vals), low: Math.min(...vals) } };
 }
 
-export async function getChart(assetParam: string, tf: Timeframe): Promise<ChartData> {
+/** daily closes before the visible window that indicators may need (MA200 + slack) */
+const WARM_ROWS = 260;
+
+export async function getChart(assetParam: string, tf: Timeframe, opts: { warm?: boolean } = {}): Promise<ChartData> {
   const days = TIMEFRAMES.find((t) => t.key === tf)!.days;
   const since = Date.now() - days * 86400_000;
 
@@ -64,7 +69,8 @@ export async function getChart(assetParam: string, tf: Timeframe): Promise<Chart
       return withStats({ asset: assetParam, label: id, unit: 'usd', tf, resolution: 'intraday', points: (r.data ?? []).filter(([t]) => t >= since) });
     }
     const s = await coinSeries(id);
-    return withStats({ asset: assetParam, label: id, unit: 'usd', tf, resolution: 'daily', points: s.dates.map((d, i) => [dateMs(d), s.prices[i]] as [number, number]).filter(([t]) => t >= since) });
+    const all = s.dates.map((d, i) => [dateMs(d), s.prices[i]] as [number, number]);
+    return withStats({ asset: assetParam, label: id, unit: 'usd', tf, resolution: 'daily', points: all.filter(([t]) => t >= since), ...(opts.warm ? { warmup: all.filter(([t]) => t < since).slice(-WARM_ROWS) } : {}) });
   }
 
   const meta = CHART_ASSETS.find((a) => a.key === assetParam);
@@ -87,12 +93,14 @@ export async function getChart(assetParam: string, tf: Timeframe): Promise<Chart
   const s = buildSeries(inputs, meta.key);
   const minDays = days <= 7 ? 14 : days;
   const cut = Date.now() - minDays * 86400_000;
-  const points = s.dates.map((d, i) => [dateMs(d), toDisplay(meta.unit, s.prices[i])] as [number, number]).filter(([t]) => t >= cut);
+  const all = s.dates.map((d, i) => [dateMs(d), toDisplay(meta.unit, s.prices[i])] as [number, number]);
+  const points = all.filter(([t]) => t >= cut);
+  const warmup = opts.warm ? all.filter(([t]) => t < cut).slice(-WARM_ROWS) : undefined;
   const note =
     days <= 7
       ? 'داده درون‌روزی این دارایی هنوز کافی نیست (هر ۱۰ دقیقه یک نقطه ثبت می‌شود)؛ تا آن زمان قیمت‌های پایانی روزانه دو هفته اخیر نمایش داده می‌شود.'
       : s.reconstructed
         ? `بخشی از این نمودار از داده جایگزین (${s.basis}) بازسازی شده و ممکن است با قیمت واقعی آن روزها کمی فاصله داشته باشد.`
         : undefined;
-  return withStats({ asset: meta.key, label: meta.label, unit: meta.unit, tf, resolution: 'daily', points, note });
+  return withStats({ asset: meta.key, label: meta.label, unit: meta.unit, tf, resolution: 'daily', points, note, ...(warmup ? { warmup } : {}) });
 }

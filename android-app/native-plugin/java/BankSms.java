@@ -38,8 +38,11 @@ public final class BankSms {
     private static final Pattern RESALAT = Pattern.compile("^([+\\-])([0-9,،]+)" + S + "*$|^([0-9,،]+)" + S + "*([+\\-])" + S + "*$", Pattern.MULTILINE);
     private static final Pattern MABLAGH = Pattern.compile("مبلغ" + S + "*([0-9,،]+)" + S + "*ریال");
     private static final Pattern KW_AMOUNT = Pattern.compile("([0-9,،]{4,})");
+    /** sms-parser.js mablaghAnyRx: an explicit «مبلغ: X» wins over the first number after the verb */
+    private static final Pattern MABLAGH_ANY = Pattern.compile("مبلغ" + S + "*:?" + S + "*([0-9,،]{4,})");
     private static final Pattern BALANCE = Pattern.compile("(?:مانده|موجودی)" + S + "*:?" + S + "*([0-9,،]+)");
-    private static final Pattern CARD = Pattern.compile(D + "{4,6}[*.x]{2,}(" + D + "{4})|کارت" + S + "*:?" + S + "*\\*?(" + D + "{4})");
+    /** sms-parser.js cardRx: «کارت N» only when N is a last four, not the start of a full number */
+    private static final Pattern CARD = Pattern.compile(D + "{4,6}[*.x]{2,}(" + D + "{4})|کارت" + S + "*:?" + S + "*\\*?(" + D + "{4})(?![0-9]|[-*xX×.][0-9*xX×])");
     private static final Pattern ACCOUNT = Pattern.compile("حساب" + S + "*:?" + S + "*(" + D + "{6,})");
     // JS `.` = anything but \n \r
     private static final Pattern CHANNEL = Pattern.compile("(?:از" + S + "*طریق|از" + S + "*طريق|کانال)" + S + "*:?" + S + "*([^\\n\\r\\u2028\\u2029]{2,40})");
@@ -230,7 +233,8 @@ public final class BankSms {
             while (m.find()) last = m.group();
             amount = last != null ? toCleanLong(last) : null;
         } else {
-            amount = toCleanLong(firstGroup(KW_AMOUNT, n.substring(at + keyword.length()), 1));
+            String stated = firstGroup(MABLAGH_ANY, n, 1);
+            amount = toCleanLong(stated != null ? stated : firstGroup(KW_AMOUNT, n.substring(at + keyword.length()), 1));
         }
         if (amount == null || amount < 1000) return null;
 

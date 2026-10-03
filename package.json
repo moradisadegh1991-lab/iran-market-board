@@ -28,7 +28,9 @@
     "test:smsask": "tsx scripts/sms-ask-test.ts",
     "test:nativesms": "tsx scripts/native-sms-test.ts",
     "test:financeplus": "tsx scripts/finance-plus-test.ts",
-    "test:forecast": "tsx scripts/forecast-test.ts"
+    "test:forecast": "tsx scripts/forecast-test.ts",
+    "test:parties": "tsx scripts/sms-parties-test.ts",
+    "test:indicators": "tsx scripts/indicators-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

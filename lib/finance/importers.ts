@@ -76,6 +76,12 @@ function stableId(parts: (string | number | null | undefined)[]): string {
 }
 
 /** The part of a description that identifies the counterparty, for remembering categories. */
+/**
+ * A key made only of field words («کارت», «حساب») names no payee: an SMS row described as «کارت ۴۴۱۷»
+ * keys to «کارت», so remembering it would hand one purchase's category to every later card SMS.
+ */
+export const isGenericMemoryKey = (k: string) => /^(?:(?:کارت|حساب|شماره|بانک|سپرده)\s?)+$/.test(k);
+
 export function memoryKey(description: string): string {
   return norm(description)
     .replace(/\d[\d,./:-]*/g, ' ')
@@ -546,6 +552,7 @@ export function rowsFromMessages(msgs: SmsMessage[], api: SmsApi, today: Iso, op
     }
     const t = c.tx;
     const clear = t.directionClear !== false;
+    const card = t.cardLast4;
     rows.push({
       ...base,
       id: stableId(['sms', body, at ?? '']),
@@ -557,8 +564,8 @@ export function rowsFromMessages(msgs: SmsMessage[], api: SmsApi, today: Iso, op
           ? 'پیامک هم واژه برداشت دارد هم واریز'
           : 'پیامک نگفته برداشت است یا واریز',
       balanceRial: t.balance === null ? null : t.balance * k,
-      description: [t.channel, t.cardLast4 ? `کارت ${t.cardLast4}` : null, t.accountNo ? `حساب ${t.accountNo}` : null].filter(Boolean).join(' · ') || norm(body).slice(0, 80),
-      card: t.cardLast4,
+      description: [t.channel, card ? `کارت ${card}` : null, t.accountNo ? `حساب ${t.accountNo}` : null].filter(Boolean).join(' · ') || norm(body).slice(0, 80),
+      card,
       accountNo: t.accountNo,
       bank: t.bankNameInSms || base.bank,
       fee: !!t.isFee,
@@ -595,9 +602,13 @@ const CAT_HINTS: [RegExp, string, 'out' | 'in' | null][] = [
 ];
 
 /** Suggests a category: the user's own earlier choice for the same description first, then keywords. */
-export function suggestCategory(d: FinanceData, s: Staged): string | null {
+export function suggestCategory(d: FinanceData, s: Staged, partyKey?: string | null): string | null {
   if (s.categoryId && d.categories.some((c) => c.id === s.categoryId)) return s.categoryId;
-  const mem = d.catMemory[memoryKey(s.description)];
+  // the counterparty («فروشگاه رفاه») says more than the description («کارت ۴۴۱۷») — rule 62
+  const byParty = partyKey ? d.catMemory[partyKey] : null;
+  if (byParty && d.categories.some((c) => c.id === byParty)) return byParty;
+  const dkey = memoryKey(s.description);
+  const mem = isGenericMemoryKey(dkey) ? null : d.catMemory[dkey];
   if (mem && d.categories.some((c) => c.id === mem)) return mem;
   const text = norm(`${s.description} ${s.raw}`);
   for (const [rx, cat, dir] of CAT_HINTS) if (rx.test(text) && (!dir || !s.direction || dir === s.direction) && d.categories.some((c) => c.id === cat)) return cat;
@@ -646,6 +657,10 @@ export interface CommitInput {
   date?: Iso | null;
   /** a corrected amount, for rows the parser only half-read */
   amountRial?: number | null;
+  /** «به: فروشگاه رفاه · بابت: …» (sms-parties.ts), appended to the note */
+  partiesNote?: string | null;
+  /** the counterparty's category-memory key (sms-parties.ts): remembered with the chosen category */
+  partyKey?: string | null;
 }
 
 /**
@@ -675,14 +690,15 @@ export function commitStaged(d: FinanceData, id: string, inp: CommitInput): stri
     accountId: inp.choice === 'transfer-in' ? inp.otherAccountId! : inp.accountId,
     toAccountId: transfer ? (inp.choice === 'transfer-in' ? inp.accountId : inp.otherAccountId!) : null,
     categoryId: cat,
-    note: s.description.slice(0, 120),
+    note: [s.description, inp.partiesNote].filter(Boolean).join(' — ').slice(0, 160),
     src: s.source,
     ref: s.ref ?? null,
     time: s.time ?? null,
     ...(s.smsKey ? { smsKey: s.smsKey, smsAt: s.at ?? null } : {}),
   });
   const key = memoryKey(s.description);
-  if (cat && key) d.catMemory[key] = cat;
+  if (cat && key && !isGenericMemoryKey(key)) d.catMemory[key] = cat;
+  if (cat && inp.partyKey) d.catMemory[inp.partyKey] = cat;
   d.inbox = d.inbox.filter((x) => x.id !== id);
   return null;
 }

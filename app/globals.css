@@ -308,6 +308,14 @@ h2 { font-size: 18px; line-height: 1.4; font-weight: 800; margin: 0; color: var(
 .chart-last small { font-size: 13px; font-weight: 500; color: var(--muted); }
 .chart-stats { display: flex; gap: 22px; margin: 0; }
 .chart-host { width: 100%; height: 360px; }
+.chart-host.with-panes-1 { height: 470px; }
+.chart-host.with-panes-2 { height: 580px; }
+.ind-chips { align-items: center; }
+.ind-chips-label { font-size: 13px; color: var(--muted); margin-inline-end: 2px; }
+.ind-sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-inline-end: 5px; vertical-align: middle; }
+.ind-read { margin-top: 12px; }
+.ind-read h3 { font-size: 15px; margin: 0 0 2px; }
+.ind-evidence { margin: 10px 0 0; padding: 10px 12px; border-radius: var(--r-s); background: var(--teal-soft); font-size: 13.5px; line-height: 1.9; }
 .skeleton { background: linear-gradient(90deg, var(--line-soft) 25%, #f5f7fa 50%, var(--line-soft) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; border-radius: var(--r-s); }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
@@ -520,6 +528,8 @@ ol.list { counter-reset: n; }
   .rung-val { font-size: 13.5px; }
   .mini-ladder li { grid-template-columns: 3rem 1fr 3rem; grid-template-areas: 'name name name' 'worst bar best'; row-gap: 2px; }
   .chart-host { height: 290px; }
+  .chart-host.with-panes-1 { height: 400px; }
+  .chart-host.with-panes-2 { height: 500px; }
   .chart-stats { gap: 16px; }
   .fc-stats { flex-wrap: wrap; gap: 8px 16px; }
   .split { grid-template-columns: 1fr; }
