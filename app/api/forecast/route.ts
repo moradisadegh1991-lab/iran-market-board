@@ -7,7 +7,8 @@
  */
 import { NextResponse } from 'next/server';
 import { calibrate, calibrateEnsemble, coneFromRows, ENSEMBLE_ASSETS, ensembleRows, FORECAST_ASSETS, FORECAST_HORIZONS, type Calibration, type ConeRow, type EnsembleSeries } from '@/lib/engine/forecast';
-import { featureMatrix, pUpFromQuantiles, type LogQuantiles } from '@/lib/engine/forecast-model';
+import { featureMatrix, forwardIndex, pUpFromQuantiles, type LogQuantiles } from '@/lib/engine/forecast-model';
+import { pathOutcomes, planRecord, PLAN_FILL, timingDist, timingFrom, type PlanRecord } from '@/lib/engine/forecast-timing';
 import { buildScenario, type ScenarioInput } from '@/lib/engine/scenario';
 import { errMsg } from '@/lib/http';
 import { isNum } from '@/lib/num';
@@ -80,6 +81,11 @@ function engineQ(r: { worst: number; base: number; best: number }, anchor: numbe
   return [lo, mid - (mid - lo) * k, mid, mid + (hi - mid) * k, hi];
 }
 const pctOf = (x: number) => (Math.exp(x) - 1) * 100;
+
+// the buy/sell plan's track record replays ~60 timing forecasts; like the cone's, once a day is enough
+const planCache = new Map<string, { at: number; last: string; v: PlanRecord | null }>();
+/** rows before the drawn history, so a 200-day average exists from its first day (lib/indicators.ts) */
+const WARM_ROWS = 260;
 const summary = (q: LogQuantiles) => ({ lowPct: pctOf(q.q05), midPct: pctOf(q.q50), highPct: pctOf(q.q95), pUp: q.pUp });
 
 export async function GET(req: Request) {
@@ -167,9 +173,49 @@ export async function GET(req: Request) {
       calCache.set(key, cal);
     }
 
+    // «when to buy, when to sell» within the horizon: the lowest and highest point of similar past
+    // windows (lib/engine/forecast-timing.ts), and what following such a plan really did before
+    let timing: Record<string, unknown> | null = null;
+    if (hasLong && long!.length >= 600) {
+      const lp = long!.map((p) => p[1]);
+      const ld = long!.map((p) => p[0]);
+      const feats = es?.feats ?? ensembleSeries(meta.key, long!).feats;
+      const fwd = forwardIndex(ld, hz.days);
+      const out = pathOutcomes(ld, lp, fwd);
+      const dist = timingDist(ld, lp, fwd, out, ld.length - 1, { analog: { feats } });
+      if (dist) {
+        const f = timingFrom(dist, PLAN_FILL);
+        const pk = `${meta.key}:${hz.key}`;
+        let rec = planCache.get(pk);
+        if (!rec || rec.last !== ld[ld.length - 1] || Date.now() - rec.at > CAL_TTL) {
+          rec = { at: Date.now(), last: ld[ld.length - 1], v: planRecord(ld, lp, hz.days, { samples: 60, feats }) };
+          planCache.set(pk, rec);
+        }
+        const px = (x: number) => anchor * Math.exp(x);
+        timing = {
+          fill: f.fill,
+          buy: px(f.buyAt),
+          buyPct: pctOf(f.buyAt),
+          sell: px(f.sellAt),
+          sellPct: pctOf(f.sellAt),
+          low: f.low.map(px),
+          lowPct: f.low.map(pctOf),
+          lowDay: f.lowDay,
+          high: f.high.map(px),
+          highPct: f.high.map(pctOf),
+          highDay: f.highDay,
+          pDip: f.pDip,
+          n: f.n,
+          record: rec.v,
+        };
+      }
+    }
+
     const now = Date.now();
     const since = now - LOOKBACK[hz.key] * DAY;
-    const history = s.dates.map((d, i) => [Date.parse(`${d}T12:00:00Z`), prices[i]] as [number, number]).filter(([t]) => t >= since);
+    const all = s.dates.map((d, i) => [Date.parse(`${d}T12:00:00Z`), prices[i]] as [number, number]);
+    const history = all.filter(([t]) => t >= since);
+    const warmup = all.filter(([t]) => t < since).slice(-WARM_ROWS);
     history.push([now, anchor]);
 
     return NextResponse.json(
@@ -181,6 +227,8 @@ export async function GET(req: Request) {
         anchor,
         now,
         history,
+        warmup,
+        timing,
         cone: coneFromRows(anchor, rows, hz.days, 40).map((p) => ({
           ...p,
           t: now + p.day * DAY,

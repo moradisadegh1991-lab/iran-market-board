@@ -149,11 +149,11 @@ function distinctEpisodes<T extends { i: number }>(nearestFirst: T[], max: numbe
 }
 
 /**
- * Forecast from the past days that looked most like day t. Features are standardised over the
- * candidates; neighbours closer in shape count more (weight 1/(1+d)). Only candidates whose
- * outcome was known on day t are used.
+ * The past days that looked most like day t, nearest first, with their weights (1/(1+d)).
+ * Features are standardised over the candidates; only candidates whose h-day outcome was known on
+ * day t are used. Null when there is too little history.
  */
-export function analogForecast(dates: string[], prices: number[], fwd: Int32Array, t: number, opts: AnalogOpts = {}): AnalogForecast | null {
+export function analogNeighbours(dates: string[], prices: number[], fwd: Int32Array, t: number, opts: AnalogOpts = {}): { i: number; move: number; w: number }[] | null {
   const F = (i: number) => (opts.feats ? opts.feats[i] : patternFeatures(prices, i, opts.extra));
   const now = F(t);
   if (!now) return null;
@@ -183,12 +183,20 @@ export function analogForecast(dates: string[], prices: number[], fwd: Int32Arra
   });
   const k = Math.max(opts.kMin ?? 30, Math.min(opts.kMax ?? 150, Math.round(cand.length * (opts.kShare ?? 0.08))));
   const order = dist.map((_, i) => i).sort((a, b) => dist[a] - dist[b]).slice(0, k);
-  const vals = order.map((j) => cand[j].move);
-  const wts = order.map((j) => 1 / (1 + dist[j]));
+  return order.map((j) => ({ i: cand[j].i, move: cand[j].move, w: 1 / (1 + dist[j]) }));
+}
+
+/** Forecast from the past days that looked most like day t (analogNeighbours), their moves weighted by closeness. */
+export function analogForecast(dates: string[], prices: number[], fwd: Int32Array, t: number, opts: AnalogOpts = {}): AnalogForecast | null {
+  const nb = analogNeighbours(dates, prices, fwd, t, opts);
+  if (!nb) return null;
   return {
-    ...weightedQuantiles(vals, wts),
-    n: k,
-    matches: distinctEpisodes(order.map((j) => cand[j]), 12).map((c) => ({ date: dates[c.i], move: c.move })),
+    ...weightedQuantiles(
+      nb.map((x) => x.move),
+      nb.map((x) => x.w),
+    ),
+    n: nb.length,
+    matches: distinctEpisodes(nb, 12).map((c) => ({ date: dates[c.i], move: c.move })),
   };
 }
 

@@ -51,3 +51,13 @@ export interface Calibration {
   from: string;
   to: string;
 }
+
+/** One point of a forecast cone, in price: the 5/25/50/75/95th percentiles at time t (ms). */
+export interface ConeT {
+  t: number;
+  p5: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+}

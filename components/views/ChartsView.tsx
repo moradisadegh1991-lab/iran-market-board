@@ -7,7 +7,8 @@ import dynamic from 'next/dynamic';
 import { fmtPct, fmtPrice, isNum } from '@/lib/num';
 import type { ChartData, Timeframe } from '@/lib/chart';
 import { FORECAST_ASSETS, FORECAST_HORIZONS } from '@/lib/forecast-meta';
-import { computeIndicators, IND_COLOR, indicatorEvidence, INDICATORS, readings, type IndicatorKey } from '@/lib/indicators';
+import { computeIndicators, indicatorEvidence, INDICATORS, readings, type IndicatorKey } from '@/lib/indicators';
+import IndicatorChips from '../IndicatorChips';
 import ForecastPanel from '../ForecastPanel';
 import { useSnapshot } from '../SnapshotProvider';
 import { Chips, FilterBar, PageHead } from '../ui';
@@ -76,6 +77,7 @@ export default function ChartsView() {
 
   useEffect(() => {
     if (mode === 'price') router.replace(`/charts?asset=${encodeURIComponent(asset)}&tf=${tf}${ind.length ? `&ind=${ind.join(',')}` : ''}`, { scroll: false });
+    else router.replace(`/charts?mode=forecast&asset=${encodeURIComponent(fAsset)}&h=${fH}${ind.length ? `&ind=${ind.join(',')}` : ''}`, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ind]);
 
@@ -84,7 +86,8 @@ export default function ChartsView() {
   const group = ['usd', 'usdt', 'g18', 'coin'].includes(asset) ? 'rial' : asset === 'btc' || asset === 'eth' || asset.startsWith('cg:') ? 'crypto' : 'other';
 
   useEffect(() => {
-    if (mode === 'forecast') router.replace(`/charts?mode=forecast&asset=${encodeURIComponent(fAsset)}&h=${fH}`, { scroll: false });
+    if (mode === 'forecast') router.replace(`/charts?mode=forecast&asset=${encodeURIComponent(fAsset)}&h=${fH}${ind.length ? `&ind=${ind.join(',')}` : ''}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, fAsset, fH, router]);
 
   const switchMode = (m: Mode) => {
@@ -118,6 +121,8 @@ export default function ChartsView() {
         <ForecastPanel
           asset={fAsset}
           horizon={fH}
+          ind={ind}
+          onInd={setInd}
           onChange={(a, h) => {
             setFAsset(a);
             setFH(h);
@@ -128,15 +133,7 @@ export default function ChartsView() {
           <FilterBar>
             <Chips label="دارایی" value={asset} onChange={setAsset} options={assets} />
             <Chips label="بازه زمانی" value={tf} onChange={setTf} options={TFS} />
-            <div className="chips ind-chips" role="group" aria-label="اندیکاتور">
-              <span className="ind-chips-label">اندیکاتور:</span>
-              {INDICATORS.map((o) => (
-                <button key={o.key} aria-pressed={ind.includes(o.key)} onClick={() => setInd((x) => (x.includes(o.key) ? x.filter((k) => k !== o.key) : [...x, o.key]))}>
-                  <i className="ind-sw" style={{ background: IND_COLOR[o.key] }} aria-hidden="true" />
-                  {o.label}
-                </button>
-              ))}
-            </div>
+            <IndicatorChips value={ind} onChange={setInd} />
           </FilterBar>
 
           <section className="panel chart-panel" aria-busy={state === 'loading'}>

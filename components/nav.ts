@@ -27,6 +27,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/accounts', label: 'حساب و دارایی', icon: '💼' },
       { href: '/tools', label: 'ماشین‌حساب', icon: '🧮' },
       { href: '/advisor', label: 'مشاور', icon: '💬' },
+      { href: '/learn', label: 'آموزش', icon: '🎓', hint: 'اقتصاد، معامله و نظم مالی' },
     ],
   },
   {

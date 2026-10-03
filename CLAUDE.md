@@ -30,7 +30,7 @@
 ## ۲) نقشه پوشه‌ها
 
 ```
-app/                 یک اپ، چهار گروه (components/nav.ts): مالی من: / · transactions · import · budget · debts · goals · accounts · tools · advisor
+app/                 یک اپ، چهار گروه (components/nav.ts): مالی من: / · transactions · import · budget · debts · goals · accounts · tools · advisor · learn
                      بازار: market · charts · scenarios · risk · stocks · crypto · portfolio
                      معامله: live (جلسه من روی دستگاه + جلسه مشترک) · swing · simulator
                      ابزار: alerts (هشدار قیمت و اعلان) · game (بازی اقتصاد) · bot
@@ -41,6 +41,7 @@ app/api/             advisor (مشاور Claude، stream) · snapshot · diag ·
 lib/sources/         tgju · goldapi · nobitex · brsapi · coingecko · klines (کندل بایننس/OKX) · history · news · cache
 lib/engine/          stats · risk · crypto · tse · portfolio · portfolio-risk · scenario · forecast (مخروط + کارنامه + ترکیب سه‌روشی)
                      · forecast-model (توزیع تجربی، الگوهای مشابه/analog، conformal — آزمون‌شده و رد شده)
+                     · forecast-timing (کف و سقف دوره‌های مشابه، برنامه خرید محدود/هدف فروش و کارنامه‌اش)
                      · simulator · signal-v2 (آزمایشی) · live · learning · swing · swing-v2 · swing-portfolio · swing-scan
                      · holdings-analysis · sizing
 lib/telegram/        api · format · handler · paper
@@ -51,11 +52,13 @@ lib/finance/         model (نوع داده، همه به ریال) · calc (م�
                      · sms-ask (اعمال جواب اعلان «نوعش چیست؟» در دفتر) · sms-parties (مبدا و مقصد پیامک، بانک از فرستنده)
                      · prices (آخرین قیمت در بازار بسته، قیمت روز خرید) · compare (سبد من در برابر سبد پیشنهادی، دارایی‌های قابل معامله برخط)
 lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت، خالص) · live-local (جلسه برخط روی دستگاه) · indicators (اندیکاتورهای نمودار)
+                     · forecast-draw (رسم کاربر روی پیش‌بینی) · learn/ (درس‌ها، مرور فاصله‌دار، ماشین‌حساب‌های درس)
                      · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · NotifyProvider · AppStartup
                      · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
                      · Sparkline · RollingNumber · HoldingsPanel · PositionSizer · ForecastPanel/ForecastChart (پیش‌بینی صفحه نمودار)
+                     · IndicatorChips · learn/ (LearnView، Widgets)
 components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
                      · PortfolioCompare · views/*
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
@@ -357,6 +360,26 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
     (نه پر کردن). کنار خطوط، `indicatorEvidence` همان چیزی را می‌گوید که روی داده واقعی سنجیده شد (قواعد ۲۲، ۲۵–۲۸): برای دارایی‌های
     ریالی هیچ قاعده میانگین متحرک از نگه‌داری بهتر نبود و RSI بالا بازده بعدی را *بیشتر* پیش‌بینی می‌کرد. متن هیچ‌وقت «بخرید/بفروشید» نمی‌گوید (تست قفل کرده).
 
+## ۴-ی) زمان خرید و فروش، رسم روی پیش‌بینی، آموزش (مهر ۱۴۰۵)
+
+64. **‏«زمان خرید و فروش» موتور توصیف است و کارنامه‌اش منفی است** (`lib/engine/forecast-timing.ts`، تست `npm run test:timing`، مطالعه
+    `scripts/eval/timing-eval.ts`). از دوره‌های h روزه گذشته (همه ۸ سال اخیر + روزهای با الگوی مشابه، نیم‌به‌نیم؛ فقط دوره‌هایی که تا امروز بسته
+    شده‌اند — قاعده ۴) کف و سقف دوره، روزشان و احتمال رفتن زیر قیمت امروز خوانده می‌شود؛ «خرید محدود» قیمتی است که در `PLAN_FILL`=۷۰٪ دوره‌ها
+    به آن رسید و «هدف فروش» برعکس. برنامه اگر پر نشود **آخر دوره می‌خرد** (وگرنه مقایسه با «خرید امروز» بی‌معنی است) و پر شدن با قیمت پایانی روز
+    سنجیده می‌شود. نتیجه روی داده واقعی، ۸ دارایی × ۴ افق، طراحی ۲۰۱۶–۲۰۲۰ / آزمون ۲۰۲۱–۲۰۲۶: خرید محدود در **هر ۶۰ ترکیب** گران‌تر از خرید
+    همان روز تمام شد (میانگین ‎+۱۱٫۹٪ / ‎+۶٫۹٪)، چون وقتی پر نمی‌شود قیمت بالا رفته؛ فروش در هدف در هر ترکیب از نگه‌داشتن تا پایان بدتر بود
+    (‎−۱۲٫۷٪ / ‎−۸٫۰٪)؛ روزِ کف از حدس ساده (میانه همه دوره‌ها) بهتر گفته نشد؛ احتمال پر شدن ۷۰٪ با واقعیت ±۷–۱۰ واحد خواند. هیچ
+    مقدار دیگری برای `fill` (۰٫۵ تا ۰٫۹) و هیچ‌کدام از دو نگاه به‌تنهایی این را عوض نکرد. صفحه خطوط را با `planRecord` همان دارایی و همین نتیجه
+    کلی نشان می‌دهد؛ اگر روزی روشی پیدا شد که از «خرید امروز» بهتر بود، اول این‌جا بسنج.
+65. **‏رسم کاربر روی پیش‌بینی فقط روی دستگاه است** (`lib/forecast-draw.ts`، `imb.fc.draw.v1`، برای هر دارایی با زمان و قیمت واقعی تا با عوض شدن
+    افق بماند). احتمال‌ها از همان مخروط خوانده می‌شوند (قیمت **در آن روز**، نه «تا آن روز»)، خطی در لگاریتم بین صدک‌ها؛ بیرون از باند ۹۰٪ فقط «کمتر
+    از ۵٪ / بیشتر از ۹۵٪». خط روند در لگاریتم قیمت صاف است. نقطه بیرون از بازه زمانی نمودار کشیده نمی‌شود. اندیکاتورهای پیش‌بینی همان
+    `computeIndicators` صفحه قیمت‌اند با `warmup` همان API (۲۶۰ ردیف قبل از تاریخچه رسم‌شده).
+66. **‏آموزش (`/learn`) فقط روی دستگاه** (`imf.learn.v1`، `lib/learn/review.ts`، تست `npm run test:learn`): یادآوری فعال (آزمون آخر هر درس) و مرور
+    فاصله‌دار لایتنر — جعبه‌های ۱/۳/۷/۱۶/۳۵ روز، جواب درست یک جعبه جلو، غلط به جعبه ۱، درست در جعبه ۵ بازنشسته — با مرور روزانه درهم (interleaved).
+    هر عدد «سنجیده‌شده» در درس‌ها (`lib/learn/lessons.ts`) یا از قواعد همین فایل است یا در تست دوباره حساب می‌شود (دلار ۱۳۹۰→۱۴۰۵ حدود ×۱۸۶ و سالی
+    ۴۲٪، سکه و طلا سالی ~۵۲٪، افت ۴۸٪ دلار از مهر تا آذر ۱۳۹۷ — از `.cache/eval`). عدد از حافظه ننویس. درس‌ها هیچ‌وقت «بخرید/بفروشید» نمی‌گویند (تست قفل کرده).
+
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
 21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
@@ -423,7 +446,9 @@ npm run test:smsask && npm run test:nativesms   # دومی JDK (javac) می‌خ
 npm run test:financeplus
 npm run test:forecast
 npm run test:parties && npm run test:indicators
+npm run test:timing && npm run test:learn
 npx tsx scripts/eval/forecast-eval.ts   # با .cache/eval؛ مقایسه روش‌های پیش‌بینی (~۱ دقیقه)
+npx tsx scripts/eval/timing-eval.ts     # با .cache/eval؛ برنامه خرید/فروش در برابر خرید امروز (~۲ دقیقه)
 npx tsx scripts/swing-v2-test.ts
 npx tsx scripts/sim-regression.ts      # هش‌های بک‌تست؛ باید ثابت بمانند
 npx tsx scripts/swing-validate.ts
