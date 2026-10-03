@@ -145,6 +145,13 @@ ok('calculators: compound, inflation, real money, mix volatility, position size,
   close(0.99 ** 20, 0.8179069, 1e-6);
 });
 
+ok('no effect returns a browser call (newer WebViews return Promises from scrollTo → React calls it as cleanup)', () => {
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${dir}/${e.name}`) : e.name.endsWith('.tsx') ? [`${dir}/${e.name}`] : []));
+  const bad = [...walk('components'), ...walk('app')].filter((f) => /useEffect\(\(\)\s*=>\s*(window|document|el|ref)\b[^{]/.test(fs.readFileSync(f, 'utf8')));
+  assert.deepEqual(bad, []);
+});
+
 // the lessons' «measured» market numbers, against the real data of scripts/eval (when downloaded)
 if (fs.existsSync('.cache/eval/daily-usd.json'))
   ok('real data: dollar ×~186 and ~42%/yr since 1390; coin and 18k gold ~52%/yr; the dollar’s 48% fall, Mehr → Azar 1397', () => {

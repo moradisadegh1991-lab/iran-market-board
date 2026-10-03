@@ -90,7 +90,11 @@ function LessonPlayer({ lesson, s, save, today, onExit }: { lesson: Lesson; s: L
   const [planSaved, setPlanSaved] = useState(false);
   const track = TRACKS.find((t) => t.key === lesson.track)!;
   const total = lesson.steps.length;
-  useEffect(() => window.scrollTo({ top: 0 }), [step, phase]);
+  // a block body on purpose: newer WebViews return a Promise from scrollTo, and an arrow that returns
+  // it hands React a non-function «cleanup» that throws on the next step ("i is not a function")
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [step, phase]);
 
   if (phase === 'read') {
     const st = lesson.steps[step];
