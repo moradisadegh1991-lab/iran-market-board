@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   const tf = (u.searchParams.get('tf') ?? '1m') as Timeframe;
   if (!TIMEFRAMES.some((t) => t.key === tf)) return NextResponse.json({ error: 'bad tf' }, { status: 400 });
   try {
-    const data = await getChart(asset, tf);
+    const data = await getChart(asset, tf, { warm: u.searchParams.get('warm') === '1' });
     return NextResponse.json(data, { headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' } });
   } catch (e) {
     return NextResponse.json({ error: errMsg(e) }, { status: 500 });

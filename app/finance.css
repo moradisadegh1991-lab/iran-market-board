@@ -203,3 +203,13 @@ b.fin-raw { display: block; font-weight: 400; }
 .cmp-table thead th, .cmp-table th.sym { white-space: normal; }
 .cmp-table td .money { display: inline-block; white-space: normal; }
 .cmp-table td .fin-money { white-space: normal; }
+
+/* «مبدا و مقصد» of a queued SMS (lib/finance/sms-parties.ts) */
+.fin-parties { display: grid; gap: 4px; margin: 6px 0 2px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: var(--r-s); background: var(--paper); }
+.fin-parties-flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fin-parties-flow > span:not(.fin-parties-arrow) { display: grid; min-width: 0; }
+.fin-parties-flow small { color: var(--muted); font-size: 11.5px; }
+.fin-parties-flow b { font-size: 13.5px; overflow-wrap: anywhere; }
+.fin-parties-arrow { color: var(--muted); font-size: 18px; }
+.fin-parties .fin-mini { justify-self: start; }
+.fin-parties .fin-mini small { font-weight: 400; opacity: 0.8; }

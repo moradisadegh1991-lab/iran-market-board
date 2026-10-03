@@ -181,4 +181,24 @@ console.log('\ntransfer fees and account numbers:');
   console.log('  ✓ fee flag, non-fee, account number, no phantom card');
 }
 
+console.log('\nfull card numbers (Mellat shape) and the other side\'s card:');
+{
+  // «کارت N» used to take the FIRST four digits of a full number: card 6104, and the amount was
+  // the first number after the verb — the card itself (610,433 instead of 1,250,000)
+  const mellat = P.parse('بانک ملت\nبرداشت از کارت ۶۱۰۴۳۳*****۴۴۱۷\nمبلغ: ۱,۲۵۰,۰۰۰ ریال\nمانده: ۱۲,۳۰۰,۰۰۰');
+  assert.equal(mellat.cardLast4, '4417', 'the last four of the full card number');
+  assert.equal(mellat.amount, 1250000, 'the stated «مبلغ», not the card number');
+  assert.equal(mellat.balance, 12300000);
+  // a deposit FROM someone's card: their number is not the user's card
+  const dep = P.parse('واریز 5,000,000 ریال\nاز کارت 6219-86**-****-9876 محمد احمدی\nحساب: 1234567890');
+  assert.equal(dep.cardLast4, null, 'the payer\'s card is not registered as the user\'s');
+  assert.equal(dep.accountNo, '1234567890');
+  assert.equal(dep.amount, 5000000);
+  // the short forms still work, including a card at the end of a sentence
+  assert.equal(P.parse('برداشت: 1,250,000 ریال کارت: *4417. مانده: 9,000,000').cardLast4, '4417');
+  assert.equal(P.parse('خرید 350,000 ریال با کارت 4417').cardLast4, '4417');
+  assert.equal(P.parse('برداشت: 1,250,000 ریال 603799******5678').cardLast4, '5678');
+  console.log('  ✓ last four of a full number, stated amount wins, payer card not taken, short forms intact');
+}
+
 console.log('\nSMS PARSER OK');

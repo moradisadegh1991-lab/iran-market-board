@@ -26,8 +26,16 @@
   var resalatRx = /^([+\-])([\d,،]+)\s*$|^([\d,،]+)\s*([+\-])\s*$/m;
   var mablaghRx = /مبلغ\s*([\d,،]+)\s*ریال/;
   var kwAmountRx = /([\d,،]{4,})/;
+  var mablaghAnyRx = /مبلغ\s*:?\s*([\d,،]{4,})/;
   var balanceRx = /(?:مانده|موجودی)\s*:?\s*([\d,،]+)/;
-  var cardRx = /\d{4,6}[*.x]{2,}(\d{4})|کارت\s*:?\s*\*?(\d{4})/;
+  /*
+   * «کارت N» must be a card's LAST four digits. In «برداشت از کارت 610433*****4417» (Mellat) and «واریز
+   * از کارت 6219-86**-****-9876» the original rule took the FIRST four digits of the full number — the
+   * user's card was read as 6104, and in a deposit the payer's card was registered as the user's own.
+   * Not followed by another digit, nor by a separator that continues the number (- . * x then a digit
+   * or mask); the masked full-number alternative then finds the real last four.
+   */
+  var cardRx = /\d{4,6}[*.x]{2,}(\d{4})|کارت\s*:?\s*\*?(\d{4})(?![0-9]|[-*xX×.][0-9*xX×])/;
   var accountRx = /حساب\s*:?\s*(\d{6,})/;
   var channelRx = /(?:از\s*طریق|از\s*طريق|کانال)\s*:?\s*(.{2,40})/;
   var bankNameRx = /عنوان\s*بانک\s+([A-Za-z\u0600-\u06FF]{2,30})/;
@@ -136,7 +144,10 @@
       var nums = before.match(/[\d,،]{4,}/g);
       amount = nums && nums.length ? toCleanLong(nums[nums.length - 1]) : null;
     } else {
-      amount = toCleanLong(firstGroup(kwAmountRx, n.slice(n.indexOf(keyword) + keyword.length), 1));
+      // an explicit «مبلغ: X» is the amount; otherwise the first number after the verb — which, in
+      // «برداشت از کارت 610433*****4417 / مبلغ: 1,250,000», was the card number (amount 610,433)
+      var stated = firstGroup(mablaghAnyRx, n, 1);
+      amount = toCleanLong(stated || firstGroup(kwAmountRx, n.slice(n.indexOf(keyword) + keyword.length), 1));
     }
     if (amount === null || amount < 1000) return null;
 

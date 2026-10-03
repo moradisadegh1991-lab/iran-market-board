@@ -20,6 +20,7 @@ import {
 import { readStatement, ReadError } from '@/lib/finance/readers';
 import { smsParser } from '@/lib/finance/sms';
 import { learnFromCommit, queueSms, reportBalance, stagedAt, unlinkedSources } from '@/lib/finance/sources';
+import { partiesNote, suggestParties, type PartySuggestion } from '@/lib/finance/sms-parties';
 import { askOn, autoReadOn, FIRST_READ_DAYS, lastPhoneRead, readInbox, setAskOn, setAutoRead, useSmsPlugin } from '@/lib/finance/phone-sms';
 import { tomanToRial, type FinanceData, type Staged } from '@/lib/finance/model';
 import { Chips, Empty, PageHead, Toggle } from '../../ui';
@@ -366,6 +367,56 @@ interface Draft {
 
 type QueueFilter = 'all' | 'decide' | 'dup';
 
+/** The SMS's «مبدا و مقصد»; for a row whose direction the bank left unstated, read with the side the user chose. */
+function partiesFor(d: FinanceData, s: Staged, choice?: StagedChoice): PartySuggestion | null {
+  if (s.source !== 'sms') return null;
+  const dir = s.direction ?? (choice === 'expense' || choice === 'transfer-out' ? 'out' : choice === 'income' || choice === 'transfer-in' ? 'in' : null);
+  return suggestParties(d, dir === s.direction ? s : { ...s, direction: dir });
+}
+
+function PartiesBox({ p, onApply, hasAccount, choice }: { p: PartySuggestion; onApply: (patch: Draft) => void; hasAccount: boolean; choice?: StagedChoice }) {
+  if (!p.from && !p.to && !p.bank) return null;
+  const why = [p.from && p.from.kind !== 'mine' ? p.from.why : null, p.to && p.to.kind !== 'mine' ? p.to.why : null, p.bank ? `بانک: ${p.bank.via === 'sender' ? 'از فرستنده پیامک' : 'از متن پیامک'}` : null].filter(Boolean);
+  return (
+    <div className="fin-parties" data-testid="parties">
+      {p.from || p.to ? (
+        <div className="fin-parties-flow">
+          <span>
+            <small>مبدا</small>
+            <b>{p.from?.label ?? 'نامعلوم'}</b>
+          </span>
+          <span className="fin-parties-arrow" aria-hidden="true">
+            ←
+          </span>
+          <span>
+            <small>مقصد</small>
+            <b>{p.to?.label ?? 'نامعلوم'}</b>
+          </span>
+        </div>
+      ) : (
+        <div className="fin-parties-flow">
+          <span>
+            <small>بانک</small>
+            <b>{p.bank!.name}</b>
+          </span>
+        </div>
+      )}
+      {p.purpose ? <div className="small">بابت: {p.purpose}</div> : null}
+      {why.length ? <small className="muted">پیشنهاد اپ — {why.join('؛ ')}</small> : null}
+      {p.transfer && choice !== p.transfer.choice ? (
+        <button type="button" className="fin-mini" onClick={() => onApply({ choice: p.transfer!.choice, otherAccountId: p.transfer!.otherAccountId, categoryId: undefined })}>
+          ثبت به‌عنوان انتقال {p.transfer.choice === 'transfer-out' ? 'به' : 'از'} «{p.transfer.name}»
+        </button>
+      ) : null}
+      {p.account && !hasAccount ? (
+        <button type="button" className="fin-mini ghost" onClick={() => onApply({ accountId: p.account!.accountId })} title={p.account.why}>
+          حساب: «{p.account.name}»؟ <small>({p.account.why})</small>
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function Queue({ d }: { d: FinanceData }) {
   const { update, today } = useFinance();
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -378,7 +429,7 @@ function Queue({ d }: { d: FinanceData }) {
   const rows = useMemo(
     () =>
       [...d.inbox]
-        .map((s) => ({ s, dup: isDuplicate(d, s), suggested: suggestCategory(d, s) }))
+        .map((s) => ({ s, dup: isDuplicate(d, s), suggested: suggestCategory(d, s, partiesFor(d, s)?.memoryKey) }))
         // rows that need the user's decision first, then newest first
         .sort((a, b) => Number(!!a.s.direction) - Number(!!b.s.direction) || ((a.s.date ?? '9999') < (b.s.date ?? '9999') ? 1 : -1)),
     [d],
@@ -422,7 +473,17 @@ function Queue({ d }: { d: FinanceData }) {
           errs[id] = 'نوع تراکنش را انتخاب کنید.';
           continue;
         }
-        const e = commitStaged(dr, id, { choice: v.choice, accountId: v.accountId, otherAccountId: v.otherAccountId || null, categoryId: v.categoryId || null, date: v.date || null, amountRial: v.amountRial });
+        const p = partiesFor(d, r.s, v.choice);
+        const e = commitStaged(dr, id, {
+          choice: v.choice,
+          accountId: v.accountId,
+          otherAccountId: v.otherAccountId || null,
+          categoryId: v.categoryId || null,
+          date: v.date || null,
+          amountRial: v.amountRial,
+          partiesNote: p ? partiesNote(p) || null : null,
+          partyKey: p?.memoryKey ?? null,
+        });
         if (e) errs[id] = e;
         else {
           done++;
@@ -515,6 +576,10 @@ function Queue({ d }: { d: FinanceData }) {
                 {dup ? <span className="fin-tag warn">احتمالاً تکراری</span> : null}
                 {s.fee ? <span className="fin-tag">کارمزد</span> : null}
               </div>
+              {(() => {
+                const p = partiesFor(d, s, v.choice);
+                return p ? <PartiesBox p={p} choice={v.choice} hasAccount={!!v.accountId} onApply={(patch) => setDraft(s.id, patch)} /> : null;
+              })()}
               <div className="fin-grid fin-queue-form">
                 <Field label="نوع">
                   <select className="fin-input" aria-label="نوع" value={v.choice ?? ''} onChange={(e) => setDraft(s.id, { choice: (e.target.value || undefined) as StagedChoice | undefined, categoryId: undefined })}>
