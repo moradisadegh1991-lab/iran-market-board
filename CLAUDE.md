@@ -51,15 +51,17 @@ lib/finance/         model (نوع داده، همه به ریال) · calc (م�
                      · sources (کارت/حساب و مانده بانک از پیامک، تطبیق با دفتر)
                      · sms-ask (اعمال جواب اعلان «نوعش چیست؟» در دفتر) · sms-parties (مبدا و مقصد پیامک، بانک از فرستنده)
                      · prices (آخرین قیمت در بازار بسته، قیمت روز خرید) · compare (سبد من در برابر سبد پیشنهادی، دارایی‌های قابل معامله برخط)
+                     · voice (دستیار صوتی ثبت تراکنش: عدد و تاریخ گفتاری فارسی، سؤال برای جاهای خالی، بازخوانی و «بله»)
 lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت، خالص) · live-local (جلسه برخط روی دستگاه) · indicators (اندیکاتورهای نمودار)
                      · forecast-draw (رسم کاربر روی پیش‌بینی) · learn/ (درس‌ها، مرور فاصله‌دار، ماشین‌حساب‌های درس)
+                     · voice-io (شنیدن/خواندن فارسی: پلاگین Voice در اپ، Web Speech در مرورگر)
                      · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · NotifyProvider · AppStartup
                      · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
                      · Sparkline · RollingNumber · HoldingsPanel · PositionSizer · ForecastPanel/ForecastChart (پیش‌بینی صفحه نمودار)
                      · IndicatorChips · learn/ (LearnView، Widgets)
-components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
+components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm · VoiceTxn («ثبت با صدا») · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
                      · PortfolioCompare · views/*
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
                      · Crypto · Portfolio · Bot
@@ -75,6 +77,7 @@ android-app/res-extra/   آیکون نوار وضعیت اعلان ic_stat_mali 
 android-app/www/     فقط JS مشترک: sms-parser.js (پارسر پیامک، تست‌شده) و game-engine.js (موتور بازی). اپ قبلی
                      (index.html، app-trade.js، app-notify.js) در مهر ۱۴۰۵ در اپ واحد ادغام و حذف شد — تاریخچه git را ببین
 android-app/native-plugin/   java/: پلاگین SmsReader + BankSms (همان طبقه‌بند sms-parser.js) + SmsAsk و دو گیرنده (اعلان «نوعش چیست؟»)
+                     + VoicePlugin (تشخیص گفتار fa-IR و خواندن متن برای دستیار صوتی)
                      test/: BankSmsCli (برای scripts/native-sms-test.ts) و robolectric/ (تست‌های اندرویدی) — بخش ۷
 android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پلاگین و گیرنده‌ها) · wire-native-tests.mjs + تست‌هایش
 ```
@@ -388,6 +391,27 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
     `scripts/learn-test.ts` همه `components/` و `app/` را برای این الگو می‌گردد؛ تست مرورگر با `scrollTo` Promise‌دار (`addInitScript`) خطا را
     دقیقاً بازتولید کرد و بعد از اصلاح سبز شد.
 
+## ۴-ک) دستیار صوتی ثبت تراکنش (مهر ۱۴۰۵)
+
+‏دکمه «🎙 ثبت با صدا» در فرم تراکنش (خانه و تراکنش‌ها). تست: `npm run test:voice` (۱۲ بررسی) + Robolectric `VoicePluginTest`.
+
+68. **‏فهمیدن روی دستگاه، فقط با «بله» ثبت.** `lib/finance/voice.ts` خالص است: جمله → پیش‌نویس (مبلغ، نوع، حساب، دسته، تاریخ، بابت) →
+    اولین جای خالی را می‌پرسد → کل تراکنش را با مبلغ **به حروف** بازخوانی می‌کند → فقط با «بله/آره/ثبت کن» یا دکمه `commitVoice` تراکنش
+    می‌سازد (با «برگرداندن» بعدش). نوع فقط از چیزی که کاربر گفته (خریدم، پرداخت، واریز شد، حقوق گرفتم، انتقال…)، هرگز از دسته («حقوق»
+    به‌تنهایی می‌پرسد؛ «گرفتم» به‌تنهایی هم، چون «نون گرفتم» یعنی خرید) — قاعده ۳. مبلغ زیر ۱۰۰۰ تومان بدون «هزار/میلیون» («پنجاه تومن»)
+    پرسیده می‌شود؛ «دو میلیون و پونصد» = ۲٬۵۰۰٬۰۰۰ (آن‌چه بعد از میلیون می‌آید هزار حساب می‌شود). حساب از واژه‌های متمایز نامش، کارتی که
+    پیامک به حسابی وصل کرده (قاعده ۴۵) و «از … به …»؛ دسته از نام دسته‌های کاربر، واژه‌های روزمره و `catMemory['voice:…']`. هیچ‌چیز از
+    این فایل یا `lib/voice-io.ts` به شبکه نمی‌رود (تست قفل کرده؛ قاعده ۷).
+69. **‏گفتار فارسی روی اندروید با پلاگین بومی است، نه وب‌ویو** (Android WebView اصلاً Web Speech API ندارد). `VoicePlugin.java`:
+    `SpeechRecognizer` با `fa-IR` و ۵ حدس (اولین حدسی که به سؤال جواب می‌دهد برنده است)، سرویس **گوگل** را بر سرویس سازنده (سامسونگ معمولاً
+    فارسی ندارد) ترجیح می‌دهد، و اگر خطای «زبان پشتیبانی نمی‌شود» داد، از آن به بعد صفحه تایپ صوتی گوگل (`listenDialog`) را باز می‌کند.
+    TTS فقط اگر موتور گوشی صدای فارسی داشته باشد (اول موتور پیش‌فرض، بعد `com.google.android.tts`)؛ نداشت، سؤال‌ها فقط نوشته می‌شوند. مانیفست
+    `RECORD_AUDIO` و `<queries>` برای `RecognitionService`/`TTS_SERVICE` می‌خواهد (اندروید ۱۱+ بدون آن سرویس‌ها را پنهان می‌کند) —
+    `wire-native-plugin.mjs` اضافه می‌کند و workflow با `aapt2` چک می‌کند. صدا را سرویس گوگل به متن تبدیل می‌کند (معمولاً با اینترنت) و
+    صفحه همین را می‌گوید. تایپ کردن و دکمه‌ها همیشه کار می‌کنند؛ تایپ، گوش‌دادن خودکار را خاموش می‌کند. ⚠️ روی گوشی واقعی اجرا نشده:
+    مسیر وب و اپ با موتور گفتار ساختگی در مرورگر و کلاس‌های پلاگین روی Robolectric تست شده‌اند؛ کیفیت تشخیص فارسی گوگل و وجود صدای
+    فارسی TTS روی گوشی کاربر را باید خودش بسنجد.
+
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
 21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
@@ -455,6 +479,7 @@ npm run test:financeplus
 npm run test:forecast
 npm run test:parties && npm run test:indicators
 npm run test:timing && npm run test:learn
+npm run test:voice
 npx tsx scripts/eval/forecast-eval.ts   # با .cache/eval؛ مقایسه روش‌های پیش‌بینی (~۱ دقیقه)
 npx tsx scripts/eval/timing-eval.ts     # با .cache/eval؛ برنامه خرید/فروش در برابر خرید امروز (~۲ دقیقه)
 npx tsx scripts/swing-v2-test.ts

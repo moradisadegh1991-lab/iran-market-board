@@ -4,6 +4,7 @@ import { newId, tomanToRial, type FinanceData, type TxnKind } from '@/lib/financ
 import { Chips } from '../ui';
 import { useFinance } from './FinanceProvider';
 import { JalaliDate, parseAmount, SelectBox, TextInput, TomanInput } from './kit';
+import VoiceTxn from './VoiceTxn';
 
 const KINDS: { key: TxnKind; label: string }[] = [
   { key: 'expense', label: 'هزینه' },
@@ -25,6 +26,7 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
   const [note, setNote] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [voice, setVoice] = useState(false);
 
   const catValue = cats.some((c) => c.id === categoryId) ? categoryId : cats[0]?.id ?? '';
 
@@ -55,6 +57,13 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
 
   return (
     <div className={`fin-grid${compact ? ' compact' : ''}`}>
+      <div className="fin-span voice-entry">
+        <button type="button" className="btn ghost voice-open" onClick={() => setVoice(true)}>
+          🎙 ثبت با صدا
+        </button>
+        <span className="muted small">بگویید «پنجاه هزار تومن نون خریدم از کیف پول»؛ هرچه کم باشد می‌پرسد.</span>
+        {voice ? <VoiceTxn onClose={() => setVoice(false)} /> : null}
+      </div>
       <div className="fin-span">
         <Chips label="نوع تراکنش" options={KINDS} value={kind} onChange={setKind} />
       </div>
