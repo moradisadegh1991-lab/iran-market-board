@@ -7,6 +7,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { emptyData, type FinanceData } from '../lib/finance/model';
+import { speakable } from '../lib/voice-io';
 import { amountIn, amountWords, answer, choose, commitVoice, dateIn, kindIn, numberValue, numToWords, readBack, startVoice, tokens, type VoiceState } from '../lib/finance/voice';
 
 let n = 0;
@@ -236,6 +237,9 @@ ok('the recogniser’s alternatives: the first one that answers the question win
   const d = book();
   const st = answer(d, T, talk(d, 'یه چیزی خریدم'), ['سیاه', 'سی هزار']);
   assert.equal(st.draft.amountRial, 300_000);
+  const chat = talk(d, 'هوا چطوره');
+  assert.equal(chat.asking, 'open', 'words with no amount, kind, account, category or date start nothing');
+  assert.equal(chat.misses, 1);
   const miss = answer(d, T, talk(d, 'یه چیزی خریدم'), ['سیاه']);
   assert.equal(miss.asking, 'amount');
   assert.equal(miss.misses, 1);
@@ -251,6 +255,13 @@ ok('the book warns about the same amount on the same day; no accounts → nothin
   const empty = emptyData(T);
   empty.accounts = [];
   assert.equal(startVoice(empty, T).done, 'cancel');
+});
+
+ok('what the voice reads: numbers in words, «٪» as «درصد», a day before a month as an ordinal, no symbols', () => {
+  assert.equal(speakable('دلار آزاد: ۲۶۸٬۳۰۰ تومان؛ امروز ۰٫۲٪ بالا.'), 'دلار آزاد: دویست و شصت و هشت هزار و سیصد تومان؛ امروز صفر ممیز دو درصد بالا.');
+  assert.equal(speakable('۱۲ مهر، ۳ آبان، ۳۰ شهریور، ۱ دی ۱۴۰۵'), 'دوازدهم مهر، سوم آبان، سی\u200cام شهریور، یکم دی هزار و چهارصد و پنج');
+  assert.equal(speakable('نمودار ‹ 🎙 «سکه» (امامی) — 1,250,000'), 'نمودار سکه امامی یک میلیون و دویست و پنجاه هزار');
+  assert.equal(speakable('بیست و سوم'), 'بیست و سوم', 'words stay as they are');
 });
 
 ok('nothing the user says leaves the device from here (rule 7)', () => {

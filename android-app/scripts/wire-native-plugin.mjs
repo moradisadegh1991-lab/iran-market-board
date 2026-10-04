@@ -9,7 +9,7 @@
  * Idempotent: safe to run on every build, in CI or locally, before or after MainActivity.java
  * already has an onCreate().
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -122,6 +122,46 @@ if (!existsSync(manifestPath)) {
     console.log('✓ AndroidManifest.xml: speech <queries> declared');
   }
   if (changed) writeFileSync(manifestPath, mf);
+}
+
+// ── 4. the built-in Persian voice (fetch-tts.mjs → android-app/tts/): engine, voice files, its Java class ──
+const TTS = join(ROOT, 'tts');
+const gradlePath = join(ROOT, 'android/app/build.gradle');
+const ttsJava = join(ROOT, 'native-plugin/tts/EmbeddedTts.java');
+if (existsSync(join(TTS, 'sherpa-onnx.aar')) && existsSync(join(TTS, 'voice/model.onnx')) && existsSync(gradlePath)) {
+  mkdirSync(join(ROOT, 'android/app/libs'), { recursive: true });
+  cpSync(join(TTS, 'sherpa-onnx.aar'), join(ROOT, 'android/app/libs/sherpa-onnx.aar'));
+  const assets = join(ROOT, 'android/app/src/main/assets/tts-fa');
+  rmSync(assets, { recursive: true, force: true });
+  cpSync(join(TTS, 'voice'), assets, { recursive: true });
+  cpSync(join(TTS, 'VERSION'), join(assets, 'VERSION'));
+  writeFileSync(join(javaDir, 'EmbeddedTts.java'), readFileSync(ttsJava, 'utf8').replace(/^package [\w.]+;/m, `package ${appId};`));
+  const MARK = '// built-in Persian voice (wire-native-plugin.mjs)';
+  let g = readFileSync(gradlePath, 'utf8');
+  if (!g.includes(MARK)) {
+    // only the 64-bit ARM engine is shipped (every phone from the last years; 24 MB per ABI otherwise), and
+    // compressed in the APK: the download is what costs the user, not the one-time extraction at install
+    g += `
+${MARK}
+dependencies {
+    implementation files('libs/sherpa-onnx.aar')
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+}
+android {
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+            excludes += ['lib/armeabi-v7a/**', 'lib/x86/**', 'lib/x86_64/**']
+        }
+    }
+}
+`;
+    writeFileSync(gradlePath, g);
+  }
+  console.log(`✓ built-in Persian voice ${readFileSync(join(TTS, 'VERSION'), 'utf8').trim()}: engine, voice files and EmbeddedTts wired`);
+} else {
+  rmSync(join(javaDir, 'EmbeddedTts.java'), { force: true });
+  console.warn('⚠ built-in Persian voice not fetched (node scripts/fetch-tts.mjs) — the APK will use the phone\'s own voice only');
 }
 
 console.log('\nپلاگین‌های پیامک و صدا به پروژه اندروید متصل شدند.');

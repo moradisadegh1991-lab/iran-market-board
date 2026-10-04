@@ -89,6 +89,18 @@ jobs:
         working-directory: android-app
         run: npm install --no-audit --no-fund
 
+      # The app's own Persian voice (CLAUDE.md rule 71): sherpa-onnx + Piper fa_IR «ganji_adabi» int8, pinned by
+      # SHA-256. Checked with the same sherpa-onnx version on the runner: it loads and speaks Persian.
+      - name: Fetch the built-in Persian voice
+        working-directory: android-app
+        run: node scripts/fetch-tts.mjs
+
+      - name: The built-in voice speaks
+        working-directory: android-app
+        run: |
+          python3 -m pip install --quiet sherpa-onnx==1.13.8 numpy
+          python3 scripts/tts-smoke.py
+
       - name: Add the Android platform
         working-directory: android-app
         run: |
@@ -186,6 +198,9 @@ jobs:
           # the voice assistant: the mic, and the speech services Android 11+ hides without <queries>
           echo "$MF" | grep -q "android.permission.RECORD_AUDIO" && echo "$MF" | grep -q "android.speech.RecognitionService" && echo "$MF" | grep -q "android.intent.action.TTS_SERVICE" || { echo "::error::voice: RECORD_AUDIO or the speech <queries> missing from the manifest"; exit 1; }
           echo "voice OK"
+          # the built-in Persian voice: engine for arm64 and the voice files
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libsherpa-onnx-jni.so" && unzip -l "$APK" | grep -q "assets/tts-fa/model.onnx" && unzip -l "$APK" | grep -q "assets/tts-fa/espeak-ng-data/fa_dict" || { echo "::error::built-in Persian voice missing from the APK"; exit 1; }
+          echo "built-in voice OK; APK $(du -h "$APK" | cut -f1)"
 
       - name: Collect the APK
         id: apk

@@ -55,13 +55,14 @@ lib/finance/         model (نوع داده، همه به ریال) · calc (م�
 lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت، خالص) · live-local (جلسه برخط روی دستگاه) · indicators (اندیکاتورهای نمودار)
                      · forecast-draw (رسم کاربر روی پیش‌بینی) · learn/ (درس‌ها، مرور فاصله‌دار، ماشین‌حساب‌های درس)
                      · voice-io (شنیدن/خواندن فارسی: پلاگین Voice در اپ، Web Speech در مرورگر)
+                     · assistant/ask (سؤال‌های دستیار: قیمت، نمودار، موجودی، خرج/درآمد، دارایی خالص — جواب متنی و گفتاری)
                      · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · NotifyProvider · AppStartup
                      · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
                      · Sparkline · RollingNumber · HoldingsPanel · PositionSizer · ForecastPanel/ForecastChart (پیش‌بینی صفحه نمودار)
-                     · IndicatorChips · learn/ (LearnView، Widgets)
-components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm · VoiceTxn («ثبت با صدا») · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
+                     · IndicatorChips · learn/ (LearnView، Widgets) · assistant/ (Assistant: دستیار صوتی، دکمه 🎙 سربرگ؛ AskChart)
+components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm («ثبت با صدا» = Assistant در حالت تراکنش) · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
                      · PortfolioCompare · views/*
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
                      · Crypto · Portfolio · Bot
@@ -77,7 +78,9 @@ android-app/res-extra/   آیکون نوار وضعیت اعلان ic_stat_mali 
 android-app/www/     فقط JS مشترک: sms-parser.js (پارسر پیامک، تست‌شده) و game-engine.js (موتور بازی). اپ قبلی
                      (index.html، app-trade.js، app-notify.js) در مهر ۱۴۰۵ در اپ واحد ادغام و حذف شد — تاریخچه git را ببین
 android-app/native-plugin/   java/: پلاگین SmsReader + BankSms (همان طبقه‌بند sms-parser.js) + SmsAsk و دو گیرنده (اعلان «نوعش چیست؟»)
-                     + VoicePlugin (تشخیص گفتار fa-IR و خواندن متن برای دستیار صوتی)
+                     + VoicePlugin (تشخیص گفتار fa-IR و خواندن متن برای دستیار صوتی) + TtsText/TtsFiles
+                     tts/: EmbeddedTts (صدای فارسی خود اپ با sherpa-onnx؛ فقط وقتی صدا دانلود شده کپی می‌شود)
+android-app/tts/     (git-ignored) خروجی scripts/fetch-tts.mjs: موتور sherpa-onnx (AAR) + صدای Piper فارسی int8 + espeak-ng-data هرس‌شده
                      test/: BankSmsCli (برای scripts/native-sms-test.ts) و robolectric/ (تست‌های اندرویدی) — بخش ۷
 android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پلاگین و گیرنده‌ها) · wire-native-tests.mjs + تست‌هایش
 ```
@@ -393,7 +396,8 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
 
 ## ۴-ک) دستیار صوتی ثبت تراکنش (مهر ۱۴۰۵)
 
-‏دکمه «🎙 ثبت با صدا» در فرم تراکنش (خانه و تراکنش‌ها). تست: `npm run test:voice` (۱۲ بررسی) + Robolectric `VoicePluginTest`.
+‏دکمه 🎙 در سربرگ همه صفحه‌ها (`components/assistant/Assistant.tsx`) و «🎙 ثبت با صدا» در فرم تراکنش (همان دستیار، شروع با تراکنش).
+تست: `npm run test:voice` (۱۲) + `npm run test:ask` (۸) + Robolectric `VoicePluginTest` (۶).
 
 68. **‏فهمیدن روی دستگاه، فقط با «بله» ثبت.** `lib/finance/voice.ts` خالص است: جمله → پیش‌نویس (مبلغ، نوع، حساب، دسته، تاریخ، بابت) →
     اولین جای خالی را می‌پرسد → کل تراکنش را با مبلغ **به حروف** بازخوانی می‌کند → فقط با «بله/آره/ثبت کن» یا دکمه `commitVoice` تراکنش
@@ -410,7 +414,33 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
     `wire-native-plugin.mjs` اضافه می‌کند و workflow با `aapt2` چک می‌کند. صدا را سرویس گوگل به متن تبدیل می‌کند (معمولاً با اینترنت) و
     صفحه همین را می‌گوید. تایپ کردن و دکمه‌ها همیشه کار می‌کنند؛ تایپ، گوش‌دادن خودکار را خاموش می‌کند. ⚠️ روی گوشی واقعی اجرا نشده:
     مسیر وب و اپ با موتور گفتار ساختگی در مرورگر و کلاس‌های پلاگین روی Robolectric تست شده‌اند؛ کیفیت تشخیص فارسی گوگل و وجود صدای
-    فارسی TTS روی گوشی کاربر را باید خودش بسنجد.
+    فارسی TTS روی گوشی کاربر را باید خودش بسنجد. **بازخورد گوشی واقعی کاربر (Fold 5):** ثبت تراکنش با صدا کار کرد؛ گوشی صدای فارسی TTS
+    نداشت؛ و بعد از اولین جواب، گوش‌دادن خودکار بعدی خطای «network» داد — چون شناساگر بعد از هر نتیجه destroy و بلافاصله دوباره به سرویس
+    گوگل bind می‌شد. حالا یک `SpeechRecognizer` برای کل گفت‌وگو می‌ماند (فقط بعد از خطایی غیر از «چیزی نشنیدم» تازه می‌شود)، گوش‌دادن خودکار
+    ۳۵۰ms بعد از سؤال شروع می‌شود و اگر network/client/busy/audio داد یک بار بی‌صدا دوباره امتحان می‌کند. TTS حالا **همه** موتورهای نصب‌شده را
+    برای فارسی می‌گردد (پیش‌فرض، گوگل، بعد بقیه — `ttsOrder`)، با برگشتن به اپ دوباره می‌گردد، و دکمه «تنظیمات متن به گفتار گوشی» (`ttsSettings`) دارد.
+70. **‏دستیار به سؤال هم جواب می‌دهد** (`lib/assistant/ask.ts`، خالص): قیمت («دلار چنده؟» — از همان تابلوی روی دستگاه، با درصد امروز؛ بازار
+    بسته = «آخرین قیمت ثبت‌شده» با روزش، قاعده ۵۴، بی درصد امروز؛ BTC/ETH به دلار و تومان با تتر تابلو)، نمودار («نمودار سه ماه گذشته طلای ۱۸
+    عیار» — `AskChart` از `/api/chart` می‌گیرد، فقط نام دارایی و بازه به سرور می‌رود؛ خلاصه اول/آخر/بیشترین/کمترین از `stats` خود API)،
+    موجودی حساب یا همه، خرج/درآمد (امروز، این هفته از شنبه، این ماه شمسی، ماه پیش، امسال، N روز؛ با دسته)، دارایی خالص. جمله‌ای با مبلغ صریح
+    **و** فعل پرداخت/دریافت همیشه تراکنش است، نه سؤال («صد هزار تومن دلار خریدم»). سؤال وسط تراکنش جواب می‌گیرد و بعد همان سؤال تراکنش
+    دوباره پرسیده می‌شود. جمله‌ای که نه سؤال است نه مبلغ/نوع/حساب/دسته/تاریخ دارد («هوا چطوره») تراکنش شروع نمی‌کند — راهنما جواب می‌دهد.
+    گفتار: اعداد به حروف (`numToWords`، `pctWords` «یک و دو دهم درصد»)؛ هیچ رقمی به TTS نمی‌رود. جواب‌های دفتر فقط روی دستگاه حساب می‌شوند (قاعده ۷).
+
+71. **‏صدای فارسی خود اپ (مهر ۱۴۰۵، به درخواست کاربر چون گوشی‌اش موتور TTS فارسی نداشت).** sherpa-onnx ۱٫۱۳٫۸ (AAR با onnxruntime
+    داخلی، Apache-2.0) + صدای Piper `fa_IR-ganji_adabi-medium` int8 (۱۸٫۶ MB، CC0) + فقط بخش فارسی/انگلیسی espeak-ng-data (۱٫۱ از ۱۹ MB؛
+    خروجی با داده کامل بیت‌به‌بیت یکی بود). `android-app/scripts/fetch-tts.mjs` هر دو را با SHA-256 ثابت می‌گیرد؛ `wire-native-plugin.mjs`
+    AAR، فایل‌ها (`assets/tts-fa`) و `EmbeddedTts.java` را فقط وقتی صدا گرفته شده وارد می‌کند و `VoicePlugin` آن را با نام می‌سازد، پس بدون
+    صدا هم کامپایل می‌شود و به موتور گوشی برمی‌گردد. فقط arm64 (فولد ۵ و هر گوشی چند سال اخیر؛ ۲۴ MB برای هر ABI) و `useLegacyPackaging`
+    (فشرده در APK). بار اول فایل‌ها یک بار به حافظه اپ کپی می‌شوند (`TtsFiles`، با VERSION). صدا جمله‌به‌جمله تولید و هم‌زمان پخش می‌شود
+    (`generateWithCallback` → `AudioTrack`) و ۲۰۰ms سکوت بعدش. انتخاب صدا اندازه‌گیری شد، نه سلیقه‌ای: شش صدای فارسی موجود، ۲۴ جمله
+    واقعی دستیار، تبدیل دوباره به متن با Whisper large-v3-turbo (CER، کمتر بهتر): ganji_adabi ۰٫۱۳ (کلمه آخر ۲۲ از ۲۴)، haaniye ~۰٫۱۵،
+    ganji ~۰٫۲۱، amir/gyro/reza_ibrahim ۰٫۲۵–۰٫۳۶. همه صداهای Piper فارسی **هجای آخر را کوتاه می‌کنند** (خود Piper مرجع هم — مشکل مدل است)؛
+    افزودن « ." به متن روی ۸ جمله اول بهتر بود ولی روی هر ۲۴ جمله برای ganji_adabi کمکی نکرد (۰٫۱۳۰ بدون، ۰٫۱۴۶ با) → اضافه نمی‌شود.
+    اعداد قبل از رسیدن به هر صدا به حروف می‌شوند (`speakable` در
+    `lib/voice-io.ts`: «۱۲ مهر» → «دوازدهم مهر»، «٪» → «درصد»). CI صدا را با همان نسخه sherpa-onnx روی runner می‌سنجد (`scripts/tts-smoke.py`)
+    و حضور موتور و فایل‌ها را در APK چک می‌کند. ⚠️ کد بومی (JNI) روی گوشی واقعی اجرا نشده — اگر بالا نیاید، خطا در `available().builtInError`
+    است و اپ به صدای گوشی/متن برمی‌گردد. espeak-ng (داخل sherpa-onnx) GPL-3 است: اگر روزی اپ عمومی منتشر شد، این را در نظر بگیر.
 
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
@@ -479,7 +509,7 @@ npm run test:financeplus
 npm run test:forecast
 npm run test:parties && npm run test:indicators
 npm run test:timing && npm run test:learn
-npm run test:voice
+npm run test:voice && npm run test:ask
 npx tsx scripts/eval/forecast-eval.ts   # با .cache/eval؛ مقایسه روش‌های پیش‌بینی (~۱ دقیقه)
 npx tsx scripts/eval/timing-eval.ts     # با .cache/eval؛ برنامه خرید/فروش در برابر خرید امروز (~۲ دقیقه)
 npx tsx scripts/swing-v2-test.ts
@@ -490,6 +520,7 @@ npx tsx scripts/swing-live-test.ts
 npx tsx scripts/walk-forward-test.ts   # کند است، چند دقیقه طول می‌کشد
 
 # اپ اندروید (از android-app/)
+node scripts/fetch-tts.mjs && python3 scripts/tts-smoke.py   # صدای فارسی خود اپ (pip install sherpa-onnx==1.13.8 numpy)
 node scripts/sms-parser-test.mjs
 node scripts/wire-plugin-test.mjs
 # کد بومی پیامک روی Robolectric (به Android SDK نیاز دارد؛ بعد از cap add android + wire-native-plugin)

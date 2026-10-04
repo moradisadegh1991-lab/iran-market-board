@@ -4,7 +4,7 @@ import { newId, tomanToRial, type FinanceData, type TxnKind } from '@/lib/financ
 import { Chips } from '../ui';
 import { useFinance } from './FinanceProvider';
 import { JalaliDate, parseAmount, SelectBox, TextInput, TomanInput } from './kit';
-import VoiceTxn from './VoiceTxn';
+import Assistant from '../assistant/Assistant';
 
 const KINDS: { key: TxnKind; label: string }[] = [
   { key: 'expense', label: 'هزینه' },
@@ -62,7 +62,7 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
           🎙 ثبت با صدا
         </button>
         <span className="muted small">بگویید «پنجاه هزار تومن نون خریدم از کیف پول»؛ هرچه کم باشد می‌پرسد.</span>
-        {voice ? <VoiceTxn onClose={() => setVoice(false)} /> : null}
+        {voice ? <Assistant mode="txn" onClose={() => setVoice(false)} /> : null}
       </div>
       <div className="fin-span">
         <Chips label="نوع تراکنش" options={KINDS} value={kind} onChange={setKind} />

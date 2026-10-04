@@ -252,3 +252,22 @@ b.fin-raw { display: block; font-weight: 400; }
 .voice-done p { margin: 0 0 8px; font-weight: 700; color: var(--up); }
 .voice-foot { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; line-height: 1.7; }
 .voice-speak { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+/* ── the assistant's answers: chart, summary, link ── */
+.voice-log li.has-chart { max-width: 100%; width: 100%; }
+.ask-chart { margin: 8px 0 2px; }
+.ask-chart svg { display: block; width: 100%; height: auto; touch-action: pan-y; cursor: crosshair; }
+.ask-chart-tip { min-height: 1.6em; font-size: 13.5px; }
+.ask-chart-tip b { font-variant-numeric: tabular-nums; }
+.ask-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
+.ask-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ask-line.up, .ask-hover.up { stroke: var(--up); }
+.ask-line.down, .ask-hover.down { stroke: var(--down); }
+.ask-dot { fill: var(--surface); stroke: var(--muted); stroke-width: 1.5; }
+.ask-hover { fill: var(--surface); stroke-width: 2; }
+.ask-cross { stroke: var(--muted); stroke-width: 1; }
+.ask-lbl { font-size: 10.5px; fill: var(--muted); font-family: var(--body); }
+.ask-summary { margin: 4px 0 0; font-size: 13.5px; color: var(--ink-2); }
+.ask-link { display: block; width: fit-content; margin-top: 6px; font-size: 13px; color: var(--teal); font-weight: 600; text-decoration: none; }
+.ask-chart-wait, .ask-chart-err { margin: 6px 0 0; }
+.voice-foot .fin-mini { margin-top: 4px; }
