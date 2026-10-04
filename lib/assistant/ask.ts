@@ -198,7 +198,7 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
       const text =
         `${q.asset.label}: ${fa(it.price, digitsFor(it.price, it.unit))} ${unitFa}` +
         (inToman ? ` (حدود ${fa(Math.round(inToman))} تومان)` : '') +
-        (ch != null && Number.isFinite(ch) && !when ? `؛ امروز ${pctFa(ch)} ${ch >= 0 ? 'بالا' : 'پایین'}` : '') +
+        (ch != null && Number.isFinite(ch) && !when ? (Math.abs(ch) < 0.05 ? '؛ امروز بدون تغییر' : `؛ امروز ${pctFa(ch)} ${ch >= 0 ? 'بالا' : 'پایین'}`) : '') +
         (when ? ` — ${when}؛ بازار بسته است یا داده تازه نرسیده.` : '.');
       const speech =
         `${q.asset.spoken} ${when ? `در آخرین قیمت ثبت‌شده، ${dateWords(it.asOf!, today)}،` : 'الان'} ${numToWords(it.price)} ${unitFa}` +

@@ -103,5 +103,34 @@ console.log('\nscenario C: android/ platform not added yet');
   console.log('  ✓ warns and exits cleanly when android/ does not exist yet');
 }
 
+console.log('\nscenario D: the built-in Persian voice fetched (fetch-tts.mjs)');
+{
+  scaffold(
+    'package ir.moradisadegh.marketboard;\n\nimport com.getcapacitor.BridgeActivity;\n\npublic class MainActivity extends BridgeActivity {}\n',
+    '<?xml version="1.0" encoding="utf-8"?>\n<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <application android:label="@string/app_name"><activity android:name=".MainActivity" /></application>\n</manifest>\n',
+  );
+  const GRADLE = join(TMP, 'android/app/build.gradle');
+  writeFileSync(GRADLE, 'apply plugin: "com.android.application"\n');
+  run();
+  assert.ok(!existsSync(join(PKG_DIR, 'EmbeddedTts.java')), 'without the voice, its class is not compiled in');
+  mkdirSync(join(TMP, 'tts/voice/espeak-ng-data/lang/ira'), { recursive: true });
+  writeFileSync(join(TMP, 'tts/sherpa-onnx.aar'), 'aar');
+  writeFileSync(join(TMP, 'tts/voice/model.onnx'), 'onnx');
+  writeFileSync(join(TMP, 'tts/voice/tokens.txt'), 'tok');
+  writeFileSync(join(TMP, 'tts/voice/espeak-ng-data/lang/ira/fa'), 'fa');
+  writeFileSync(join(TMP, 'tts/VERSION'), 'v1\n');
+  run();
+  run(); // idempotent
+  assert.equal(readFileSync(join(TMP, 'android/app/libs/sherpa-onnx.aar'), 'utf8'), 'aar');
+  assert.equal(readFileSync(join(TMP, 'android/app/src/main/assets/tts-fa/model.onnx'), 'utf8'), 'onnx');
+  assert.equal(readFileSync(join(TMP, 'android/app/src/main/assets/tts-fa/espeak-ng-data/lang/ira/fa'), 'utf8'), 'fa');
+  assert.equal(readFileSync(join(TMP, 'android/app/src/main/assets/tts-fa/VERSION'), 'utf8'), 'v1\n');
+  assert.equal(readFileSync(join(PKG_DIR, 'EmbeddedTts.java'), 'utf8').split('\n')[0], 'package ir.moradisadegh.marketboard;');
+  const g = readFileSync(GRADLE, 'utf8');
+  assert.equal((g.match(/implementation files\('libs\/sherpa-onnx\.aar'\)/g) || []).length, 1, 'gradle patched once');
+  assert.match(g, /excludes \+= \['lib\/armeabi-v7a\/\*\*', 'lib\/x86\/\*\*', 'lib\/x86_64\/\*\*'\]/);
+  console.log('  ✓ engine, voice files and EmbeddedTts wired; gradle patched once; without it nothing is');
+}
+
 rmSync(TMP, { recursive: true, force: true });
 console.log('\nWIRE PLUGIN OK');

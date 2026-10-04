@@ -78,7 +78,9 @@ android-app/res-extra/   آیکون نوار وضعیت اعلان ic_stat_mali 
 android-app/www/     فقط JS مشترک: sms-parser.js (پارسر پیامک، تست‌شده) و game-engine.js (موتور بازی). اپ قبلی
                      (index.html، app-trade.js، app-notify.js) در مهر ۱۴۰۵ در اپ واحد ادغام و حذف شد — تاریخچه git را ببین
 android-app/native-plugin/   java/: پلاگین SmsReader + BankSms (همان طبقه‌بند sms-parser.js) + SmsAsk و دو گیرنده (اعلان «نوعش چیست؟»)
-                     + VoicePlugin (تشخیص گفتار fa-IR و خواندن متن برای دستیار صوتی)
+                     + VoicePlugin (تشخیص گفتار fa-IR و خواندن متن برای دستیار صوتی) + TtsText/TtsFiles
+                     tts/: EmbeddedTts (صدای فارسی خود اپ با sherpa-onnx؛ فقط وقتی صدا دانلود شده کپی می‌شود)
+android-app/tts/     (git-ignored) خروجی scripts/fetch-tts.mjs: موتور sherpa-onnx (AAR) + صدای Piper فارسی int8 + espeak-ng-data هرس‌شده
                      test/: BankSmsCli (برای scripts/native-sms-test.ts) و robolectric/ (تست‌های اندرویدی) — بخش ۷
 android-app/scripts/ wire-native-plugin.mjs (خودکار وصل‌کردن پلاگین و گیرنده‌ها) · wire-native-tests.mjs + تست‌هایش
 ```
@@ -425,6 +427,19 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
     دوباره پرسیده می‌شود. جمله‌ای که نه سؤال است نه مبلغ/نوع/حساب/دسته/تاریخ دارد («هوا چطوره») تراکنش شروع نمی‌کند — راهنما جواب می‌دهد.
     گفتار: اعداد به حروف (`numToWords`، `pctWords` «یک و دو دهم درصد»)؛ هیچ رقمی به TTS نمی‌رود. جواب‌های دفتر فقط روی دستگاه حساب می‌شوند (قاعده ۷).
 
+71. **‏صدای فارسی خود اپ (مهر ۱۴۰۵، به درخواست کاربر چون گوشی‌اش موتور TTS فارسی نداشت).** sherpa-onnx ۱٫۱۳٫۸ (AAR با onnxruntime
+    داخلی، Apache-2.0) + صدای Piper `fa_IR-ganji_adabi-medium` int8 (۱۸٫۶ MB، CC0) + فقط بخش فارسی/انگلیسی espeak-ng-data (۱٫۱ از ۱۹ MB؛
+    خروجی با داده کامل بیت‌به‌بیت یکی بود). `android-app/scripts/fetch-tts.mjs` هر دو را با SHA-256 ثابت می‌گیرد؛ `wire-native-plugin.mjs`
+    AAR، فایل‌ها (`assets/tts-fa`) و `EmbeddedTts.java` را فقط وقتی صدا گرفته شده وارد می‌کند و `VoicePlugin` آن را با نام می‌سازد، پس بدون
+    صدا هم کامپایل می‌شود و به موتور گوشی برمی‌گردد. فقط arm64 (فولد ۵ و هر گوشی چند سال اخیر؛ ۲۴ MB برای هر ABI) و `useLegacyPackaging`
+    (فشرده در APK). بار اول فایل‌ها یک بار به حافظه اپ کپی می‌شوند (`TtsFiles`، با VERSION). صدا جمله‌به‌جمله تولید و هم‌زمان پخش می‌شود
+    (`generateWithCallback` → `AudioTrack`). انتخاب صدا اندازه‌گیری شد، نه سلیقه‌ای: شش صدای فارسی موجود، جمله‌های واقعی دستیار، تبدیل
+    دوباره به متن با Whisper large-v3-turbo و CER: همه صداهای Piper فارسی **هجای آخر را می‌بُرند** (خود Piper مرجع هم — مشکل مدل است)؛
+    افزودن « ." به آخر متن (`TtsText.prepare`) بهترین چاره بود. اعداد قبل از رسیدن به هر صدا به حروف می‌شوند (`speakable` در
+    `lib/voice-io.ts`: «۱۲ مهر» → «دوازدهم مهر»، «٪» → «درصد»). CI صدا را با همان نسخه sherpa-onnx روی runner می‌سنجد (`scripts/tts-smoke.py`)
+    و حضور موتور و فایل‌ها را در APK چک می‌کند. ⚠️ کد بومی (JNI) روی گوشی واقعی اجرا نشده — اگر بالا نیاید، خطا در `available().builtInError`
+    است و اپ به صدای گوشی/متن برمی‌گردد. espeak-ng (داخل sherpa-onnx) GPL-3 است: اگر روزی اپ عمومی منتشر شد، این را در نظر بگیر.
+
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
 21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
@@ -503,6 +518,7 @@ npx tsx scripts/swing-live-test.ts
 npx tsx scripts/walk-forward-test.ts   # کند است، چند دقیقه طول می‌کشد
 
 # اپ اندروید (از android-app/)
+node scripts/fetch-tts.mjs && python3 scripts/tts-smoke.py   # صدای فارسی خود اپ (pip install sherpa-onnx==1.13.8 numpy)
 node scripts/sms-parser-test.mjs
 node scripts/wire-plugin-test.mjs
 # کد بومی پیامک روی Robolectric (به Android SDK نیاز دارد؛ بعد از cap add android + wire-native-plugin)

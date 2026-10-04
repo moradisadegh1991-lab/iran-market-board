@@ -405,6 +405,7 @@ export default function Assistant({ onClose, mode = 'any' }: { onClose: () => vo
           {io?.canSpeak ? (
             <label className="voice-speak">
               <input type="checkbox" checked={speakOn} onChange={toggleSpeak} /> جواب‌ها را با صدا بخوان
+              {io.voice === 'built-in' ? <span data-testid="built-in-voice"> (صدای فارسی خود اپ، بدون اینترنت)</span> : null}
             </label>
           ) : io ? (
             <span data-testid="no-voice">
@@ -417,6 +418,7 @@ export default function Assistant({ onClose, mode = 'any' }: { onClose: () => vo
               ) : null}
             </span>
           ) : null}
+          {io?.voiceError ? <span className="fin-err">صدای فارسی خود اپ روی این گوشی بالا نیامد: {io.voiceError}</span> : null}
           <span>
             {io?.kind === 'app'
               ? 'صدا را سرویس گفتار گوشی (معمولاً گوگل) به متن تبدیل می‌کند؛ فهمیدن، جواب و ثبت روی همین گوشی است و برای نمودار فقط نام دارایی و بازه به سرور می‌رود.'

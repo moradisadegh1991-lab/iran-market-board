@@ -111,6 +111,8 @@ ok('price answers: toman with today’s move, BTC in dollars and toman, the clos
   const coin = say('سکه چنده');
   assert.match(coin.text, /آخرین قیمت ثبت‌شده، پریروز؛ بازار بسته است/);
   assert.doesNotMatch(coin.text, /امروز .*٪/, 'no «today» move on a last price');
+  const flat = answerQuestion(book(), [{ key: 'usd', price: 100_000, unit: 'toman', changePct: 0.01 } as PriceItem], T, q('دلار چنده')!);
+  assert.equal(flat.text, 'دلار آزاد: ۱۰۰٬۰۰۰ تومان؛ امروز بدون تغییر.');
   const none = answerQuestion(book(), items, T, q('نقره چنده')!);
   assert.match(none.text, /در دسترس نیست/);
 });
