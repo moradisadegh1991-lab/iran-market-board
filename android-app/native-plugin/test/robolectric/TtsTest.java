@@ -23,12 +23,12 @@ import org.robolectric.annotation.Config;
 public class TtsTest {
 
     @Test
-    public void textKeepsPersianAndPunctuationEndsWithAFullStop() {
-        assertEquals("دلار آزاد الان دویست هزار تومان؛ امروز بالا رفته. .", TtsText.prepare("  دلار آزاد الان دویست هزار تومان؛ امروز بالا رفته.  "));
-        assertEquals("ثبت کنم؟ .", TtsText.prepare("ثبت کنم؟"));
+    public void textKeepsPersianAndPunctuationDropsSymbols() {
+        assertEquals("دلار آزاد الان دویست هزار تومان؛ امروز بالا رفته.", TtsText.prepare("  دلار آزاد الان دویست هزار تومان؛ امروز بالا رفته.  "));
+        assertEquals("ثبت کنم؟", TtsText.prepare("ثبت کنم؟"));
         // ZWNJ stays (حساب‌های), symbols and emoji become at most a pause, quotes go
-        assertEquals("حساب\u200cهای خودت .", TtsText.prepare("«حساب\u200cهای» 🎙 خودت"));
-        assertEquals("BTC و ۲.۵ .", TtsText.prepare("BTC و ۲٫۵"));
+        assertEquals("حساب\u200cهای خودت", TtsText.prepare("«حساب\u200cهای» 🎙 خودت"));
+        assertEquals("BTC و ۲.۵", TtsText.prepare("BTC و ۲٫۵"));
         assertEquals("", TtsText.prepare("  🎙 "));
         assertEquals("", TtsText.prepare(null));
     }

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Smoke test of the staged built-in Persian voice (android-app/tts/voice), with the same sherpa-onnx
-version the APK links: it loads, speaks a sentence of the assistant at a sane length and loudness, keeps
-the ending (the « ." the app appends), and the pruned espeak-ng-data reads Persian (not silence).
+version the APK links: it loads, speaks a sentence of the assistant at a sane length and loudness, and the pruned espeak-ng-data reads Persian (not silence).
 Run: pip install sherpa-onnx==1.13.8 numpy && python3 scripts/tts-smoke.py"""
 import os, sys, time
 import numpy as np
@@ -17,8 +16,8 @@ cfg = sherpa_onnx.OfflineTtsConfig(
 tts = sherpa_onnx.OfflineTts(cfg)
 ok = True
 for text, lo, hi in [
-    ('دلار آزاد الان دویست و شصت و هشت هزار و سیصد تومان؛ امروز دو دهم درصد بالا رفته. .', 4.0, 9.0),
-    ('ثبت کنم؟ .', 0.5, 2.0),
+    ('دلار آزاد الان دویست و شصت و هشت هزار و سیصد تومان؛ امروز دو دهم درصد بالا رفته.', 4.0, 9.0),
+    ('ثبت کنم؟', 0.3, 2.0),
 ]:
     t0 = time.time()
     a = tts.generate(text, sid=0, speed=1.0)

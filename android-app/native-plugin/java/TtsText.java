@@ -2,9 +2,10 @@ package ir.moradisadegh.marketboard;
 
 /**
  * Text for the built-in Persian voice (EmbeddedTts). The web layer already says numbers in words
- * (lib/voice-io.ts speakable); here only what the voice model cannot read is dropped, and « ." is
- * appended: the Piper Persian voices cut the last syllable short, and measured with Whisper on the
- * assistant's own sentences a trailing full stop kept the last word in all of them (CLAUDE.md rule 71).
+ * (lib/voice-io.ts speakable); here only what the voice model cannot read is dropped. Nothing is appended:
+ * a trailing full stop (tried against the clipped last syllable of the Piper Persian voices) did not help the
+ * chosen voice when measured with Whisper on 24 of the assistant's sentences (CLAUDE.md rule 71); EmbeddedTts
+ * plays a breath of silence after the sentence instead.
  */
 public final class TtsText {
     private TtsText() {}
@@ -21,6 +22,6 @@ public final class TtsText {
             else b.append(' '); // emoji, quotes, brackets, symbols: a pause at most
         }
         String s = b.toString().replaceAll("\\s+", " ").trim();
-        return s.isEmpty() ? "" : s + " .";
+        return s;
     }
 }
