@@ -58,16 +58,29 @@ public class VoicePlugin extends Plugin {
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private SpeechRecognizer recognizer;
+    private ComponentName recognizerSvc;
     private PluginCall listenCall;
     private TextToSpeech tts;
     private boolean ttsFa;
     private String ttsEngine;
-    private boolean triedGoogleTts;
+    private final List<String> ttsTried = new ArrayList<>();
+    private List<String> ttsInstalled = new ArrayList<>();
     private final Map<String, PluginCall> speaking = new HashMap<>();
 
     @Override
     public void load() {
         initTts(null);
+    }
+
+    /** Back from the phone's settings (a Persian voice may have been installed): look again. */
+    @Override
+    protected void handleOnResume() {
+        if (!ttsFa && tts != null) {
+            ttsTried.clear();
+            tts.shutdown();
+            tts = null;
+            initTts(null);
+        }
     }
 
     @Override
@@ -149,6 +162,9 @@ public class VoicePlugin extends Plugin {
         ret.put("mic", micGranted());
         ret.put("tts", ttsFa);
         ret.put("ttsEngine", ttsEngine);
+        JSArray engines = new JSArray();
+        for (String e : ttsInstalled) engines.put(e);
+        ret.put("ttsEngines", engines);
         call.resolve(ret);
     }
 
@@ -177,16 +193,24 @@ public class VoicePlugin extends Plugin {
         String prompt = call.getString("prompt");
         main.post(() -> {
             if (listenCall != null) listenCall.reject("گوش دادن قبلی قطع شد", "cancelled");
-            destroyRecognizer();
+            listenCall = null;
             Context ctx = getContext();
             ComponentName svc = pickRecognizer(recognitionServices(ctx));
             if (svc == null && !SpeechRecognizer.isRecognitionAvailable(ctx)) {
                 call.reject("سرویس تشخیص گفتار روی گوشی نیست", "unavailable");
                 return;
             }
-            recognizer = svc != null ? SpeechRecognizer.createSpeechRecognizer(ctx, svc) : SpeechRecognizer.createSpeechRecognizer(ctx);
+            // one recogniser for the whole conversation: destroying and re-binding Google's service between
+            // two questions made the second listen fail with a «network» error on a real phone
+            boolean same = recognizer != null && (svc == null ? recognizerSvc == null : svc.equals(recognizerSvc));
+            if (same) recognizer.cancel();
+            else {
+                destroyRecognizer();
+                recognizer = svc != null ? SpeechRecognizer.createSpeechRecognizer(ctx, svc) : SpeechRecognizer.createSpeechRecognizer(ctx);
+                recognizerSvc = svc;
+                recognizer.setRecognitionListener(new Listener());
+            }
             listenCall = call;
-            recognizer.setRecognitionListener(new Listener());
             recognizer.startListening(recognizeIntent(ctx, prompt));
         });
     }
@@ -266,6 +290,7 @@ public class VoicePlugin extends Plugin {
         if (recognizer != null) {
             recognizer.destroy();
             recognizer = null;
+            recognizerSvc = null;
         }
     }
 
@@ -301,7 +326,8 @@ public class VoicePlugin extends Plugin {
         public void onError(int error) {
             PluginCall c = listenCall;
             listenCall = null;
-            destroyRecognizer();
+            // after anything but «heard nothing», start the next listen on a fresh connection
+            if (!"no-match".equals(errorCode(error))) destroyRecognizer();
             if (c != null) c.reject("خطای تشخیص گفتار " + error, errorCode(error));
         }
 
@@ -310,7 +336,6 @@ public class VoicePlugin extends Plugin {
             PluginCall c = listenCall;
             listenCall = null;
             ArrayList<String> m = results == null ? null : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-            destroyRecognizer();
             if (c == null) return;
             if (m == null || m.isEmpty()) c.reject("چیزی شنیده نشد", "no-match");
             else c.resolve(matches(m));
@@ -331,18 +356,35 @@ public class VoicePlugin extends Plugin {
 
     // ── text to speech ──────────────────────────────────────────────────────
 
-    /** The default engine first; if it has no Persian and Google's engine is installed, that one. */
+    /**
+     * The order engines are tried for a Persian voice: the phone's default, then Google's, then every other
+     * installed one (eSpeak NG, a sherpa-onnx/Piper voice…) — the user only has to install one, not make it
+     * the default.
+     */
+    static List<String> ttsOrder(String defaultEngine, List<String> installed) {
+        List<String> out = new ArrayList<>();
+        if (defaultEngine != null) out.add(defaultEngine);
+        if (installed.contains(GOOGLE_TTS) && !out.contains(GOOGLE_TTS)) out.add(GOOGLE_TTS);
+        for (String e : installed) if (!out.contains(e)) out.add(e);
+        return out;
+    }
+
     private void initTts(String engine) {
         TextToSpeech.OnInitListener onInit = status -> {
-            if (status != TextToSpeech.SUCCESS || tts == null) return;
-            int r = tts.setLanguage(FA);
-            ttsFa = r >= TextToSpeech.LANG_AVAILABLE;
-            ttsEngine = tts.getDefaultEngine();
-            if (engine != null) ttsEngine = engine;
-            if (!ttsFa && !triedGoogleTts && !GOOGLE_TTS.equals(ttsEngine) && hasEngine(tts, GOOGLE_TTS)) {
-                triedGoogleTts = true;
-                tts.shutdown();
-                initTts(GOOGLE_TTS);
+            if (tts == null) return;
+            String current = engine != null ? engine : tts.getDefaultEngine();
+            ttsTried.add(current);
+            ttsInstalled = new ArrayList<>();
+            for (TextToSpeech.EngineInfo e : tts.getEngines()) ttsInstalled.add(e.name);
+            ttsFa = status == TextToSpeech.SUCCESS && tts.setLanguage(FA) >= TextToSpeech.LANG_AVAILABLE;
+            ttsEngine = current;
+            if (!ttsFa) {
+                for (String next : ttsOrder(tts.getDefaultEngine(), ttsInstalled)) {
+                    if (ttsTried.contains(next)) continue;
+                    tts.shutdown();
+                    initTts(next);
+                    return;
+                }
                 return;
             }
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
@@ -368,9 +410,16 @@ public class VoicePlugin extends Plugin {
         tts = engine == null ? new TextToSpeech(getContext(), onInit) : new TextToSpeech(getContext(), onInit, engine);
     }
 
-    static boolean hasEngine(TextToSpeech t, String pkg) {
-        for (TextToSpeech.EngineInfo e : t.getEngines()) if (pkg.equals(e.name)) return true;
-        return false;
+    /** The phone's text-to-speech settings, to install or pick a Persian voice. */
+    @PluginMethod
+    public void ttsSettings(PluginCall call) {
+        Intent i = new Intent("com.android.settings.TTS_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(i);
+        } catch (Exception e) {
+            getContext().startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        }
+        call.resolve();
     }
 
     private void finishUtterance(String id, boolean ok) {

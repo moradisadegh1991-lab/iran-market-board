@@ -649,7 +649,8 @@ function absorb(d: FinanceData, today: Iso, dr: Draft, text: string, asking: Ask
     if (ck && ck !== n.kind) n.categoryId = categoryIn(d, `${rest} ${n.note}`, n.kind, n.note);
   }
   if (n.kind === 'transfer') n.categoryId = null;
-  return { draft: n, used: used || !!note, badDate };
+  // a note alone («هوا چطوره») is not a transaction: something concrete must have been said
+  return { draft: n, used, badDate };
 }
 
 function kindAnswer(text: string): TxnKind | null {

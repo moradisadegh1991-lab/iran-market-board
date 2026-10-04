@@ -236,6 +236,9 @@ ok('the recogniser’s alternatives: the first one that answers the question win
   const d = book();
   const st = answer(d, T, talk(d, 'یه چیزی خریدم'), ['سیاه', 'سی هزار']);
   assert.equal(st.draft.amountRial, 300_000);
+  const chat = talk(d, 'هوا چطوره');
+  assert.equal(chat.asking, 'open', 'words with no amount, kind, account, category or date start nothing');
+  assert.equal(chat.misses, 1);
   const miss = answer(d, T, talk(d, 'یه چیزی خریدم'), ['سیاه']);
   assert.equal(miss.asking, 'amount');
   assert.equal(miss.misses, 1);

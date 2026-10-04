@@ -55,13 +55,14 @@ lib/finance/         model (نوع داده، همه به ریال) · calc (م�
 lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت، خالص) · live-local (جلسه برخط روی دستگاه) · indicators (اندیکاتورهای نمودار)
                      · forecast-draw (رسم کاربر روی پیش‌بینی) · learn/ (درس‌ها، مرور فاصله‌دار، ماشین‌حساب‌های درس)
                      · voice-io (شنیدن/خواندن فارسی: پلاگین Voice در اپ، Web Speech در مرورگر)
+                     · assistant/ask (سؤال‌های دستیار: قیمت، نمودار، موجودی، خرج/درآمد، دارایی خالص — جواب متنی و گفتاری)
                      · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · NotifyProvider · AppStartup
                      · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
                      · Sparkline · RollingNumber · HoldingsPanel · PositionSizer · ForecastPanel/ForecastChart (پیش‌بینی صفحه نمودار)
-                     · IndicatorChips · learn/ (LearnView، Widgets)
-components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm · VoiceTxn («ثبت با صدا») · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
+                     · IndicatorChips · learn/ (LearnView، Widgets) · assistant/ (Assistant: دستیار صوتی، دکمه 🎙 سربرگ؛ AskChart)
+components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm («ثبت با صدا» = Assistant در حالت تراکنش) · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
                      · PortfolioCompare · views/*
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
                      · Crypto · Portfolio · Bot
@@ -393,7 +394,8 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
 
 ## ۴-ک) دستیار صوتی ثبت تراکنش (مهر ۱۴۰۵)
 
-‏دکمه «🎙 ثبت با صدا» در فرم تراکنش (خانه و تراکنش‌ها). تست: `npm run test:voice` (۱۲ بررسی) + Robolectric `VoicePluginTest`.
+‏دکمه 🎙 در سربرگ همه صفحه‌ها (`components/assistant/Assistant.tsx`) و «🎙 ثبت با صدا» در فرم تراکنش (همان دستیار، شروع با تراکنش).
+تست: `npm run test:voice` (۱۲) + `npm run test:ask` (۸) + Robolectric `VoicePluginTest` (۶).
 
 68. **‏فهمیدن روی دستگاه، فقط با «بله» ثبت.** `lib/finance/voice.ts` خالص است: جمله → پیش‌نویس (مبلغ، نوع، حساب، دسته، تاریخ، بابت) →
     اولین جای خالی را می‌پرسد → کل تراکنش را با مبلغ **به حروف** بازخوانی می‌کند → فقط با «بله/آره/ثبت کن» یا دکمه `commitVoice` تراکنش
@@ -410,7 +412,18 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
     `wire-native-plugin.mjs` اضافه می‌کند و workflow با `aapt2` چک می‌کند. صدا را سرویس گوگل به متن تبدیل می‌کند (معمولاً با اینترنت) و
     صفحه همین را می‌گوید. تایپ کردن و دکمه‌ها همیشه کار می‌کنند؛ تایپ، گوش‌دادن خودکار را خاموش می‌کند. ⚠️ روی گوشی واقعی اجرا نشده:
     مسیر وب و اپ با موتور گفتار ساختگی در مرورگر و کلاس‌های پلاگین روی Robolectric تست شده‌اند؛ کیفیت تشخیص فارسی گوگل و وجود صدای
-    فارسی TTS روی گوشی کاربر را باید خودش بسنجد.
+    فارسی TTS روی گوشی کاربر را باید خودش بسنجد. **بازخورد گوشی واقعی کاربر (Fold 5):** ثبت تراکنش با صدا کار کرد؛ گوشی صدای فارسی TTS
+    نداشت؛ و بعد از اولین جواب، گوش‌دادن خودکار بعدی خطای «network» داد — چون شناساگر بعد از هر نتیجه destroy و بلافاصله دوباره به سرویس
+    گوگل bind می‌شد. حالا یک `SpeechRecognizer` برای کل گفت‌وگو می‌ماند (فقط بعد از خطایی غیر از «چیزی نشنیدم» تازه می‌شود)، گوش‌دادن خودکار
+    ۳۵۰ms بعد از سؤال شروع می‌شود و اگر network/client/busy/audio داد یک بار بی‌صدا دوباره امتحان می‌کند. TTS حالا **همه** موتورهای نصب‌شده را
+    برای فارسی می‌گردد (پیش‌فرض، گوگل، بعد بقیه — `ttsOrder`)، با برگشتن به اپ دوباره می‌گردد، و دکمه «تنظیمات متن به گفتار گوشی» (`ttsSettings`) دارد.
+70. **‏دستیار به سؤال هم جواب می‌دهد** (`lib/assistant/ask.ts`، خالص): قیمت («دلار چنده؟» — از همان تابلوی روی دستگاه، با درصد امروز؛ بازار
+    بسته = «آخرین قیمت ثبت‌شده» با روزش، قاعده ۵۴، بی درصد امروز؛ BTC/ETH به دلار و تومان با تتر تابلو)، نمودار («نمودار سه ماه گذشته طلای ۱۸
+    عیار» — `AskChart` از `/api/chart` می‌گیرد، فقط نام دارایی و بازه به سرور می‌رود؛ خلاصه اول/آخر/بیشترین/کمترین از `stats` خود API)،
+    موجودی حساب یا همه، خرج/درآمد (امروز، این هفته از شنبه، این ماه شمسی، ماه پیش، امسال، N روز؛ با دسته)، دارایی خالص. جمله‌ای با مبلغ صریح
+    **و** فعل پرداخت/دریافت همیشه تراکنش است، نه سؤال («صد هزار تومن دلار خریدم»). سؤال وسط تراکنش جواب می‌گیرد و بعد همان سؤال تراکنش
+    دوباره پرسیده می‌شود. جمله‌ای که نه سؤال است نه مبلغ/نوع/حساب/دسته/تاریخ دارد («هوا چطوره») تراکنش شروع نمی‌کند — راهنما جواب می‌دهد.
+    گفتار: اعداد به حروف (`numToWords`، `pctWords` «یک و دو دهم درصد»)؛ هیچ رقمی به TTS نمی‌رود. جواب‌های دفتر فقط روی دستگاه حساب می‌شوند (قاعده ۷).
 
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
@@ -479,7 +492,7 @@ npm run test:financeplus
 npm run test:forecast
 npm run test:parties && npm run test:indicators
 npm run test:timing && npm run test:learn
-npm run test:voice
+npm run test:voice && npm run test:ask
 npx tsx scripts/eval/forecast-eval.ts   # با .cache/eval؛ مقایسه روش‌های پیش‌بینی (~۱ دقیقه)
 npx tsx scripts/eval/timing-eval.ts     # با .cache/eval؛ برنامه خرید/فروش در برابر خرید امروز (~۲ دقیقه)
 npx tsx scripts/swing-v2-test.ts

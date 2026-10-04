@@ -25,13 +25,15 @@ export interface VoiceIO {
   /** resolves when said (at once when there is no Persian voice) */
   speak(text: string): Promise<void>;
   hush(): void;
+  /** the phone's text-to-speech settings (APK only) — to install or pick a Persian voice */
+  openVoiceSettings?: () => void;
 }
 
 interface Handle {
   remove(): void | Promise<void>;
 }
 interface VoicePlugin {
-  available(): Promise<{ recognition?: boolean; dialog?: boolean; mic?: boolean; tts?: boolean; service?: string | null }>;
+  available(): Promise<{ recognition?: boolean; dialog?: boolean; mic?: boolean; tts?: boolean; service?: string | null; ttsEngines?: string[] }>;
   requestMic(): Promise<{ mic?: boolean }>;
   listen(o: { prompt?: string }): Promise<{ matches?: string[] }>;
   listenDialog(o: { prompt?: string }): Promise<{ matches?: string[] }>;
@@ -39,6 +41,7 @@ interface VoicePlugin {
   cancel(): Promise<void>;
   speak(o: { text: string }): Promise<void>;
   stopSpeaking(): Promise<void>;
+  ttsSettings?(): Promise<void>;
   addListener(event: 'partial' | 'state', fn: (e: { text?: string; state?: string }) => void): Promise<Handle> | Handle;
 }
 
@@ -53,7 +56,9 @@ function appIO(p: VoicePlugin, av: Awaited<ReturnType<VoicePlugin['available']>>
   return {
     kind: 'app',
     canListen: !!(av.recognition || av.dialog),
-    canSpeak: !!av.tts,
+    get canSpeak() {
+      return !!av.tts;
+    },
     async listen(onPartial, prompt) {
       const mic = av.mic || (await p.requestMic().catch(() => ({ mic: false }))).mic;
       if (!mic) throw new VoiceError('permission');
@@ -94,6 +99,21 @@ function appIO(p: VoicePlugin, av: Awaited<ReturnType<VoicePlugin['available']>>
     hush() {
       void p.stopSpeaking().catch(() => undefined);
     },
+    openVoiceSettings: p.ttsSettings
+      ? () => {
+          void p.ttsSettings!().catch(() => undefined);
+          // the plugin looks for a Persian voice again when the app comes back (handleOnResume)
+          const back = () => {
+            document.removeEventListener('visibilitychange', back);
+            setTimeout(() => {
+              void p.available().then((a) => {
+                av.tts = !!a.tts;
+              });
+            }, 1500);
+          };
+          document.addEventListener('visibilitychange', back);
+        }
+      : undefined,
   };
 }
 

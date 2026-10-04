@@ -86,6 +86,17 @@ public class VoicePluginTest {
     }
 
     @Test
+    public void triesEveryInstalledVoiceEngineForPersian() {
+        // Samsung's default has no Persian: Google's next, then whatever else is installed (eSpeak NG, sherpa-onnx…)
+        assertEquals(
+            Arrays.asList("com.samsung.SMT", "com.google.android.tts", "com.reecedunn.espeak", "com.k2fsa.sherpa.onnx.tts.engine"),
+            VoicePlugin.ttsOrder("com.samsung.SMT", Arrays.asList("com.reecedunn.espeak", "com.google.android.tts", "com.samsung.SMT", "com.k2fsa.sherpa.onnx.tts.engine"))
+        );
+        assertEquals(Arrays.asList("com.reecedunn.espeak"), VoicePlugin.ttsOrder("com.reecedunn.espeak", Collections.singletonList("com.reecedunn.espeak")));
+        assertEquals(Collections.emptyList(), VoicePlugin.ttsOrder(null, Collections.emptyList()));
+    }
+
+    @Test
     public void returnsTheGuessesInOrderWithoutBlanks() throws Exception {
         JSObject r = VoicePlugin.matches(Arrays.asList("سی هزار تومان", " ", "سیاه", null));
         JSONArray m = r.getJSONArray("matches");

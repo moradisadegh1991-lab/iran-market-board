@@ -33,7 +33,8 @@
     "test:indicators": "tsx scripts/indicators-test.ts",
     "test:timing": "tsx scripts/timing-test.ts",
     "test:learn": "tsx scripts/learn-test.ts",
-    "test:voice": "tsx scripts/voice-test.ts"
+    "test:voice": "tsx scripts/voice-test.ts",
+    "test:ask": "tsx scripts/ask-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
