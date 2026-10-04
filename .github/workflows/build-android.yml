@@ -95,7 +95,7 @@ jobs:
           npx cap add android || echo "android/ already present"
           npx cap sync android
 
-      - name: Wire the SMS-reader plugin into the Android project
+      - name: Wire the SMS-reader and voice plugins into the Android project
         working-directory: android-app
         run: node scripts/wire-native-plugin.mjs
 
@@ -170,7 +170,7 @@ jobs:
         working-directory: android-app/android
         run: chmod +x gradlew && ./gradlew assembleRelease --no-daemon
 
-      - name: Check the APK carries the icons, name and SMS receivers
+      - name: Check the APK carries the icons, name, SMS receivers and voice
         run: |
           AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt2"
           APK=$(find android-app/android -name '*release*.apk' | head -1)
@@ -183,6 +183,9 @@ jobs:
           MF=$("$AAPT" dump xmltree --file AndroidManifest.xml "$APK")
           echo "$MF" | grep -q "SmsAskReceiver" && echo "$MF" | grep -q "android.provider.Telephony.SMS_RECEIVED" && echo "$MF" | grep -q "android.permission.RECEIVE_SMS" && echo "$MF" | grep -q "SmsChoiceReceiver" || { echo "::error::SMS receivers or RECEIVE_SMS missing from the manifest"; exit 1; }
           echo "SMS receivers OK"
+          # the voice assistant: the mic, and the speech services Android 11+ hides without <queries>
+          echo "$MF" | grep -q "android.permission.RECORD_AUDIO" && echo "$MF" | grep -q "android.speech.RecognitionService" && echo "$MF" | grep -q "android.intent.action.TTS_SERVICE" || { echo "::error::voice: RECORD_AUDIO or the speech <queries> missing from the manifest"; exit 1; }
+          echo "voice OK"
 
       - name: Collect the APK
         id: apk

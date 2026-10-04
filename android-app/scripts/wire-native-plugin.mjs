@@ -45,38 +45,35 @@ for (const file of readdirSync(nativeDir).filter((f) => f.endsWith('.java')).sor
   console.log(`✓ ${file} → ${join(javaDir, file).replace(ROOT + '/', '')}`);
 }
 
-// ── 2. register it in MainActivity.java ──
+// ── 2. register the plugins in MainActivity.java (SmsReader; Voice — the voice assistant) ──
+const PLUGINS = ['SmsReaderPlugin', 'VoicePlugin'];
 if (!existsSync(mainActivityPath)) {
   warnMissing(mainActivityPath, 'expected after `cap add android`; run that first.');
 } else {
   let ma = readFileSync(mainActivityPath, 'utf8');
-  if (ma.includes('SmsReaderPlugin')) {
-    console.log('✓ MainActivity.java already registers SmsReaderPlugin (no change)');
-  } else {
-    if (!ma.includes(`import ${appId}.SmsReaderPlugin;`)) {
-      ma = ma.replace(
-        /(import com\.getcapacitor\.BridgeActivity;)/,
-        `$1\nimport ${appId}.SmsReaderPlugin;`,
-      );
+  for (const plugin of PLUGINS) {
+    if (ma.includes(`registerPlugin(${plugin}.class)`)) {
+      console.log(`✓ MainActivity.java already registers ${plugin} (no change)`);
+      continue;
+    }
+    if (!ma.includes(`import ${appId}.${plugin};`)) {
+      ma = ma.replace(/(import com\.getcapacitor\.BridgeActivity;)/, `$1\nimport ${appId}.${plugin};`);
     }
     const hasOnCreate = /void\s+onCreate\s*\(/.test(ma);
     if (hasOnCreate) {
       // insert the registerPlugin call as the first line of the existing onCreate body
-      ma = ma.replace(
-        /(void\s+onCreate\s*\([^)]*\)\s*\{)/,
-        `$1\n        registerPlugin(SmsReaderPlugin.class);`,
-      );
+      ma = ma.replace(/(void\s+onCreate\s*\([^)]*\)\s*\{)/, `$1\n        registerPlugin(${plugin}.class);`);
     } else {
       // Capacitor 6's generated MainActivity has no onCreate override at all — add one
       // handles both "{}" (empty body on one line) and "{\n}" (empty body on two lines)
       ma = ma.replace(
         /public class MainActivity extends BridgeActivity\s*\{\s*\}/,
-        `public class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(android.os.Bundle savedInstanceState) {\n        registerPlugin(SmsReaderPlugin.class);\n        super.onCreate(savedInstanceState);\n    }\n}`,
+        `public class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(android.os.Bundle savedInstanceState) {\n        registerPlugin(${plugin}.class);\n        super.onCreate(savedInstanceState);\n    }\n}`,
       );
     }
-    writeFileSync(mainActivityPath, ma);
-    console.log(`✓ MainActivity.java now registers SmsReaderPlugin (onCreate ${hasOnCreate ? 'extended' : 'added'})`);
+    console.log(`✓ MainActivity.java now registers ${plugin} (onCreate ${hasOnCreate ? 'extended' : 'added'})`);
   }
+  writeFileSync(mainActivityPath, ma);
 }
 
 // ── 3. permissions ──
@@ -87,7 +84,8 @@ if (!existsSync(manifestPath)) {
   // POST_NOTIFICATIONS is required from Android 13 (API 33); without it the local
   // notification is silently dropped and nothing tells you why.
   // RECEIVE_SMS: the «نوعش چیست؟» notification the moment a bank SMS arrives (SmsAskReceiver)
-  const perms = ['android.permission.READ_SMS', 'android.permission.RECEIVE_SMS', 'android.permission.POST_NOTIFICATIONS'];
+  // RECORD_AUDIO: the voice assistant (VoicePlugin), asked for the first time the mic is tapped
+  const perms = ['android.permission.READ_SMS', 'android.permission.RECEIVE_SMS', 'android.permission.POST_NOTIFICATIONS', 'android.permission.RECORD_AUDIO'];
   let changed = false;
   for (const perm of perms) {
     if (mf.includes(perm)) {
@@ -114,7 +112,16 @@ if (!existsSync(manifestPath)) {
     changed = true;
     console.log(`✓ AndroidManifest.xml: ${name} declared`);
   }
+  // Android 11+ hides other apps' services unless declared: without this the speech recogniser and the
+  // text-to-speech engines are invisible to VoicePlugin and the assistant says there is no recogniser
+  if (mf.includes('android.speech.RecognitionService')) console.log('✓ AndroidManifest.xml already declares the speech <queries> (no change)');
+  else {
+    const queries = `<queries>\n        <intent><action android:name="android.speech.RecognitionService" /></intent>\n        <intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent>\n        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>\n    </queries>`;
+    mf = mf.replace(/(\s*)<application/, `\n    ${queries}$1<application`);
+    changed = true;
+    console.log('✓ AndroidManifest.xml: speech <queries> declared');
+  }
   if (changed) writeFileSync(manifestPath, mf);
 }
 
-console.log('\nپلاگین پیامک به پروژه اندروید متصل شد.');
+console.log('\nپلاگین‌های پیامک و صدا به پروژه اندروید متصل شدند.');

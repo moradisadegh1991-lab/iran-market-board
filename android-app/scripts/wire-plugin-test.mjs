@@ -49,6 +49,12 @@ console.log('scenario A: Capacitor 6 default MainActivity (empty body, no onCrea
   // the SMS receiver only from the system; the button receiver only from the app itself
   assert.match(mf, /<receiver android:name="\.SmsAskReceiver" android:exported="true" android:permission="android\.permission\.BROADCAST_SMS">\s*<intent-filter>\s*<action android:name="android\.provider\.Telephony\.SMS_RECEIVED" \/>/);
   assert.match(mf, /<receiver android:name="\.SmsChoiceReceiver" android:exported="false" \/>\s*<\/application>/);
+  // the voice assistant: its plugin, the mic, and the speech services Android 11+ hides otherwise
+  assert.ok(ma.includes('registerPlugin(VoicePlugin.class);'), 'voice plugin registered');
+  assert.ok(ma.includes('import ir.moradisadegh.marketboard.VoicePlugin;'));
+  assert.ok(existsSync(join(PKG_DIR, 'VoicePlugin.java')));
+  assert.ok(mf.includes('android.permission.RECORD_AUDIO'));
+  assert.match(mf, /<queries>[\s\S]*android\.speech\.RecognitionService[\s\S]*android\.intent\.action\.TTS_SERVICE[\s\S]*<\/queries>\s*<application/, '<queries> is a child of <manifest>, before <application>');
   console.log('  ✓ registered, permissions added, receivers declared inside <application>, braces balanced');
 
   run(); // second run
@@ -58,6 +64,9 @@ console.log('scenario A: Capacitor 6 default MainActivity (empty body, no onCrea
   assert.equal((readFileSync(MANIFEST, 'utf8').match(/POST_NOTIFICATIONS/g) || []).length, 1, 'no duplicate notification permission either');
   assert.equal((readFileSync(MANIFEST, 'utf8').match(/SmsAskReceiver/g) || []).length, 1, 'no duplicate receiver');
   assert.equal((readFileSync(MANIFEST, 'utf8').match(/SmsChoiceReceiver/g) || []).length, 1, 'no duplicate receiver');
+  assert.equal((ma2.match(/registerPlugin\(VoicePlugin\.class\)/g) || []).length, 1);
+  assert.equal((readFileSync(MANIFEST, 'utf8').match(/<queries>/g) || []).length, 1);
+  assert.equal((readFileSync(MANIFEST, 'utf8').match(/RECORD_AUDIO/g) || []).length, 1);
   console.log('  ✓ idempotent: second run changed nothing');
 }
 
@@ -70,6 +79,7 @@ console.log('\nscenario B: MainActivity already has onCreate with other setup co
   run();
   const ma = readFileSync(MA, 'utf8');
   assert.ok(ma.includes('registerPlugin(SmsReaderPlugin.class);'));
+  assert.ok(ma.includes('registerPlugin(VoicePlugin.class);'));
   assert.ok(ma.includes('some other plugin\'s setup'), 'pre-existing onCreate body must be preserved');
   assert.equal((ma.match(/void onCreate/g) || []).length, 1, 'exactly one onCreate, not a duplicate');
   assert.equal((ma.match(/\{/g) || []).length, (ma.match(/\}/g) || []).length, 'braces balanced');
