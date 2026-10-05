@@ -60,7 +60,9 @@ NAME = ['مالی من', 'سلام مالی من', 'مالی من، قیمت د�
 OTHER = ['دلار آزاد الان دویستُ شصتُ هشت هزارُ سیصد تومنه؛ امروز یکُ دو دهم درصد رفته بالا.', 'هزینه بود، درآمد، یا انتقال بین حساب‌های خودت؟',
          'متوجه نشدم. می‌تونید تراکنش بگید یا قیمتُ نمودار بپرسید.', 'از کدوم حساب یا کارت؟ کیف پول نقد، بانک ملت؟']
 import tempfile
-for sens, need in [('sensitive', 15), ('careful', 10)]:
+# the voice is not bit-identical across CPUs even with its randomness off (this sandbox: 15/15 and 11/15; a GitHub
+# runner: 14/15 and 12/15), so the bar leaves room: a broken model or wrong keywords hear next to nothing
+for sens, need in [('sensitive', 12), ('careful', 8)]:
     kw = tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False, encoding='utf-8')
     kw.write('\n'.join(arr('SENSITIVE' if sens == 'sensitive' else 'CAREFUL')) + '\n')
     kw.close()
