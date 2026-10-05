@@ -10,7 +10,7 @@
 // weighed.
 import type { AllocationLine } from '@/lib/types';
 import { accountBalances, unitPrice, type PriceItem } from './calc';
-import type { FinanceData, Iso, MarketKey } from './model';
+import { isMoneyAccount, type FinanceData, type Iso, type MarketKey } from './model';
 
 export type PortfolioClass = AllocationLine['cls'];
 
@@ -56,7 +56,7 @@ export function compareWithSuggested(d: FinanceData, items: PriceItem[], lines: 
   const lastPriced: Comparison['lastPriced'] = [];
   if (opts.includeAccounts) {
     const bal = accountBalances(d);
-    const cash = d.accounts.filter((a) => !a.archived).reduce((s, a) => s + Math.max(0, bal[a.id] ?? 0), 0);
+    const cash = d.accounts.filter(isMoneyAccount).reduce((s, a) => s + Math.max(0, bal[a.id] ?? 0), 0);
     mine.set('cash', (mine.get('cash') ?? 0) + cash);
   }
   for (const a of d.assets) {

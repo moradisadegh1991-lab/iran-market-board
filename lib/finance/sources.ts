@@ -5,9 +5,9 @@
 // typing anything. Two rules keep it honest:
 //  • a card/account becomes one of the user's accounts only when the user links it (or creates an
 //    account for it) — the app never guesses which account an unknown card belongs to;
-//  • the bank-stated balance is shown next to the book balance; the book changes only when the
-//    user presses «یکی کردن با بانک», which sets the opening balance (the one number the app
-//    could not know) so the book agrees with the bank at that moment.
+//  • the bank-stated balance is what the account's balance is built on (balance.ts, rule 76); when the
+//    book disagrees with it, the user is asked why (monthCheck), the app does not pick a reason.
+import { addReported } from './balance';
 import { enqueue } from './importers';
 import { newId, type Account, type FinanceData, type Iso, type SmsSource, type Staged, type Txn } from './model';
 
@@ -43,9 +43,7 @@ export function sourceLabel(src: Pick<SmsSource, 'kind' | 'ref' | 'bank'>): stri
 export function reportBalance(d: FinanceData, accountId: string, rial: number, at: number, via: 'sms' | 'statement') {
   const a = d.accounts.find((x) => x.id === accountId);
   if (!a || !Number.isFinite(rial)) return;
-  const prev = a.reported ? stagedAt({ date: a.reported.date, time: a.reported.time ?? null }) : null;
-  if (prev !== null && prev > at) return;
-  a.reported = { rial: Math.round(rial), date: tehranIso(at), time: tehranTime(at), via };
+  addReported(a, { rial: Math.round(rial), date: tehranIso(at), time: tehranTime(at), via });
 }
 
 /**
@@ -147,7 +145,7 @@ export interface Reconcile {
   reportedRial: number;
   date: Iso;
   time: string | null;
-  via: 'sms' | 'statement';
+  via: 'sms' | 'statement' | 'manual';
   /** what the book says the balance was at that same moment */
   bookRial: number;
   /** bank − book; positive means the book is short */

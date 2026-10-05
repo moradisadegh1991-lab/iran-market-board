@@ -4,52 +4,14 @@ import { accountBalances, netWorth, unitPrice } from '@/lib/finance/calc';
 import { priceOnDay } from '@/lib/finance/prices';
 import { api } from '@/lib/api';
 import { deleteAccount, editAccount } from '@/lib/finance/actions';
-import { ACCOUNT_KIND_LABEL, emptyData, MARKET_ASSETS, newId, normalizeData, tomanToRial, type AccountKind, type FinanceData, type MarketKey } from '@/lib/finance/model';
+import { ACCOUNT_KIND_LABEL, USER_ACCOUNT_KINDS, emptyData, MARKET_ASSETS, newId, normalizeData, tomanToRial, type AccountKind, type FinanceData, type MarketKey } from '@/lib/finance/model';
 import { Empty, PageHead, Toggle } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
 import ClassicMigrate from '../ClassicMigrate';
-import { applyReconcile, createAccountForSource, linkSource, reconcile, sourceLabel } from '@/lib/finance/sources';
+import { createAccountForSource, linkSource, sourceLabel } from '@/lib/finance/sources';
+import { BalanceSource } from '../BalanceChecks';
 import { Card, confirmDelete, Disclosure, fmtDateFa, fmtPctFa, JalaliDate, Money, NumInput, parseAmount, SelectBox, TextInput, TomanInput } from '../kit';
 import { download } from './TransactionsView';
-
-const whenFa = (date: string, time?: string | null) => `${fmtDateFa(date)}${time ? `، ${time.replace(/\d/g, (x) => '۰۱۲۳۴۵۶۷۸۹'[+x])}` : ''}`;
-
-/** What the bank last said is in this account, against the book at that same moment. */
-function BankBalance({ d, accountId }: { d: FinanceData; accountId: string }) {
-  const { update } = useFinance();
-  const r = reconcile(d, accountId);
-  if (!r) return null;
-  const off = Math.abs(r.diffRial) >= 10; // under one toman is rounding
-  return (
-    <span className="bank-balance">
-      <small>
-        طبق {r.via === 'sms' ? 'آخرین پیامک' : 'گردش حساب'} بانک ({whenFa(r.date, r.time)}): <Money rial={r.reportedRial} />
-        {off ? (
-          <>
-            {' '}
-            · دفتر در همان لحظه: <Money rial={r.bookRial} /> · اختلاف <Money rial={r.diffRial} signed className={r.diffRial > 0 ? 'up' : 'down'} />
-          </>
-        ) : (
-          ' · با دفتر یکی است ✓'
-        )}
-      </small>
-      {off ? (
-        <>
-          {r.pending ? <small className="muted">{r.pending.toLocaleString('fa-IR')} تراکنش این حساب هنوز در صف «ورود از بانک» است؛ اول آن‌ها را ثبت کنید.</small> : null}
-          <button
-            className="fin-mini"
-            onClick={() => {
-              if (!window.confirm('موجودی اول دوره این حساب طوری تنظیم شود که دفتر با مانده‌ای که بانک گفته یکی شود؟ تراکنش‌ها دست نمی‌خورند.')) return;
-              update((dr) => void applyReconcile(dr, accountId));
-            }}
-          >
-            یکی کردن با بانک
-          </button>
-        </>
-      ) : null}
-    </span>
-  );
-}
 
 /** Cards and bank accounts the app found in SMS: link each to an account, or make one for it. */
 function SmsSources({ d }: { d: FinanceData }) {
@@ -61,8 +23,8 @@ function SmsSources({ d }: { d: FinanceData }) {
   return (
     <Card title="کارت‌ها و حساب‌های شناخته‌شده از پیامک">
       <p className="muted small">
-        از پیامک‌های بانکی پیدا شده‌اند. هر کدام را به یکی از حساب‌هایتان وصل کنید تا تراکنش‌های بعدی‌اش خودکار به همان حساب برود و مانده‌ای که بانک می‌گوید کنار موجودی دفتر دیده
-        شود.
+        از پیامک‌های بانکی پیدا شده‌اند. هر کدام را به یکی از حساب‌هایتان وصل کنید تا تراکنش‌های بعدی‌اش خودکار به همان حساب برود و موجودی حساب از مانده‌ای که بانک می‌گوید
+        حساب شود.
       </p>
       <ul className="fin-list">
         {list.map((s) => (
@@ -123,10 +85,16 @@ function AccountEdit({ d, id, onDone }: { d: FinanceData; id: string; onDone: ()
   return (
     <div className="fin-grid fin-edit">
       <TextInput label="نام" value={name} onChange={setName} />
-      <SelectBox<AccountKind> label="نوع" value={kind} onChange={setKind} options={Object.entries(ACCOUNT_KIND_LABEL).map(([k, v]) => ({ key: k as AccountKind, label: v }))} />
+      {USER_ACCOUNT_KINDS.includes(a.kind) ? (
+        <SelectBox<AccountKind> label="نوع" value={kind} onChange={setKind} options={USER_ACCOUNT_KINDS.map((k) => ({ key: k, label: ACCOUNT_KIND_LABEL[k] }))} />
+      ) : null}
       <TomanInput label="موجودی فعلی (تومان)" value={balance} onChange={setBalance} />
       <JalaliDate label="تاریخ شروع ثبت این حساب" value={openedOn} onChange={setOpenedOn} />
-      <p className="fin-span muted small">تغییر موجودی فقط «موجودی اول دوره» را جابه‌جا می‌کند؛ تراکنش‌های ثبت‌شده دست نمی‌خورند.</p>
+      <p className="fin-span muted small">
+        {a.reported
+          ? 'موجودی‌ای که می‌نویسید مثل مانده بانک در همین لحظه حساب می‌شود؛ تراکنش‌های ثبت‌شده دست نمی‌خورند.'
+          : 'تغییر موجودی فقط «موجودی اول دوره» را جابه‌جا می‌کند؛ تراکنش‌های ثبت‌شده دست نمی‌خورند.'}
+      </p>
       <div className="fin-span fin-actions">
         <button
           className="btn"
@@ -173,7 +141,7 @@ function Accounts({ d }: { d: FinanceData }) {
                   {a.archived ? ' · بایگانی' : ''}
                   {(d.smsSources ?? []).filter((s) => s.accountId === a.id).map((s) => ` · ${sourceLabel(s)}`).join('')}
                 </small>
-                <BankBalance d={d} accountId={a.id} />
+                <BalanceSource d={d} accountId={a.id} />
               </span>
               <Money rial={bal[a.id] ?? 0} />
               <button className="fin-mini" onClick={() => setEditing(editing === a.id ? null : a.id)} aria-expanded={editing === a.id}>
@@ -208,7 +176,7 @@ function Accounts({ d }: { d: FinanceData }) {
         {(close) => (
           <div className="fin-grid">
             <TextInput label="نام" value={name} onChange={setName} placeholder="مثلاً حساب حقوق ملت" />
-            <SelectBox<AccountKind> label="نوع" value={kind} onChange={setKind} options={Object.entries(ACCOUNT_KIND_LABEL).map(([k, v]) => ({ key: k as AccountKind, label: v }))} />
+            <SelectBox<AccountKind> label="نوع" value={kind} onChange={setKind} options={USER_ACCOUNT_KINDS.map((k) => ({ key: k, label: ACCOUNT_KIND_LABEL[k] }))} />
             <TomanInput label="موجودی امروز (تومان)" value={opening} onChange={setOpening} placeholder="۰" />
             <div className="fin-span fin-actions">
               <button
@@ -227,7 +195,10 @@ function Accounts({ d }: { d: FinanceData }) {
           </div>
         )}
       </Disclosure>
-      <p className="note">موجودی بعد از ساخت حساب از روی تراکنش‌ها حساب می‌شود. اگر با موجودی واقعی بانک فرق کرد، از «ویرایش» موجودی فعلی را بنویسید.</p>
+      <p className="note">
+        موجودی کارت و حسابی که به پیامک بانک وصل است، آخرین مانده‌ای است که بانک گفته به‌علاوه تراکنش‌هایی که بعد از آن ثبت شده؛ اگر «موجودی اول ماه + تراکنش‌های این ماه» با آن
+        نخواند، همین‌جا می‌پرسیم چرا. حساب بدون پیامک (مثل کیف پول نقد) از روی تراکنش‌ها حساب می‌شود؛ اگر فرق کرد، از «ویرایش» موجودی فعلی را بنویسید.
+      </p>
     </Card>
   );
 }
@@ -591,7 +562,7 @@ function Backup({ d }: { d: FinanceData }) {
 function Page({ d }: { d: FinanceData }) {
   return (
     <>
-      <PageHead title="حساب‌ها و دارایی‌ها">موجودی حساب‌ها، دارایی‌هایی که با قیمت روز ارزش‌گذاری می‌شوند، تنظیمات محاسبه و پشتیبان‌گیری.</PageHead>
+      <PageHead title="حساب‌ها و کارت‌ها">موجودی کارت‌ها و حساب‌ها (از پیامک بانک)، دارایی‌هایی که با قیمت روز ارزش‌گذاری می‌شوند، تنظیمات محاسبه و پشتیبان‌گیری.</PageHead>
       <Accounts d={d} />
       <SmsSources d={d} />
       <Assets d={d} />

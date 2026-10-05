@@ -25,6 +25,8 @@
     "test:import": "tsx scripts/import-test.ts",
     "test:app": "tsx scripts/app-test.ts",
     "test:sources": "tsx scripts/sources-test.ts",
+    "test:balance": "tsx scripts/balance-test.ts",
+    "test:shared": "tsx scripts/shared-test.ts",
     "test:smsask": "tsx scripts/sms-ask-test.ts",
     "test:nativesms": "tsx scripts/native-sms-test.ts",
     "test:financeplus": "tsx scripts/finance-plus-test.ts",

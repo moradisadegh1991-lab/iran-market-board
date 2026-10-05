@@ -9,6 +9,7 @@ import { useFinance, WithBook } from '../FinanceProvider';
 import { Bar, Card, fmtDateFa, fmtPctFa, Money, Stat } from '../kit';
 import TxnForm from '../TxnForm';
 import ClassicMigrate from '../ClassicMigrate';
+import { BalanceChecks } from '../BalanceChecks';
 import { unlinkedSources } from '@/lib/finance/sources';
 
 export const QUICK_QUESTIONS = [
@@ -65,7 +66,7 @@ function Onboarding() {
           برای هر دسته <Link href="/budget">بودجه</Link> بگذارید و از <Link href="/advisor">مشاور</Link> بپرسید.
         </li>
       </ol>
-      <p className="note">همه‌چیز فقط در همین مرورگر ذخیره می‌شود. از صفحه «حساب و دارایی» فایل پشتیبان بگیرید.</p>
+      <p className="note">همه‌چیز فقط در همین مرورگر ذخیره می‌شود. از صفحه «حساب‌ها و کارت‌ها» فایل پشتیبان بگیرید.</p>
     </Card>
   );
 }
@@ -87,6 +88,7 @@ function Home({ d }: { d: FinanceData }) {
       </PageHead>
 
       <ClassicMigrate d={d} />
+      <BalanceChecks d={d} />
       {fresh ? <Onboarding /> : null}
 
       <dl className="fin-kpis">

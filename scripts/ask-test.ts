@@ -122,11 +122,12 @@ ok('price answers: toman with today’s move, BTC in dollars and toman, the clos
 
 ok('the book: balance of one account or all, spending this month / last month / by category, income, net worth', () => {
   const b = say('موجودی حساب ملت چقدره');
-  // 50,000,000 + 30,000,000×10… in rial: opening 50m − 12m − 9m − 40m + 300m = 289m rial
-  assert.match(b.text, /^موجودی بانک ملت در دفتر: ۲۸٬۹۰۰٬۰۰۰ تومان \(آخرین مانده‌ای که بانک گفت: ۴٬۸۰۰٬۰۰۰ تومان، دیروز\)/);
-  assert.equal(b.speech, 'موجودی بانک ملت بیست و هشت میلیون و نهصد هزار تومان است.');
-  assert.equal(colloquial(b.speech), 'موجودی بانک ملت بیستُ هشت میلیونُ نهصد هزار تومنه.');
-  assert.match(say('موجودی').text, /^جمع موجودی حساب‌ها: ۲۸٬۶۹۰٬۰۰۰ تومان/);
+  // the bank said 4.8m yesterday and nothing was booked after it → 4.8m (rule 76); the book (opening 50m − 12m − 9m − 40m + 300m
+  // = 289m rial) disagrees by 24.1m, and the answer says so
+  assert.equal(b.text, 'موجودی بانک ملت: ۴٬۸۰۰٬۰۰۰ تومان (بر پایه مانده‌ای که بانک دیروز گفت). با دفتر ۲۴٬۱۰۰٬۰۰۰ تومان اختلاف دارد؛ در صفحه حساب‌ها بگویید چرا.');
+  assert.equal(b.speech, 'موجودی بانک ملت چهار میلیون و هشتصد هزار تومان است.');
+  assert.equal(colloquial(b.speech), 'موجودی بانک ملت چهار میلیونُ هشتصد هزار تومنه.');
+  assert.match(say('موجودی').text, /^جمع موجودی حساب‌ها: ۴٬۵۹۰٬۰۰۰ تومان/); // 4.8m (bank) − 210k cash
   // ۱ مهر = 2026-09-23: this month = 1,2,3,6 → 350k + 1.2m + 900k + 60k
   const m = say('این ماه چقدر خرج کردم');
   assert.match(m.text, /^خرج این ماه \(مهر ۱۴۰۵\): ۲٬۵۱۰٬۰۰۰ تومان\. بیشترینش: خوراک ۱٬۳۱۰٬۰۰۰، حمل‌ونقل ۱٬۲۰۰٬۰۰۰\. درآمد همین مدت: ۳۰٬۰۰۰٬۰۰۰ تومان\.$/);
@@ -136,7 +137,7 @@ ok('the book: balance of one account or all, spending this month / last month / 
   assert.match(say('خرج خوراک این ماه چقدره').text, /^خرج خوراک این ماه \(مهر ۱۴۰۵\): ۱٬۳۱۰٬۰۰۰ تومان\.$/);
   assert.match(say('امروز چقدر خرج کردم').text, /^خرج امروز: ۶۰٬۰۰۰ تومان/);
   assert.match(say('این ماه چقدر درآمد داشتم').text, /^درآمد این ماه \(مهر ۱۴۰۵\): ۳۰٬۰۰۰٬۰۰۰ تومان/);
-  assert.match(say('دارایی خالصم چقدره').text, /^دارایی خالص: ۲۸٬۶۹۰٬۰۰۰ تومان/);
+  assert.match(say('دارایی خالصم چقدره').text, /^دارایی خالص: ۴٬۵۹۰٬۰۰۰ تومان/);
 });
 
 ok('chart: the request names asset and range; the summary reads the real first/last/high/low', () => {
