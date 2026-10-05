@@ -2,6 +2,9 @@
 // document and "today" explicitly so scripts/finance-test.ts can pin the arithmetic.
 //
 // Units: inputs and outputs are RIAL unless a name says otherwise (`…Toman`).
+import { typeInfo, type Business } from '@/lib/biz/model';
+import { creditBalance } from '@/lib/biz/ops';
+import { dailyProfit, priceChecks, sumRows } from '@/lib/biz/reports';
 import { balances } from './balance';
 import { isoToJalali, jalaliMonthLength, jalaliToIso, JALALI_MONTHS } from '@/lib/jalali';
 import { BIZ_CAPITAL_CATEGORY, BIZ_DRAW_CATEGORY, isMoneyAccount, type Bill, type Cheque, type ExpectedIncome, type FinanceData, type Goal, type Iso, type Loan, type MarketKey, type Txn } from './model';
@@ -674,6 +677,8 @@ export function advisorSummary(d: FinanceData, items: PriceItem[], today: Iso) {
       debtServiceToIncomePct: h.debtServicePct === null ? null : Math.round(h.debtServicePct),
       savingsRatePct: h.savingsRatePct === null ? null : Math.round(h.savingsRatePct),
     },
+    // کسب‌وکار من: amounts and the kind of business only — no names of the business, products or customers (rule 7)
+    business: d.biz ? bizSummary(d.biz, today) : null,
     goals: d.goals.map((g) => {
       const p = goalPlan(g, today, d.settings.inflationPct, d.settings.safeYieldPct);
       return {
@@ -689,6 +694,21 @@ export function advisorSummary(d: FinanceData, items: PriceItem[], today: Iso) {
 }
 
 export type AdvisorSummary = ReturnType<typeof advisorSummary>;
+
+function bizSummary(b: Business, today: Iso) {
+  const T = (r: number) => Math.round(r / 10);
+  const m = sumRows(dailyProfit(b, addDays(today, -29), today));
+  const y = sumRows(dailyProfit(b, addDays(today, -364), today));
+  return {
+    kind: typeInfo(b.type).label,
+    last30Days: { salesToman: T(m.revenueRial), costOfGoodsToman: T(m.costRial), expensesToman: T(m.expensesRial), profitToman: T(m.profitRial), invoices: m.orders },
+    last12Months: { salesToman: T(y.revenueRial), profitToman: T(y.profitRial) },
+    creditOwedByCustomersToman: T(b.credit.reduce((s, c) => s + Math.max(0, creditBalance(c)), 0)),
+    stockValueToman: T(b.ingredients.reduce((s, i) => s + Math.max(0, i.stock) * i.unitCostRial, 0)),
+    productsUnderCost: priceChecks(b).filter((x) => (x.marginPct ?? -1) < 0).length,
+    note: 'حساب‌های کسب‌وکار جزو حساب‌ها و دارایی خالص بالا هستند؛ فروش و هزینه کسب‌وکار در درآمد و خرج شخصی نیستند و برداشت صاحب کار درآمد شخصی حساب شده.',
+  };
+}
 
 
 /**

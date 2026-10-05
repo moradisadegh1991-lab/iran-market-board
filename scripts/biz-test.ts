@@ -6,7 +6,7 @@
  * Run: npx tsx scripts/biz-test.ts
  */
 import assert from 'node:assert';
-import { accountBalances, monthOf, monthTotals, netWorth } from '../lib/finance/calc';
+import { accountBalances, advisorSummary, monthOf, monthTotals, netWorth } from '../lib/finance/calc';
 import { deleteTxn } from '../lib/finance/actions';
 import { emptyData, normalizeData, type FinanceData } from '../lib/finance/model';
 import {
@@ -319,6 +319,15 @@ ok('old orders fold into daily rows: the reports do not change', () => {
   assert.equal(b.orders.length, 1);
   assert.deepEqual(sumRows(dailyProfit(b, '2025-01-01', TODAY)), before);
   assert.equal(b.archive['2025-06-01'].orders, 1);
+});
+
+ok('the advisor gets the shop’s numbers, never its names or customers (rule 7)', () => {
+  const { d, burger } = shop();
+  quickSale(d, { items: [{ itemId: burger.id, qty: 2 }], channel: 'walkin', customerName: 'سارا', customerPhone: '09121234567', pay: 'cash', at: at('12:00') });
+  const sum = advisorSummary(d, [], TODAY);
+  assert.deepEqual([sum.business!.kind, sum.business!.last30Days.salesToman, sum.business!.last30Days.profitToman], ['فست‌فود', 500_000, 180_000]);
+  const json = JSON.stringify(sum);
+  for (const secret of ['برگر رضا', 'همبرگر', 'سارا', '0912', 'نان', 'گوشت']) assert.ok(!json.includes(secret), `leaks ${secret}`);
 });
 
 ok('backup round trip keeps the business; an old backup without one still loads', () => {

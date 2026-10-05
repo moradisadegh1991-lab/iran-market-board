@@ -38,7 +38,8 @@ const home = (): Btn[] => [{ text: '🏠 صفحه کسب‌وکار', callback_d
 
 /** the bot's @username, for the links the owner shares */
 export async function botUsername(): Promise<string | null> {
-  if (process.env.TELEGRAM_BOT_USERNAME) return process.env.TELEGRAM_BOT_USERNAME.replace(/^@/, '');
+  const named = process.env.TELEGRAM_BOT_USERNAME || process.env.NEXT_PUBLIC_BOT_USERNAME;
+  if (named) return named.replace(/^@/, '');
   if (!process.env.TELEGRAM_BOT_TOKEN) return null;
   const cached = await kv.get<string>('tg:botname');
   if (cached) return cached;

@@ -4,6 +4,9 @@
 // a last price when the market is closed — CLAUDE.md rule 54); a chart is a request the screen fetches
 // from /api/chart (only the asset and range leave the device); everything about the user's own book is
 // computed here, on the device (rule 7).
+import { dailyProfit, lowStock, sumRows } from '@/lib/biz/reports';
+import { creditBalance } from '@/lib/biz/ops';
+import { tehranParts } from '@/lib/biz/slots';
 import { openChecks } from '../finance/balance';
 import { accountBalances, monthBounds, monthLabel, monthOf, netWorth, shiftMonth, totalsBetween, addDays, type PriceItem } from '../finance/calc';
 import { isMoneyAccount, type FinanceData, type Iso } from '../finance/model';
@@ -58,7 +61,8 @@ export type Question =
   | { type: 'flow'; what: 'expense' | 'income'; from: Iso; to: Iso; period: string; categoryId: string | null }
   | { type: 'networth' }
   | { type: 'help' }
-  | { type: 'need-asset' };
+  | { type: 'need-asset' }
+  | { type: 'biz'; what: 'sales' | 'profit' | 'pending' | 'bookings' | 'stock' | 'credit'; from: Iso; to: Iso; period: string };
 
 const ASKING = /(^| )(چند|چنده|چنده؟|چقدر|چقدره|چه قدر|چطوره|چطور|کدومه|بگو|بگید|بفرما|نشون|نشان|نشونم|ببینم|میخوام|می خوام|قیمت|نرخ|موجودی|مانده)( |$)/;
 const CHART = /(^| )(نمودار|چارت|گراف|روند)/;
@@ -134,6 +138,30 @@ export function parseQuestion(d: FinanceData, raw: string, today: Iso): Question
     return { type: 'balance', accountId: h.length ? h[0].id : null };
   }
   if (/(^| )(دارایی خالص|کل دارایی|کل داراییم|ثروت|دارایی هام|داراییم)/.test(c)) return { type: 'networth' };
+  // کسب‌وکار من (lib/biz): asked about the shop, not the person
+  if (d.biz) {
+    const shop = /(^| )(مغازه|کسب ?و ?کار|کسب‌وکار|فروشگاه|کافه|سالن|آرایشگاه|کارگاه)/.test(c);
+    const what: Extract<Question, { type: 'biz' }>['what'] | null = /(^| )(نوبت|نوبتا|نوبت‌ها|نوبتهای|رزرو)/.test(c)
+      ? 'bookings'
+      : /(^| )سفارش/.test(c) && /(انتظار|تأیید|تایید|جدید|تازه|چند)/.test(c)
+        ? 'pending'
+        : /(^| )(انبار|موجودی انبار|تموم|تمام شده|کم داریم|کمه)/.test(c) && (shop || /(^| )(انبار|تموم|کم داریم)/.test(c))
+          ? 'stock'
+          : /(^| )(نسیه|طلب از مشتری|طلبم از مشتری)/.test(c)
+            ? 'credit'
+            : /(^| )(سود|سودم)/.test(c) && (shop || asked)
+              ? 'profit'
+              : /(^| )(فروش|فروشم|فروختم|فروختیم|دخل)/.test(c) && (shop || asked || /(^| )(امروز|دیروز|این)/.test(c))
+                ? 'sales'
+                : null;
+    if (what) {
+      if (what === 'bookings') {
+        const day = / فردا /.test(` ${c} `) ? addDays(today, 1) : today;
+        return { type: 'biz', what, from: day, to: day, period: day === today ? 'امروز' : 'فردا' };
+      }
+      return { type: 'biz', what, ...flowPeriod(c, today) };
+    }
+  }
   const spend = /(^| )(خرج|هزینه|خرید|پرداخت)/.test(c);
   const earn = /(^| )(درآمد|درامد|دریافتی|حقوق|دخل)/.test(c);
   if ((spend || earn) && (asked || /(^| )(کردم|کردیم|داشتم|شد)( |$)/.test(c))) {
@@ -252,6 +280,8 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
         link: { href: '/', label: 'داشبورد' },
       };
     }
+    case 'biz':
+      return bizAnswer(d, today, q);
     case 'flow': {
       const t = totalsBetween(d, q.from, q.to);
       const cat = q.categoryId ? d.categories.find((c) => c.id === q.categoryId) : null;
@@ -272,6 +302,65 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
         text: `${head}.${top}${income}`,
         speech: q.what === 'expense' ? `${q.period.replace(/ \(.*\)$/, '')}${cat ? ` برای ${cat.name}` : ''} ${amountWords(Math.round(rial / 10) * 10)} خرج کردی.` : `${q.period.replace(/ \(.*\)$/, '')}${cat ? ` از ${cat.name}` : ''} ${amountWords(Math.round(rial / 10) * 10)} درآمد داشتی.`,
         link: { href: '/transactions', label: 'تراکنش‌ها' },
+      };
+    }
+  }
+}
+
+/** The shop's numbers, from the same reports as its pages (lib/biz/reports.ts); all on the device. */
+function bizAnswer(d: FinanceData, today: Iso, q: Extract<Question, { type: 'biz' }>): Reply {
+  const b = d.biz!;
+  const per = q.period.replace(/ \(.*\)$/, '');
+  const toman = (rial: number) => `${fa(Math.round(rial / 10))} تومان`;
+  const words = (rial: number) => `${rial < 0 ? 'منفی ' : ''}${amountWords(Math.abs(Math.round(rial / 10) * 10))}`;
+  switch (q.what) {
+    case 'sales':
+    case 'profit': {
+      const t = sumRows(dailyProfit(b, q.from, q.to));
+      if (q.what === 'sales')
+        return {
+          text: `فروش ${b.name} ${q.period}: ${toman(t.revenueRial)} در ${fa(t.orders)} فاکتور.`,
+          speech: `${per} ${b.name} ${words(t.revenueRial)} فروخت${t.orders ? `، ${numToWords(t.orders)} تا فاکتور` : ''}.`,
+          link: { href: '/biz/money', label: 'هزینه و سود' },
+        };
+      return {
+        text: `سود ${b.name} ${q.period}: ${toman(t.profitRial)} (فروش ${toman(t.revenueRial)} − بهای تمام‌شده ${toman(t.costRial)} − هزینه‌ها ${toman(t.expensesRial)}).`,
+        speech: `سود ${per} ${words(t.profitRial)} بوده.`,
+        link: { href: '/biz/money', label: 'هزینه و سود' },
+      };
+    }
+    case 'pending': {
+      const p = b.orders.filter((o) => o.status === 'pending');
+      return {
+        text: p.length ? `${fa(p.length)} سفارش منتظر تأیید است: ${p.slice(0, 5).map((o) => `${o.customerName ?? 'بی‌نام'} (${toman(o.totalRial)})`).join('، ')}.` : 'سفارشی منتظر تأیید نیست.',
+        speech: p.length ? `${numToWords(p.length)} تا سفارش منتظر تأییده.` : 'سفارشی منتظر نیست.',
+        link: { href: '/biz/orders', label: 'سفارش‌ها' },
+      };
+    }
+    case 'bookings': {
+      const list = b.bookings.filter((x) => x.status !== 'canceled' && tehranParts(x.startsAt).date === q.from).sort((x, y) => x.startsAt - y.startsAt);
+      const time = (ms: number) => tehranParts(ms).time;
+      return {
+        text: list.length ? `نوبت‌های ${q.period}: ${list.map((x) => `${time(x.startsAt).replace(/\d/g, (c) => '۰۱۲۳۴۵۶۷۸۹'[+c])} ${x.customerName ?? x.customerPhone} (${x.serviceNames.join(' + ')})`).join('، ')}.` : `${q.period} نوبتی ندارید.`,
+        speech: list.length ? `${per} ${numToWords(list.length)} تا نوبت داری؛ اولیش ساعت ${numToWords(+time(list[0].startsAt).slice(0, 2))}${+time(list[0].startsAt).slice(3) ? ` و ${numToWords(+time(list[0].startsAt).slice(3))} دقیقه` : ''} است.` : `${per} نوبتی نداری.`,
+        link: { href: '/biz/booking', label: 'نوبت‌دهی' },
+      };
+    }
+    case 'stock': {
+      const low = lowStock(b);
+      return {
+        text: low.length ? `به نقطه سفارش رسیده: ${low.map((i) => `${i.name} (${fa(i.stock, 2)} ${i.unit})`).join('، ')}.` : 'هیچ قلمی از انبار به نقطه سفارش نرسیده.',
+        speech: low.length ? `${low.slice(0, 3).map((i) => i.name).join('، ')} رو باید سفارش بدی.` : 'انبار فعلاً کم و کسری نداره.',
+        link: { href: '/biz/stock', label: 'انبار' },
+      };
+    }
+    case 'credit': {
+      const open = b.credit.map((c) => ({ c, r: creditBalance(c) })).filter((x) => x.r > 0).sort((x, y) => y.r - x.r);
+      const total = open.reduce((s, x) => s + x.r, 0);
+      return {
+        text: open.length ? `طلب نسیه: ${toman(total)} — ${open.slice(0, 4).map((x) => `${x.c.name} ${toman(x.r)}`).join('، ')}.` : 'کسی نسیه بدهکار نیست.',
+        speech: open.length ? `روی هم ${words(total)} از مشتری‌ها طلب داری.` : 'کسی بهت بدهکار نیست.',
+        link: { href: '/biz/customers', label: 'دفتر نسیه' },
       };
     }
   }
