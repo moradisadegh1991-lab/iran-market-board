@@ -33,6 +33,8 @@ interface Item {
   summary?: string;
 }
 
+// opened by the phone's assist gesture, the tile or the shortcut (rule 74): short, and it listens right away
+const ASSIST_HI = 'بفرمایید؛ گوش می‌دهم. بپرسید یا تراکنش بگویید.';
 const GREETING = 'سلام! تراکنش بگویید تا ثبت کنم، یا بپرسید: «قیمت دلار چنده؟»، «نمودار سه ماه گذشته طلای ۱۸ عیار»، «این ماه چقدر خرج کردم؟».';
 
 /**
@@ -40,7 +42,7 @@ const GREETING = 'سلام! تراکنش بگویید تا ثبت کنم، یا 
  * on «بله» (lib/finance/voice.ts); ask a question and it answers in text and speech, with a chart when asked
  * (lib/assistant/ask.ts). Hearing and speaking: lib/voice-io.ts. `mode="txn"` starts by asking for a transaction.
  */
-export default function Assistant({ onClose, mode = 'any' }: { onClose: () => void; mode?: 'any' | 'txn' }) {
+export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClose: () => void; mode?: 'any' | 'txn'; listen?: number }) {
   const { data, today, update, items } = useFinance();
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -63,6 +65,10 @@ export default function Assistant({ onClose, mode = 'any' }: { onClose: () => vo
   const alive = useRef(true);
   // after the first tap on the mic, it listens again by itself while a transaction still needs answers
   const handsFree = useRef(false);
+  const listening = useRef(false);
+  // `listen` counts the phone's requests for the assistant; the first one opened this sheet
+  const assisted = useRef(listen > 0);
+  const lastListen = useRef(listen);
   const logRef = useRef<HTMLOListElement | null>(null);
   const started = useRef(false);
   const chartsSaid = useRef(new Set<number>());
@@ -103,14 +109,25 @@ export default function Assistant({ onClose, mode = 'any' }: { onClose: () => vo
       txnRef.current = s.done ? null : s;
       setTxn(txnRef.current);
       push({ who: 'bot', text: s.say });
-    } else push({ who: 'bot', text: GREETING });
+    } else push({ who: 'bot', text: assisted.current ? ASSIST_HI : GREETING });
   }, [data, today, mode, push]);
 
   // say the opening line when the voice is ready
   useEffect(() => {
-    if (io && log.length === 1 && log[0].who === 'bot') void say(log[0].text);
+    if (!io) return;
+    if (assisted.current) void assist('بفرمایید');
+    else if (log.length === 1 && log[0].who === 'bot') void say(log[0].text);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [io]);
+
+  // asked again while open: listen (once the voice is ready, the effect above does it)
+  useEffect(() => {
+    if (listen === lastListen.current) return;
+    lastListen.current = listen;
+    if (ioRef.current) void assist();
+    else assisted.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listen]);
 
   useEffect(() => {
     const el = logRef.current;
@@ -150,20 +167,31 @@ export default function Assistant({ onClose, mode = 'any' }: { onClose: () => vo
     }
   }
 
+  /** The phone asked for the assistant: (a word, then) listen straight away, hands-free. */
+  async function assist(hi?: string) {
+    if (listening.current) return;
+    handsFree.current = true;
+    if (hi) await say(hi);
+    if (alive.current && !listening.current) void listenOnce(true);
+  }
+
   async function listenOnce(auto = false, retried = false) {
     const x = ioRef.current;
     if (!x?.canListen) return;
+    listening.current = true;
     x.hush();
     setProblem(null);
     setPartial('');
     setPhase('listening');
     try {
       const alts = await x.listen((t) => alive.current && setPartial(t), txnRef.current?.say);
+      listening.current = false;
       if (!alive.current) return;
       setPhase('idle');
       setPartial('');
       heard(alts);
     } catch (e) {
+      listening.current = false;
       if (!alive.current) return;
       setPhase('idle');
       setPartial('');

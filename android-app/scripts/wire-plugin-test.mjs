@@ -48,13 +48,17 @@ console.log('scenario A: Capacitor 6 default MainActivity (empty body, no onCrea
   assert.ok(mf.includes('android.permission.RECEIVE_SMS'), 'the ask notification needs SMS_RECEIVED');
   // the SMS receiver only from the system; the button receiver only from the app itself
   assert.match(mf, /<receiver android:name="\.SmsAskReceiver" android:exported="true" android:permission="android\.permission\.BROADCAST_SMS">\s*<intent-filter>\s*<action android:name="android\.provider\.Telephony\.SMS_RECEIVED" \/>/);
-  assert.match(mf, /<receiver android:name="\.SmsChoiceReceiver" android:exported="false" \/>\s*<\/application>/);
+  assert.match(mf, /<receiver android:name="\.SmsChoiceReceiver" android:exported="false" \/>[\s\S]*<\/application>/);
   // the voice assistant: its plugin, the mic, and the speech services Android 11+ hides otherwise
   assert.ok(ma.includes('registerPlugin(VoicePlugin.class);'), 'voice plugin registered');
   assert.ok(ma.includes('import ir.moradisadegh.marketboard.VoicePlugin;'));
   assert.ok(existsSync(join(PKG_DIR, 'VoicePlugin.java')));
   assert.ok(mf.includes('android.permission.RECORD_AUDIO'));
   assert.match(mf, /<queries>[\s\S]*android\.speech\.RecognitionService[\s\S]*android\.intent\.action\.TTS_SERVICE[\s\S]*<\/queries>\s*<application/, '<queries> is a child of <manifest>, before <application>');
+  // the assistant from anywhere: assist gesture + voice button + icon shortcut on MainActivity, and the tile
+  assert.match(mf, /<activity android:name="\.MainActivity">[\s\S]*android\.intent\.action\.ASSIST[\s\S]*android\.intent\.action\.VOICE_COMMAND[\s\S]*@xml\/assist_shortcuts[\s\S]*<\/activity>/);
+  assert.match(mf, /<service android:name="\.AssistTile" android:exported="true"[^>]*BIND_QUICK_SETTINGS_TILE">\s*<intent-filter>\s*<action android:name="android\.service\.quicksettings\.action\.QS_TILE" \/>/);
+  assert.ok(existsSync(join(PKG_DIR, 'AssistTile.java')));
   console.log('  ✓ registered, permissions added, receivers declared inside <application>, braces balanced');
 
   run(); // second run
@@ -67,6 +71,8 @@ console.log('scenario A: Capacitor 6 default MainActivity (empty body, no onCrea
   assert.equal((ma2.match(/registerPlugin\(VoicePlugin\.class\)/g) || []).length, 1);
   assert.equal((readFileSync(MANIFEST, 'utf8').match(/<queries>/g) || []).length, 1);
   assert.equal((readFileSync(MANIFEST, 'utf8').match(/RECORD_AUDIO/g) || []).length, 1);
+  assert.equal((readFileSync(MANIFEST, 'utf8').match(/android\.intent\.action\.ASSIST/g) || []).length, 1);
+  assert.equal((readFileSync(MANIFEST, 'utf8').match(/AssistTile/g) || []).length, 1);
   console.log('  ✓ idempotent: second run changed nothing');
 }
 

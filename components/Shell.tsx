@@ -7,6 +7,7 @@ import { useNotify } from './NotifyProvider';
 import { fmtDateTimeFa } from '@/lib/num';
 import { BOTTOM_TABS, NAV_GROUPS, pageOf } from './nav';
 import Assistant from './assistant/Assistant';
+import { onAssist } from '@/lib/voice-io';
 
 /**
  * One app: on a phone a compact header, a bottom bar for the four places used every day and a
@@ -75,6 +76,16 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const { unread } = useNotify();
   const [more, setMore] = useState(false);
   const [ask, setAsk] = useState(false);
+  // the phone asked for the assistant (assist gesture, tile, shortcut — rule 74): open it and listen
+  const [assistN, setAssistN] = useState(0);
+  useEffect(
+    () =>
+      onAssist(() => {
+        setAsk(true);
+        setAssistN((n) => n + 1);
+      }),
+    [],
+  );
   const failing = snap?.sources.filter((s) => !s.ok && s.ageSec === null).length ?? 0;
   const here = pageOf(path);
   const inBottom = (BOTTOM_TABS as readonly string[]).includes(path);
@@ -175,7 +186,15 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       ) : null}
-      {ask ? <Assistant onClose={() => setAsk(false)} /> : null}
+      {ask ? (
+        <Assistant
+          listen={assistN}
+          onClose={() => {
+            setAsk(false);
+            setAssistN(0);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

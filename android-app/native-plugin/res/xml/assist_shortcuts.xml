@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- long-press the app icon → «دستیار»: opens straight into the assistant, listening (rule 74) -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="assist"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/imf_assist_short"
+        android:shortcutLongLabel="@string/imf_assist_long">
+        <intent
+            android:action="ir.moradisadegh.marketboard.ASSIST"
+            android:targetPackage="ir.moradisadegh.marketboard"
+            android:targetClass="ir.moradisadegh.marketboard.MainActivity" />
+    </shortcut>
+</shortcuts>

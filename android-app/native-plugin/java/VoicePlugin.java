@@ -57,6 +57,8 @@ public class VoicePlugin extends Plugin {
     static final String LANG = "fa-IR";
     static final Locale FA = Locale.forLanguageTag("fa-IR");
     static final String GOOGLE_TTS = "com.google.android.tts";
+    /** the app's own «open the assistant» action: the quick-settings tile and the icon shortcut (rule 74) */
+    static final String ACTION_ASSIST = "ir.moradisadegh.marketboard.ASSIST";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private SpeechRecognizer recognizer;
@@ -68,6 +70,8 @@ public class VoicePlugin extends Plugin {
     private final List<String> ttsTried = new ArrayList<>();
     private List<String> ttsInstalled = new ArrayList<>();
     private final Map<String, PluginCall> speaking = new HashMap<>();
+    /** the app was opened to talk to the assistant (assist gesture, tile, shortcut) and the page has not taken it yet */
+    private volatile boolean pendingAssist;
     /** the built-in voice, or null when this APK was built without it */
     private Speaker builtIn;
 
@@ -107,6 +111,11 @@ public class VoicePlugin extends Plugin {
     public void load() {
         Context ctx = getContext();
         CrashLog.install(ctx);
+        try {
+            if (getActivity() != null && takeAssistFrom(getActivity().getIntent())) pendingAssist = true;
+        } catch (Throwable ignored) {
+            // no launch intent to read
+        }
         // the last run died inside the built-in voice's native code: keep it off until the user retries
         TtsGuard.check(ctx, CrashLog.lastExitWasCrash(ctx));
         builtIn = loadBuiltIn(ctx);
@@ -115,6 +124,41 @@ public class VoicePlugin extends Plugin {
         } catch (Throwable t) {
             ttsFa = false;
         }
+    }
+
+    /**
+     * Was the app opened to talk to the assistant? The phone's assist gesture (long-press the side or home key, when
+     * «مالی من» is the default digital assistant: ACTION_ASSIST), a headset's voice button (VOICE_COMMAND), the
+     * quick-settings tile and the icon shortcut (ACTION_ASSIST of this app).
+     */
+    static boolean isAssist(Intent i) {
+        if (i == null || i.getAction() == null) return false;
+        String a = i.getAction();
+        return Intent.ACTION_ASSIST.equals(a) || Intent.ACTION_VOICE_COMMAND.equals(a) || ACTION_ASSIST.equals(a);
+    }
+
+    /** isAssist, and the intent is marked used so a rotation or a return to the app does not open it again. */
+    static boolean takeAssistFrom(Intent i) {
+        if (!isAssist(i)) return false;
+        i.setAction(Intent.ACTION_MAIN);
+        return true;
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        if (!takeAssistFrom(intent)) return;
+        // the page is up and listening → tell it now; otherwise it asks with takeAssist once it is
+        if (hasListeners("assist")) notifyListeners("assist", new JSObject());
+        else pendingAssist = true;
+    }
+
+    /** The page asks once it is up: «open the assistant and listen». */
+    @PluginMethod
+    public void takeAssist(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("assist", pendingAssist);
+        pendingAssist = false;
+        call.resolve(ret);
     }
 
     /** Why the app closed last time (once), for the assistant to show: CrashLog. */

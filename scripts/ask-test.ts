@@ -9,6 +9,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import { answerQuestion, assetIn, chartSummary, parseQuestion, pctWords, periodDays, tfFor, type Question } from '../lib/assistant/ask';
 import type { PriceItem } from '../lib/finance/calc';
+import { colloquial, speakable } from '../lib/voice-io';
 import { emptyData, type FinanceData } from '../lib/finance/model';
 
 let n = 0;
@@ -103,9 +104,11 @@ ok('what was asked', () => {
 ok('price answers: toman with today’s move, BTC in dollars and toman, the closed market’s last price with its day', () => {
   const usd = say('قیمت دلار الان چنده؟');
   assert.equal(usd.text, 'دلار آزاد: ۱۰۲٬۴۵۰ تومان؛ امروز ۱٫۲٪ بالا.');
-  assert.equal(usd.speech, 'دلار آزاد الان صد و دو هزار و چهارصد و پنجاه تومان؛ امروز یک و دو دهم درصد بالا رفته.');
+  assert.equal(usd.speech, 'دلار آزاد الان صد و دو هزار و چهارصد و پنجاه تومان است؛ امروز یک و دو دهم درصد رفته بالا.');
+  // what the voice actually gets: spoken Persian, «و» joined to the number before it, «تومنه»
+  assert.equal(colloquial(speakable(usd.speech)), 'دلار آزاد الان صدُ دو هزارُ چهارصدُ پنجاه تومنه؛ امروز یکُ دو دهم درصد رفته بالا.');
   const g = say('طلا چند');
-  assert.match(g.speech, /^هر گرم طلای هجده عیار الان هشت میلیون و هفتصد و شصت هزار تومان؛ امروز چهار دهم درصد پایین آمده\.$/);
+  assert.equal(g.speech, 'هر گرم طلای هجده عیار الان هشت میلیون و هفتصد و شصت هزار تومان است؛ امروز چهار دهم درصد اومده پایین.');
   const btc = say('بیت کوین چقدره');
   assert.match(btc.text, /^بیت‌کوین: ۶۱٬۲۳۵ دلار \(حدود ۶٬۳۰۷٬۱۵۳٬۵۰۰ تومان\)/);
   const coin = say('سکه چنده');
@@ -122,11 +125,13 @@ ok('the book: balance of one account or all, spending this month / last month / 
   // 50,000,000 + 30,000,000×10… in rial: opening 50m − 12m − 9m − 40m + 300m = 289m rial
   assert.match(b.text, /^موجودی بانک ملت در دفتر: ۲۸٬۹۰۰٬۰۰۰ تومان \(آخرین مانده‌ای که بانک گفت: ۴٬۸۰۰٬۰۰۰ تومان، دیروز\)/);
   assert.equal(b.speech, 'موجودی بانک ملت بیست و هشت میلیون و نهصد هزار تومان است.');
+  assert.equal(colloquial(b.speech), 'موجودی بانک ملت بیستُ هشت میلیونُ نهصد هزار تومنه.');
   assert.match(say('موجودی').text, /^جمع موجودی حساب‌ها: ۲۸٬۶۹۰٬۰۰۰ تومان/);
   // ۱ مهر = 2026-09-23: this month = 1,2,3,6 → 350k + 1.2m + 900k + 60k
   const m = say('این ماه چقدر خرج کردم');
   assert.match(m.text, /^خرج این ماه \(مهر ۱۴۰۵\): ۲٬۵۱۰٬۰۰۰ تومان\. بیشترینش: خوراک ۱٬۳۱۰٬۰۰۰، حمل‌ونقل ۱٬۲۰۰٬۰۰۰\. درآمد همین مدت: ۳۰٬۰۰۰٬۰۰۰ تومان\.$/);
-  assert.equal(m.speech, 'خرج این ماه (مهر ۱۴۰۵) دو میلیون و پانصد و ده هزار تومان بوده.');
+  assert.equal(m.speech, 'این ماه دو میلیون و پانصد و ده هزار تومان خرج کردی.');
+  assert.equal(colloquial(m.speech), 'این ماه دو میلیونُ پونصدُ ده هزار تومن خرج کردی.');
   assert.match(say('خرج ماه پیش چقدر بود').text, /^خرج شهریور ۱۴۰۵: ۴٬۰۰۰٬۰۰۰ تومان/);
   assert.match(say('خرج خوراک این ماه چقدره').text, /^خرج خوراک این ماه \(مهر ۱۴۰۵\): ۱٬۳۱۰٬۰۰۰ تومان\.$/);
   assert.match(say('امروز چقدر خرج کردم').text, /^خرج امروز: ۶۰٬۰۰۰ تومان/);
@@ -140,10 +145,16 @@ ok('chart: the request names asset and range; the summary reads the real first/l
   assert.equal(r.link?.href, '/charts?asset=g18&tf=3m');
   const s = chartSummary(r.chart!, { first: 8_000_000, last: 8_760_000, changePct: 9.5, high: 8_900_000, low: 7_850_000 });
   assert.equal(s.text, 'سه ماه گذشته: از ۸٬۰۰۰٬۰۰۰ به ۸٬۷۶۰٬۰۰۰ تومان (۹٫۵٪ بالا). بیشترین ۸٬۹۰۰٬۰۰۰، کمترین ۷٬۸۵۰٬۰۰۰.');
-  assert.equal(s.speech, 'هر گرم طلای هجده عیار در سه ماه گذشته از هشت میلیون به هشت میلیون و هفتصد و شصت هزار تومان رسید؛ یعنی نه و پنج دهم درصد بالا رفت.');
+  assert.equal(s.speech, 'هر گرم طلای هجده عیار توی سه ماه گذشته از هشت میلیون رسیده به هشت میلیون و هفتصد و شصت هزار تومان؛ یعنی نه و پنج دهم درصد رفته بالا.');
+  // «نه» the number is «نُه» (the voice reads a bare «نه» as «na», “no”)
+  assert.equal(colloquial(s.speech), 'هر گرم طلای هجده عیار توی سه ماه گذشته از هشت میلیون رسیده به هشت میلیونُ هفتصدُ شصت هزار تومن؛ یعنی نُه وُ پنج دهم درصد رفته بالا.');
+  // a big price is said to the thousand, a big move to the whole percent
+  const big = chartSummary(r.chart!, { first: 17_740_700, last: 26_327_800, changePct: 48.4, high: 1, low: 1 });
+  assert.equal(big.speech, 'هر گرم طلای هجده عیار توی سه ماه گذشته از هفده میلیون و هفتصد و چهل و یک هزار رسیده به بیست و شش میلیون و سیصد و بیست و هشت هزار تومان؛ یعنی چهل و هشت درصد رفته بالا.');
   assert.match(chartSummary(r.chart!, null).text, /داده کافی نیست/);
   assert.equal(pctWords(0.04), 'صفر درصد');
-  assert.equal(pctWords(-12.36), 'دوازده و چهار دهم درصد');
+  assert.equal(pctWords(-12.36), 'دوازده درصد', 'a big move: the whole percent');
+  assert.equal(pctWords(-2.36), 'دو و چهار دهم درصد');
 });
 
 ok('every question type answers without throwing on an empty book and an empty board', () => {

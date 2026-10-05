@@ -161,12 +161,15 @@ const digitsFor = (v: number, unit: string) => (unit === 'toman' ? 0 : v >= 100 
 
 /** 1.24 → «یک و دو دهم درصد» (one decimal, as people say it). */
 export function pctWords(p: number): string {
-  const a = Math.round(Math.abs(p) * 10) / 10;
+  // «چهل و هشت درصد», not «چهل و هشت و چهار دهم»: a tenth matters only for small moves
+  const a = Math.abs(p) >= 10 ? Math.round(Math.abs(p)) : Math.round(Math.abs(p) * 10) / 10;
   const int = Math.floor(a);
   const dec = Math.round((a - int) * 10);
   const parts = [int ? numToWords(int) : '', dec ? `${numToWords(dec)} دهم` : ''].filter(Boolean);
   return `${parts.length ? parts.join(' و ') : 'صفر'} درصد`;
 }
+/** A price said aloud: to the thousand from a million up («بیست و شش میلیون و سیصد و بیست و هشت هزار»), as people say it. */
+export const spokenAmount = (v: number) => numToWords(Math.abs(v) >= 1e6 ? Math.round(v / 1000) * 1000 : Math.abs(v) >= 100 ? Math.round(v) : v);
 const pctFa = (p: number) => `${fa(Math.abs(p), 1)}٪`;
 
 export const HELP_TEXT =
@@ -175,9 +178,9 @@ export const HELP_TEXT =
 export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q: Question): Reply {
   switch (q.type) {
     case 'help':
-      return { text: HELP_TEXT, speech: 'می‌توانید تراکنش ثبت کنید، قیمت یا نمودار بپرسید، یا بپرسید این ماه چقدر خرج کرده‌اید.' };
+      return { text: HELP_TEXT, speech: 'می‌تونی یه تراکنش بگی تا ثبتش کنم، یا قیمت و نمودار بپرسی، یا بپرسی این ماه چقدر خرج کردی.' };
     case 'need-asset':
-      return { text: 'نمودار کدام را نشان بدهم؟ مثلاً «نمودار سه ماه گذشته طلای ۱۸ عیار» یا «نمودار یک ساله دلار».', speech: 'نمودار کدام را نشان بدهم؟ مثلاً طلا، دلار یا سکه.' };
+      return { text: 'نمودار کدام را نشان بدهم؟ مثلاً «نمودار سه ماه گذشته طلای ۱۸ عیار» یا «نمودار یک ساله دلار».', speech: 'نمودار کدوم رو نشونت بدم؟ مثلاً طلا، دلار یا سکه.' };
     case 'chart': {
       const unit = items.find((i) => i.key === q.asset.key)?.unit ?? (['ons', 'silverOns', 'btc', 'eth'].includes(q.asset.key) ? 'usd' : q.asset.key === 'tse' ? 'point' : 'toman');
       return {
@@ -189,7 +192,7 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
     }
     case 'price': {
       const it = items.find((i) => i.key === q.asset.key);
-      if (!it || it.price == null) return { text: `قیمت ${q.asset.label} الان در دسترس نیست (داده تازه نرسیده). کمی بعد دوباره بپرسید.`, speech: `قیمت ${q.asset.spoken} الان در دسترس نیست.` };
+      if (!it || it.price == null) return { text: `قیمت ${q.asset.label} الان در دسترس نیست (داده تازه نرسیده). کمی بعد دوباره بپرسید.`, speech: `الان قیمت ${q.asset.spoken} رو ندارم؛ یه کم بعد دوباره بپرس.` };
       const unitFa = UNIT_FA[it.unit];
       const usdt = items.find((i) => i.key === 'usdt')?.price;
       const inToman = it.unit === 'usd' && ['btc', 'eth'].includes(it.key) && usdt ? it.price * usdt : null;
@@ -200,10 +203,13 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
         (inToman ? ` (حدود ${fa(Math.round(inToman))} تومان)` : '') +
         (ch != null && Number.isFinite(ch) && !when ? (Math.abs(ch) < 0.05 ? '؛ امروز بدون تغییر' : `؛ امروز ${pctFa(ch)} ${ch >= 0 ? 'بالا' : 'پایین'}`) : '') +
         (when ? ` — ${when}؛ بازار بسته است یا داده تازه نرسیده.` : '.');
+      // said the way people say it: «دلار الان دویست و شصت و هشت هزار تومنه؛ امروز یک و دو دهم درصد رفته بالا»
       const speech =
-        `${q.asset.spoken} ${when ? `در آخرین قیمت ثبت‌شده، ${dateWords(it.asOf!, today)}،` : 'الان'} ${numToWords(it.price)} ${unitFa}` +
-        (inToman ? `، حدود ${numToWords(Math.round(inToman / 1000) * 1000)} تومان` : '') +
-        (ch != null && Number.isFinite(ch) && !when && Math.abs(ch) >= 0.05 ? `؛ امروز ${pctWords(ch)} ${ch >= 0 ? 'بالا رفته' : 'پایین آمده'}` : '') +
+        (when
+          ? `بازار بسته‌ست؛ آخرین قیمت ${q.asset.spoken}، ${dateWords(it.asOf!, today)}، ${spokenAmount(it.price)} ${unitFa} بود`
+          : `${q.asset.spoken} الان ${spokenAmount(it.price)} ${unitFa} است`) +
+        (inToman ? `؛ یعنی حدود ${spokenAmount(Math.round(inToman / 1000) * 1000)} تومان` : '') +
+        (ch != null && Number.isFinite(ch) && !when ? (Math.abs(ch) < 0.05 ? '؛ امروز تغییری نکرده' : `؛ امروز ${pctWords(ch)} ${ch >= 0 ? 'رفته بالا' : 'اومده پایین'}`) : '') +
         '.';
       return { text, speech, link: q.asset.chart ? { href: `/charts?asset=${q.asset.key}&tf=1m`, label: 'نمودار' } : undefined };
     }
@@ -226,7 +232,7 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
         .slice(0, 4);
       return {
         text: `جمع موجودی حساب‌ها: ${fa(total / 10)} تومان. ${rows.map(({ a, r }) => `${a.name}: ${fa(r / 10)}`).join('، ')}.`,
-        speech: `جمع موجودی حساب‌هایتان ${total < 0 ? 'منفی ' : ''}${amountWords(Math.abs(Math.round(total / 10) * 10))} است.`,
+        speech: `روی هم ${total < 0 ? 'منفی ' : ''}${amountWords(Math.abs(Math.round(total / 10) * 10))} توی حساب‌هات داری.`,
         link: { href: '/accounts', label: 'حساب‌ها' },
       };
     }
@@ -235,7 +241,7 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
       const extra = nw.lastPriced.length ? ` (${nw.lastPriced.map((x) => x.name).join('، ')} با آخرین قیمت ثبت‌شده)` : '';
       return {
         text: `دارایی خالص: ${fa(nw.netRial / 10)} تومان — حساب‌ها ${fa(nw.cashRial / 10)}، دارایی بازاری ${fa(nw.marketRial / 10)}، بدهی ${fa(nw.debtRial / 10)}${extra}.`,
-        speech: `دارایی خالص شما ${nw.netRial < 0 ? 'منفی ' : ''}${amountWords(Math.abs(Math.round(nw.netRial / 10) * 10))} است.`,
+        speech: `دارایی خالصت حدود ${nw.netRial < 0 ? 'منفی ' : ''}${amountWords(Math.abs(Math.round(nw.netRial / 1e4) * 1e4))} است.`,
         link: { href: '/', label: 'داشبورد' },
       };
     }
@@ -257,7 +263,7 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
       const income = !cat && q.what === 'expense' && t.incomeRial ? ` درآمد همین مدت: ${fa(t.incomeRial / 10)} تومان.` : '';
       return {
         text: `${head}.${top}${income}`,
-        speech: `${word}${cat ? ` ${cat.name}` : ''} ${q.period} ${amountWords(Math.round(rial / 10) * 10)} بوده.`,
+        speech: q.what === 'expense' ? `${q.period.replace(/ \(.*\)$/, '')}${cat ? ` برای ${cat.name}` : ''} ${amountWords(Math.round(rial / 10) * 10)} خرج کردی.` : `${q.period.replace(/ \(.*\)$/, '')}${cat ? ` از ${cat.name}` : ''} ${amountWords(Math.round(rial / 10) * 10)} درآمد داشتی.`,
         link: { href: '/transactions', label: 'تراکنش‌ها' },
       };
     }
@@ -266,12 +272,12 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
 
 /** After the chart arrives: what it shows, in a sentence (and in words for speaking). */
 export function chartSummary(c: NonNullable<Reply['chart']>, stats: { first: number; last: number; changePct: number; high: number; low: number } | null): { text: string; speech: string } {
-  if (!stats) return { text: 'برای این بازه داده کافی نیست.', speech: 'برای این بازه داده کافی نیست.' };
+  if (!stats) return { text: 'برای این بازه داده کافی نیست.', speech: 'برای این بازه داده‌ی کافی ندارم.' };
   const u = UNIT_FA[c.unit];
   const dg = (v: number) => digitsFor(v, c.unit);
   const up = stats.changePct >= 0;
   return {
     text: `${TF_WORDS[c.tf]}: از ${fa(stats.first, dg(stats.first))} به ${fa(stats.last, dg(stats.last))} ${u} (${pctFa(stats.changePct)} ${up ? 'بالا' : 'پایین'}). بیشترین ${fa(stats.high, dg(stats.high))}، کمترین ${fa(stats.low, dg(stats.low))}.`,
-    speech: `${c.spoken} در ${TF_WORDS[c.tf]} از ${numToWords(stats.first)} به ${numToWords(stats.last)} ${u} رسید؛ یعنی ${pctWords(stats.changePct)} ${up ? 'بالا رفت' : 'پایین آمد'}.`,
+    speech: `${c.spoken} توی ${TF_WORDS[c.tf]} از ${spokenAmount(stats.first)} رسیده به ${spokenAmount(stats.last)} ${u}؛ یعنی ${pctWords(stats.changePct)} ${up ? 'رفته بالا' : 'اومده پایین'}.`,
   };
 }
