@@ -636,6 +636,12 @@ function Queue({ d }: { d: FinanceData }) {
                   <TomanInput label="مبلغ درست (تومان)" value={drafts[s.id]?.amount ?? String(s.amountRial / 10)} onChange={(x) => setDraft(s.id, { amount: x })} />
                 ) : null}
               </div>
+              {s.direction === 'in' && v.accountId && d.biz && d.accounts.find((x) => x.id === v.accountId)?.bizId ? (
+                <p className="fin-hint" data-testid="biz-deposit-hint">
+                  این واریز به حساب کسب‌وکار است. اگر پول فروش کارتی است که در «صندوق فروش» ثبت کرده‌اید، «نادیده بگیر» را بزنید تا دوبار ثبت نشود — موجودی همچنان از مانده
+                  همین پیامک می‌آید.
+                </p>
+              ) : null}
               <div className="fin-actions">
                 <button
                   className="fin-mini"

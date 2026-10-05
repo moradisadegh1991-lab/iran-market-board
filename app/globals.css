@@ -101,6 +101,7 @@ a.icon-btn { text-decoration: none; }
 .tone-lapis .tile-ic { background: #e2e8f5; }
 .tone-plum .tile-ic { background: #efe4f4; }
 .tone-rose .tile-ic { background: #f8e3e1; }
+.tone-copper .tile-ic { background: #f6e7d8; }
 .tone-slate .tile-ic { background: #e7eaee; }
 .tile[aria-current='page'] { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal) inset; }
 

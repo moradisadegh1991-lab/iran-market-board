@@ -1,5 +1,6 @@
 import { forgetFundTxn } from './fund';
 import { forgetSplitTxn } from './split';
+import { forgetBizTxn } from '@/lib/biz/ops';
 // Mutations that touch more than one list at once. Kept pure (they mutate a draft passed in) so the
 // UI and scripts/finance-test.ts exercise the exact same code.
 import { setCurrentBalance } from './balance';
@@ -88,6 +89,8 @@ export function deleteTxn(d: FinanceData, id: string): void {
     forgetFundTxn(d, id);
   } else if (link.type === 'split') {
     forgetSplitTxn(d, id);
+  } else if (link.type === 'biz') {
+    forgetBizTxn(d, t);
   } else if (link.type === 'bill') {
     const b = d.bills.find((x) => x.id === link.id);
     if (b) {

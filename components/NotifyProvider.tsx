@@ -64,7 +64,7 @@ interface LocalNotifications {
   addListener?(event: 'localNotificationActionPerformed', fn: (e: { notification?: { extra?: { route?: string } } }) => void): Promise<{ remove: () => void }> | { remove: () => void };
 }
 /** where a tap on each kind of notification lands */
-const ROUTE: Record<NotifyCat, string> = { trade: '/live', alert: '/alerts', move: '/market', sms: '/import', data: '/bot' };
+const ROUTE: Record<NotifyCat, string> = { trade: '/live', alert: '/alerts', move: '/market', sms: '/import', biz: '/biz/orders', data: '/bot' };
 function plugin(): LocalNotifications | null {
   const c = (window as { Capacitor?: { Plugins?: { LocalNotifications?: LocalNotifications } } }).Capacitor;
   return c?.Plugins?.LocalNotifications ?? null;

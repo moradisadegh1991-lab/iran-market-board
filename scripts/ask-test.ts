@@ -11,6 +11,9 @@ import { answerQuestion, assetIn, chartSummary, parseQuestion, pctWords, periodD
 import type { PriceItem } from '../lib/finance/calc';
 import { colloquial, speakable } from '../lib/voice-io';
 import { emptyData, type FinanceData } from '../lib/finance/model';
+import { addBooking, addIngredient, addProduct, quickSale, setBomLine, setupBusiness } from '../lib/biz/ops';
+import { tehranMs } from '../lib/biz/slots';
+import type { Ingredient, Product } from '../lib/biz/model';
 
 let n = 0;
 const ok = (name: string, fn: () => void) => {
@@ -165,6 +168,35 @@ ok('every question type answers without throwing on an empty book and an empty b
     const r = answerQuestion(d, [], T, x);
     assert.ok(r.text.length > 5, x.type);
   }
+});
+
+ok('the shop (کسب‌وکار من): sales, profit, bookings, stock, credit, pending — only when there is a business', () => {
+  const d = book();
+  assert.equal(parseQuestion(d, 'فروش امروز چقدر بود؟', T), null, 'no business, no shop question');
+  setupBusiness(d, { name: 'کافه نارنج', type: 'cafe', card: 'none', now: tehranMs(T, '08:00'), today: T });
+  const b = d.biz!;
+  const milk = addIngredient(b, { name: 'شیر', unit: 'لیتر', reorder: 2 }, 0) as Ingredient;
+  const latte = addProduct(b, { name: 'لاته', priceRial: 900_000 }, 0) as Product;
+  setBomLine(b, latte.id, milk.id, 0.2);
+  quickSale(d, { items: [{ itemId: latte.id, qty: 3 }], channel: 'walkin', pay: 'cash', at: tehranMs(T, '10:00') });
+  b.services.push({ id: 's', name: 'کلاس باریستا', durationMin: 60, priceRial: 1, active: true });
+  addBooking(b, { serviceIds: ['s'], customerName: 'نیما', customerPhone: '09120000000', startsAt: tehranMs(T, '17:30'), source: 'manual' }, 0);
+  const ask = (s: string) => {
+    const x = parseQuestion(d, s, T);
+    assert.ok(x && x.type === 'biz', s);
+    return answerQuestion(d, [], T, x);
+  };
+  const sales = ask('فروش امروز مغازه چقدر بود؟');
+  assert.equal(sales.text, 'فروش کافه نارنج امروز: ۲۷۰٬۰۰۰ تومان در ۱ فاکتور.');
+  assert.match(colloquial(speakable(sales.speech)), /امروز کافه نارنج دویستُ هفتاد هزار تومن فروخت/);
+  assert.match(ask('سود این ماه کسب‌وکارم چقدره؟').text, /^سود کافه نارنج این ماه \(مهر ۱۴۰۵\): ۲۷۰٬۰۰۰ تومان/);
+  assert.match(ask('نوبت‌های امروز رو بگو').text, /۱۷:۳۰ نیما \(کلاس باریستا\)/);
+  assert.match(ask('انبار چی کم داریم؟').text, /به نقطه سفارش رسیده: شیر \(/);
+  assert.equal(ask('چند تا سفارش در انتظار دارم؟').text, 'سفارشی منتظر تأیید نیست.');
+  assert.equal(ask('نسیه چقدر طلب دارم؟').text, 'کسی نسیه بدهکار نیست.');
+  // personal questions stay personal
+  assert.equal(parseQuestion(d, 'این ماه چقدر خرج کردم؟', T)!.type, 'flow');
+  assert.equal(parseQuestion(d, 'پنجاه هزار تومن نون خریدم', T), null);
 });
 
 ok('nothing leaves the device from here (rule 7)', () => {

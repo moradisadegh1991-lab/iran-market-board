@@ -1,4 +1,5 @@
 'use client';
+import BizSync from './biz/BizSync';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -112,8 +113,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     };
   }, [more]);
 
+  // a business's page for its customers (/shop, rule 80): none of the owner's app around it
+  if (path === '/shop')
+    return (
+      <div className="app public">
+        <main className="page">{children}</main>
+      </div>
+    );
+
   return (
     <div className="app">
+      <BizSync />
       <header className="appbar">
         <div className="appbar-inner">
           <Link href="/" className="wordmark" aria-label="مالی من، خانه">

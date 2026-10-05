@@ -16,8 +16,12 @@ import { NextResponse, type NextRequest } from 'next/server';
  * `/api/advisor` is here for the same reason: it stores nothing the caller sends (only a per-day
  * call counter). Because each call spends the Anthropic key, it additionally requires the
  * `x-advisor-secret` header, which is why that header is allowed below.
+ *
+ * `/api/biz/*` («فروشگاه آنلاین», rule 80) does write, but only into the namespace of one slug and
+ * only with that slug's token (publish, inbox, status); the customer calls (order, book) are
+ * checked against the published catalog and rate-limited. No admin secret is involved.
  */
-const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/forecast', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor'];
+const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/forecast', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor', '/api/biz'];
 
 /**
  * GET-only: the shared live session, the swing live session and the holdings list are already

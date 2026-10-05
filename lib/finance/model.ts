@@ -7,6 +7,8 @@
 // Every amount is stored in RIAL (rule 1). Conversion to toman happens only for display, and the
 // form fields that take toman multiply by 10 exactly once, at the boundary (see `tomanToRial`).
 
+import { normalizeBusiness, type Business } from '@/lib/biz/model';
+
 export type Iso = string; // 'YYYY-MM-DD', Gregorian, Tehran calendar day
 
 export type AccountKind = 'bank' | 'cash' | 'wallet' | 'fund' | 'homefund' | 'split';
@@ -49,6 +51,8 @@ export interface Account {
   reportedLog?: Reported[];
   /** the user said «نادیده بگیر» to this mismatch (balance.ts): not asked again until the bank states a new balance */
   balanceOk?: { key: string; diffRial: number } | null;
+  /** the business's own account (its till, its card): money the owner holds, but not personal income or spending (lib/biz, rule 80) */
+  bizId?: string | null;
 }
 
 export type CategoryKind = 'expense' | 'income';
@@ -71,7 +75,7 @@ export interface Txn {
   categoryId?: string | null;
   note?: string;
   /** set when the transaction was created by paying a loan installment / bill / cheque */
-  link?: { type: 'loan' | 'bill' | 'cheque' | 'income' | 'fund' | 'split'; id: string; n?: number; mk?: string } | null;
+  link?: { type: 'loan' | 'bill' | 'cheque' | 'income' | 'fund' | 'split' | 'biz'; id: string; n?: number; mk?: string } | null;
   /** where it came from; absent = typed in by hand */
   src?: 'statement' | 'sms' | 'classic';
   /** bank tracking / document number, when the statement or SMS had one */
@@ -267,6 +271,8 @@ export interface FinanceData {
   funds: HomeFund[];
   /** دنگ — shared expenses with friends, family, a trip (split.ts) */
   splitGroups: SplitGroup[];
+  /** کسب‌وکار من — the shop the user runs (lib/biz); null until they set one up */
+  biz?: Business | null;
 }
 
 /** Jalali month 'jy-jm' (e.g. '1405-7'), the unit of a home fund's calendar. */
@@ -405,6 +411,18 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { id: 'i-other', name: 'سایر درآمدها', emoji: '💵', kind: 'income' },
 ];
 
+/** added to the book's categories when a business is set up (lib/biz/ops.ts ensureBizCategories) */
+export const BIZ_CATEGORIES: Category[] = [
+  { id: 'i-biz', name: 'فروش کسب‌وکار', emoji: '🏪', kind: 'income' },
+  { id: 'c-biz', name: 'هزینه کسب‌وکار', emoji: '🏪', kind: 'expense' },
+  { id: 'c-bizbuy', name: 'خرید کالا و مواد', emoji: '📦', kind: 'expense' },
+  { id: 'i-bizdraw', name: 'برداشت از کسب‌وکار', emoji: '🏪', kind: 'income' },
+  { id: 'c-bizcap', name: 'سرمایه به کسب‌وکار', emoji: '🏪', kind: 'expense' },
+];
+/** personal side of money moved between the business and the owner (calc.ts totalsBetween) */
+export const BIZ_DRAW_CATEGORY = 'i-bizdraw';
+export const BIZ_CAPITAL_CATEGORY = 'c-bizcap';
+
 export const DEFAULT_SETTINGS: Settings = { inflationPct: 40, safeYieldPct: 30, emergencyMonths: 6 };
 
 export function emptyData(today: Iso): FinanceData {
@@ -426,6 +444,7 @@ export function emptyData(today: Iso): FinanceData {
     smsSources: [],
     funds: [],
     splitGroups: [],
+    biz: null,
   };
 }
 
@@ -465,6 +484,7 @@ export function normalizeData(raw: unknown, today: Iso): FinanceData {
     splitGroups: arr<SplitGroup>(raw.splitGroups)
       .filter((g) => g && typeof g.id === 'string' && Array.isArray(g.members))
       .map((g) => ({ ...g, expenses: arr<SplitExpense>(g.expenses), settlements: arr<SplitSettlement>(g.settlements), accountId: g.accountId ?? null })),
+    biz: normalizeBusiness(raw.biz),
     settings: {
       inflationPct: finite(s.inflationPct, DEFAULT_SETTINGS.inflationPct),
       safeYieldPct: finite(s.safeYieldPct, DEFAULT_SETTINGS.safeYieldPct),
