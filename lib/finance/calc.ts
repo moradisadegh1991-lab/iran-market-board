@@ -4,7 +4,7 @@
 // Units: inputs and outputs are RIAL unless a name says otherwise (`…Toman`).
 import { balances } from './balance';
 import { isoToJalali, jalaliMonthLength, jalaliToIso, JALALI_MONTHS } from '@/lib/jalali';
-import { isMoneyAccount, type Bill, type Cheque, type ExpectedIncome, type FinanceData, type Goal, type Iso, type Loan, type MarketKey, type Txn } from './model';
+import { BIZ_CAPITAL_CATEGORY, BIZ_DRAW_CATEGORY, isMoneyAccount, type Bill, type Cheque, type ExpectedIncome, type FinanceData, type Goal, type Iso, type Loan, type MarketKey, type Txn } from './model';
 
 // ── dates ──────────────────────────────────────────────────────────────────
 
@@ -67,19 +67,38 @@ export interface MonthTotals {
 
 const inRange = (t: Txn, from: Iso, to: Iso) => t.date >= from && t.date <= to;
 
-/** Transfers between the user's own accounts are neither income nor spending, so they are left out. */
+/**
+ * How a transaction counts for the person (not the business they run, rule 80): a sale or a shop
+ * expense on the business's own account is the business's, not personal income or spending; money
+ * the owner takes out of the business is personal income, money put in is personal spending.
+ * Transfers between the user's own personal accounts are neither. Returns null when it does not count.
+ */
+export function personalSide(t: Txn, bizAccounts: ReadonlySet<string>): { kind: 'income' | 'expense'; categoryId: string | null } | null {
+  const onBiz = bizAccounts.has(t.accountId);
+  if (t.kind !== 'transfer') return onBiz ? null : { kind: t.kind, categoryId: t.categoryId ?? null };
+  const toBiz = !!t.toAccountId && bizAccounts.has(t.toAccountId);
+  if (onBiz && !toBiz) return { kind: 'income', categoryId: BIZ_DRAW_CATEGORY };
+  if (!onBiz && toBiz) return { kind: 'expense', categoryId: BIZ_CAPITAL_CATEGORY };
+  return null;
+}
+export const bizAccountIds = (d: FinanceData): Set<string> => new Set(d.accounts.filter((a) => a.bizId).map((a) => a.id));
+
+/** Personal income and spending (personalSide): own transfers and the business's own sales/expenses are left out. */
 export function totalsBetween(d: FinanceData, from: Iso, to: Iso): MonthTotals {
   let incomeRial = 0;
   let expenseRial = 0;
   let count = 0;
   const by = new Map<string | null, { rial: number; count: number }>();
+  const biz = bizAccountIds(d);
   for (const t of d.txns) {
-    if (t.kind === 'transfer' || !inRange(t, from, to)) continue;
+    if (!inRange(t, from, to)) continue;
+    const side = personalSide(t, biz);
+    if (!side) continue;
     count++;
-    if (t.kind === 'income') incomeRial += t.amountRial;
+    if (side.kind === 'income') incomeRial += t.amountRial;
     else {
       expenseRial += t.amountRial;
-      const k = t.categoryId ?? null;
+      const k = side.categoryId;
       const e = by.get(k) ?? { rial: 0, count: 0 };
       e.rial += t.amountRial;
       e.count++;

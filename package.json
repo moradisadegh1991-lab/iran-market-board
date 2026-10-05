@@ -27,6 +27,7 @@
     "test:sources": "tsx scripts/sources-test.ts",
     "test:balance": "tsx scripts/balance-test.ts",
     "test:shared": "tsx scripts/shared-test.ts",
+    "test:biz": "tsx scripts/biz-test.ts",
     "test:smsask": "tsx scripts/sms-ask-test.ts",
     "test:nativesms": "tsx scripts/native-sms-test.ts",
     "test:financeplus": "tsx scripts/finance-plus-test.ts",

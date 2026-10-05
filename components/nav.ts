@@ -9,11 +9,11 @@ export interface NavItem {
 }
 export interface NavGroup {
   title: string;
-  tone: 'teal' | 'rose' | 'plum' | 'saffron' | 'lapis' | 'slate';
+  tone: 'teal' | 'rose' | 'copper' | 'plum' | 'saffron' | 'lapis' | 'slate';
   items: NavItem[];
 }
 
-// Related pages sit together (CLAUDE.md rule 79): day-to-day money → what is owed and shared → planning →
+// Related pages sit together (CLAUDE.md rule 79): day-to-day money → what is owed and shared → my business → planning →
 // the market → trading → learning and settings.
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -34,6 +34,25 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/debts', label: 'وام، چک و قبض', icon: '🏦' },
       { href: '/fund', label: 'صندوق خانگی', icon: '🏺', hint: 'سهم ماهانه، وام به نوبت و قرعه‌کشی' },
       { href: '/split', label: 'دنگ و خرج گروهی', icon: '🧮', hint: 'چه کسی به چه کسی بدهکار است' },
+    ],
+  },
+  {
+    // the shop the user runs (lib/biz, from Kasbai — rule 80): its money sits in the book's accounts
+    title: 'کسب‌وکار من',
+    tone: 'copper',
+    items: [
+      { href: '/biz', label: 'داشبورد کسب‌وکار', icon: '🏪', hint: 'فروش، سود و کارهای امروز' },
+      { href: '/biz/pos', label: 'صندوق فروش', icon: '⚡' },
+      { href: '/biz/orders', label: 'سفارش‌ها و فاکتور', icon: '🛒' },
+      { href: '/biz/booking', label: 'نوبت‌دهی', icon: '📅' },
+      { href: '/biz/products', label: 'محصولات و منو', icon: '🍔', hint: 'فرمول ساخت، بهای تمام‌شده، تخفیف' },
+      { href: '/biz/stock', label: 'انبار', icon: '📦' },
+      { href: '/biz/customers', label: 'مشتری‌ها و نسیه', icon: '🤝' },
+      { href: '/biz/money', label: 'هزینه و سود', icon: '💰' },
+      { href: '/biz/reports', label: 'تحلیل فروش', icon: '📊' },
+      { href: '/biz/tax', label: 'دستیار مالیات', icon: '🧮' },
+      { href: '/biz/online', label: 'فروشگاه آنلاین و ربات', icon: '🌐' },
+      { href: '/biz/settings', label: 'تنظیمات کسب‌وکار', icon: '⚙' },
     ],
   },
   {
