@@ -9,13 +9,28 @@
 
 export type Iso = string; // 'YYYY-MM-DD', Gregorian, Tehran calendar day
 
-export type AccountKind = 'bank' | 'cash' | 'wallet' | 'fund';
+export type AccountKind = 'bank' | 'cash' | 'wallet' | 'fund' | 'homefund' | 'split';
 export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   bank: 'حساب بانکی',
   cash: 'نقد',
   wallet: 'کیف پول',
   fund: 'صندوق درآمد ثابت',
+  // made by the app, one per home fund / split group: their balance is the user's own position there
+  homefund: 'سهم من در صندوق خانگی',
+  split: 'طلب/بدهی دنگ',
 };
+/** money the user holds (not a position in a home fund or a دنگ group, which are owed to or by the user) */
+export const isMoneyAccount = (a: Pick<Account, 'kind' | 'archived'>) => !a.archived && a.kind !== 'homefund' && a.kind !== 'split';
+/** kinds the user picks when adding an account by hand */
+export const USER_ACCOUNT_KINDS: AccountKind[] = ['bank', 'cash', 'wallet', 'fund'];
+
+/** A balance the bank stated (or the user typed in as «موجودی الان»), at a moment. */
+export interface Reported {
+  rial: number;
+  date: Iso;
+  time?: string | null;
+  via: 'sms' | 'statement' | 'manual';
+}
 
 export interface Account {
   id: string;
@@ -27,9 +42,13 @@ export interface Account {
   archived?: boolean;
   /**
    * The latest balance the bank itself stated (an SMS «مانده» or a statement's running balance).
-   * Shown next to the book balance; it never changes the book by itself (see sources.ts).
+   * The account's balance is this plus whatever was booked after it (balance.ts, rule 76).
    */
-  reported?: { rial: number; date: Iso; time?: string | null; via: 'sms' | 'statement' } | null;
+  reported?: Reported | null;
+  /** every stated balance, oldest first (kept to the last 120): the month-start balance comes from here */
+  reportedLog?: Reported[];
+  /** the user said «نادیده بگیر» to this mismatch (balance.ts): not asked again until the bank states a new balance */
+  balanceOk?: { key: string; diffRial: number } | null;
 }
 
 export type CategoryKind = 'expense' | 'income';
@@ -52,7 +71,7 @@ export interface Txn {
   categoryId?: string | null;
   note?: string;
   /** set when the transaction was created by paying a loan installment / bill / cheque */
-  link?: { type: 'loan' | 'bill' | 'cheque' | 'income'; id: string; n?: number; mk?: string } | null;
+  link?: { type: 'loan' | 'bill' | 'cheque' | 'income' | 'fund' | 'split'; id: string; n?: number; mk?: string } | null;
   /** where it came from; absent = typed in by hand */
   src?: 'statement' | 'sms' | 'classic';
   /** bank tracking / document number, when the statement or SMS had one */
@@ -63,6 +82,8 @@ export interface Txn {
    *  inbox and also answered in the «نوعش چیست؟» notification — is never booked twice */
   smsKey?: string;
   smsAt?: number | null;
+  /** when it was booked (ms) — orders a same-day row without a time against the bank's stated balance */
+  addedAt?: number;
 }
 
 /**
@@ -242,6 +263,109 @@ export interface FinanceData {
   catMemory: Record<string, string>;
   /** cards and bank accounts seen in SMS, with the balance the bank last stated (sources.ts) */
   smsSources: SmsSource[];
+  /** صندوق خانگی — family/friends funds (fund.ts) */
+  funds: HomeFund[];
+  /** دنگ — shared expenses with friends, family, a trip (split.ts) */
+  splitGroups: SplitGroup[];
+}
+
+/** Jalali month 'jy-jm' (e.g. '1405-7'), the unit of a home fund's calendar. */
+export type MonthKey = string;
+
+export interface FundMember {
+  id: string;
+  name: string;
+  /** how many shares the member holds (pays shares × shareRial a month) */
+  shares: number;
+  /** the user — their payments and loan move money in the user's own book */
+  me?: boolean;
+  /** left the fund: no new dues */
+  left?: boolean;
+}
+export interface FundLoan {
+  id: string;
+  memberId: string;
+  /** month it was given; installments start the month after */
+  month: MonthKey;
+  date: Iso;
+  rial: number;
+  installments: number;
+  how: 'lottery' | 'turn' | 'manual';
+  /** the user's own loan: the transaction it made in their book */
+  txnId?: string | null;
+}
+export interface FundPayment {
+  id: string;
+  memberId: string;
+  /** the month the payment is for */
+  month: MonthKey;
+  kind: 'share' | 'repay';
+  /** repay only: which loan */
+  loanId?: string | null;
+  rial: number;
+  date: Iso;
+  /** the user's own payment: the transaction it made in their book */
+  txnId?: string | null;
+}
+/** A صندوق خانگی: members pay a monthly share; each round, members take the pooled money as an interest-free loan in turn. */
+export interface HomeFund {
+  id: string;
+  name: string;
+  /** monthly payment for one share */
+  shareRial: number;
+  /** the default loan amount */
+  loanRial: number;
+  /** the default number of monthly installments a loan is repaid in */
+  installments: number;
+  startMonth: MonthKey;
+  members: FundMember[];
+  loans: FundLoan[];
+  payments: FundPayment[];
+  /** the user's position in the fund, as an account in their book (kind 'homefund') */
+  accountId: string | null;
+  archived?: boolean;
+}
+
+export interface SplitMember {
+  id: string;
+  name: string;
+  me?: boolean;
+}
+export interface SplitShare {
+  memberId: string;
+  rial: number;
+}
+export interface SplitExpense {
+  id: string;
+  date: Iso;
+  title: string;
+  amountRial: number;
+  paidBy: string;
+  mode: 'equal' | 'shares' | 'exact';
+  /** each member's part, summing exactly to amountRial (split.ts) */
+  shares: SplitShare[];
+  categoryId?: string | null;
+  /** what it made in the user's book; linked: an existing transaction (an SMS row) it turned into the user's share, as it was before */
+  ledger?: { txnIds: string[]; linked?: { id: string; before: Txn } | null } | null;
+}
+export interface SplitSettlement {
+  id: string;
+  date: Iso;
+  from: string;
+  to: string;
+  rial: number;
+  txnId?: string | null;
+}
+/** A دنگ group: who paid what, everyone's part, who owes whom. */
+export interface SplitGroup {
+  id: string;
+  name: string;
+  members: SplitMember[];
+  expenses: SplitExpense[];
+  settlements: SplitSettlement[];
+  /** the user's net position in the group, as an account in their book (kind 'split') */
+  accountId: string | null;
+  archived?: boolean;
 }
 
 /** A card or bank account that bank SMS mention — found automatically, linked to an account by the user. */
@@ -300,6 +424,8 @@ export function emptyData(today: Iso): FinanceData {
     inbox: [],
     catMemory: {},
     smsSources: [],
+    funds: [],
+    splitGroups: [],
   };
 }
 
@@ -333,6 +459,12 @@ export function normalizeData(raw: unknown, today: Iso): FinanceData {
     inbox: arr<Staged>(raw.inbox).filter((x) => x && typeof x.amountRial === 'number' && x.amountRial > 0),
     catMemory: isObj(raw.catMemory) ? (raw.catMemory as Record<string, string>) : {},
     smsSources: arr<SmsSource>(raw.smsSources).filter((x) => x && typeof x.key === 'string' && (x.kind === 'card' || x.kind === 'account')),
+    funds: arr<HomeFund>(raw.funds)
+      .filter((f) => f && typeof f.id === 'string' && Array.isArray(f.members))
+      .map((f) => ({ ...f, loans: arr<FundLoan>(f.loans), payments: arr<FundPayment>(f.payments), accountId: f.accountId ?? null })),
+    splitGroups: arr<SplitGroup>(raw.splitGroups)
+      .filter((g) => g && typeof g.id === 'string' && Array.isArray(g.members))
+      .map((g) => ({ ...g, expenses: arr<SplitExpense>(g.expenses), settlements: arr<SplitSettlement>(g.settlements), accountId: g.accountId ?? null })),
     settings: {
       inflationPct: finite(s.inflationPct, DEFAULT_SETTINGS.inflationPct),
       safeYieldPct: finite(s.safeYieldPct, DEFAULT_SETTINGS.safeYieldPct),

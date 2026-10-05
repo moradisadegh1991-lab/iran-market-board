@@ -44,7 +44,7 @@ export default function ClassicMigrate({ d, always = false }: { d: FinanceData; 
     <Card title="داده‌های نسخه قبلی اپ" className="migrate-card">
       {done ? (
         <p role="status">
-          {faN(done.queued)} تراکنش به <Link href="/import">صف بررسی «ورود از بانک»</Link> رفت{done.assets ? ` و ${faN(done.assets)} دارایی به «حساب و دارایی» اضافه شد` : ''}.
+          {faN(done.queued)} تراکنش به <Link href="/import">صف بررسی «ورود از بانک»</Link> رفت{done.assets ? ` و ${faN(done.assets)} دارایی به «حساب‌ها و کارت‌ها» اضافه شد` : ''}.
           {done.queued ? ' آن‌هایی که جهت و دسته‌شان را قبلاً تعیین کرده بودید با یک دکمه ثبت می‌شوند.' : ''}
         </p>
       ) : (

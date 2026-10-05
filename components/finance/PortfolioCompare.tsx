@@ -21,7 +21,7 @@ export default function PortfolioCompare({ lines, title }: { lines: AllocationLi
       <h2 id="cmp-h">سبد من در برابر {title}</h2>
       {c.totalRial <= 0 ? (
         <p className="empty">
-          هنوز دارایی یا حسابی با موجودی ثبت نکرده‌اید. از <Link href="/accounts">حساب و دارایی</Link> طلا، سکه، ارز و کریپتوی خود را وارد کنید تا با این سبد مقایسه شوند.
+          هنوز دارایی یا حسابی با موجودی ثبت نکرده‌اید. از <Link href="/accounts">حساب‌ها و کارت‌ها</Link> طلا، سکه، ارز و کریپتوی خود را وارد کنید تا با این سبد مقایسه شوند.
         </p>
       ) : (
         <>

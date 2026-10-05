@@ -179,6 +179,16 @@ b.fin-raw { display: block; font-weight: 400; }
 /* ── bank-stated balance under an account ── */
 .bank-balance { display: grid; gap: 4px; justify-items: start; margin-top: 4px; }
 .bank-balance small { color: var(--ink-2); }
+/* «موجودی با پیامک بانک نمی‌خواند» (rule 76) */
+.balance-checks { display: grid; gap: 10px; border-color: var(--saffron); }
+.balance-checks h2 { margin: 0; font-size: 16px; }
+.check-card { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--surface); width: 100%; box-sizing: border-box; }
+.check-card p { margin: 0; }
+.check-sum { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; margin: 0; font-size: 13px; }
+.check-sum dt { color: var(--ink-2); }
+.check-sum dd { margin: 0; text-align: left; }
+.check-answers, .check-missing { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.check-missing label { display: flex; gap: 6px; align-items: center; }
 
 /* month forecast (Incomes.tsx) */
 .fin-forecast-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
@@ -279,3 +289,14 @@ b.fin-raw { display: block; font-weight: 400; }
 .wake-set p { margin: 6px 0 0; }
 .wake-row { display: block; margin: 6px 0 0; border: 0; padding: 0; }
 .wake-opt { display: block; margin: 4px 0; }
+
+/* صندوق خانگی and دنگ (rules 77–78) */
+.fund-acc { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; margin-bottom: 8px; }
+.fund-board li { flex-wrap: wrap; }
+.fin-mini.paid { background: var(--teal-soft); border-color: var(--teal); color: var(--ink); font-weight: 700; }
+.fund-winner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; border: 1px dashed var(--saffron); border-radius: 10px; margin: 6px 0; }
+.month-nav { display: inline-flex; gap: 8px; align-items: center; }
+.split-among { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: grid; gap: 6px; }
+.split-among legend { font-size: 13px; padding: 0 4px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.split-mode { display: inline-flex; gap: 3px; align-items: center; }
+.split-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 8rem); gap: 8px; align-items: center; font-size: 14px; }

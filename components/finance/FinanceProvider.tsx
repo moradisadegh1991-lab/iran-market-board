@@ -79,7 +79,11 @@ export default function FinanceProvider({ children }: { children: React.ReactNod
     (fn: (draft: FinanceData) => void) => {
       if (!ref.current) return;
       const draft = structuredClone(ref.current);
+      const known = new Set(ref.current.txns.map((t) => t.id));
       fn(draft);
+      // when each new row was booked: orders a same-day row without a time against the bank's balance (balance.ts)
+      const now = Date.now();
+      for (const t of draft.txns) if (!known.has(t.id) && !t.time && t.addedAt == null) t.addedAt = now;
       ref.current = draft;
       persist(draft);
       setData(draft);
@@ -130,7 +134,7 @@ export function WithBook({ children }: { children: (d: FinanceData) => React.Rea
     <>
       {saveError ? (
         <p className="banner warn" role="alert">
-          ذخیره ناموفق بود ({saveError}). حافظه مرورگر پر است یا در حالت خصوصی هستید؛ از صفحه «حساب و دارایی» پشتیبان بگیرید.
+          ذخیره ناموفق بود ({saveError}). حافظه مرورگر پر است یا در حالت خصوصی هستید؛ از صفحه «حساب‌ها و کارت‌ها» پشتیبان بگیرید.
         </p>
       ) : null}
       {children(data)}

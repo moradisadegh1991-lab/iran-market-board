@@ -339,7 +339,7 @@ export default function LiveView() {
             {device ? (
               <div className="live-mine">
                 <Toggle checked={fromHoldings} onChange={setFromHoldings}>
-                  با دارایی‌های خودم شروع کن (از «حساب و دارایی»)
+                  با دارایی‌های خودم شروع کن (از «حساب‌ها و کارت‌ها»)
                 </Toggle>
                 {fromHoldings ? (
                   mine.holdings.length ? (
@@ -350,7 +350,7 @@ export default function LiveView() {
                     </p>
                   ) : (
                     <p className="empty">
-                      دارایی قابل معامله‌ای (دلار، طلای ۱۸، سکه امامی، بیت‌کوین، اتریوم) در <Link href="/accounts">حساب و دارایی</Link> ثبت نکرده‌اید.
+                      دارایی قابل معامله‌ای (دلار، طلای ۱۸، سکه امامی، بیت‌کوین، اتریوم) در <Link href="/accounts">حساب‌ها و کارت‌ها</Link> ثبت نکرده‌اید.
                     </p>
                   )
                 ) : null}

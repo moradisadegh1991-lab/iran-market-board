@@ -9,25 +9,40 @@ export interface NavItem {
 }
 export interface NavGroup {
   title: string;
-  tone: 'teal' | 'saffron' | 'lapis' | 'plum';
+  tone: 'teal' | 'rose' | 'plum' | 'saffron' | 'lapis' | 'slate';
   items: NavItem[];
 }
 
+// Related pages sit together (CLAUDE.md rule 79): day-to-day money → what is owed and shared → planning →
+// the market → trading → learning and settings.
 export const NAV_GROUPS: NavGroup[] = [
   {
-    title: 'مالی من',
+    title: 'پول من',
     tone: 'teal',
     items: [
       { href: '/', label: 'خانه', icon: '🏠', hint: 'داشبورد مالی' },
       { href: '/transactions', label: 'تراکنش‌ها', icon: '🧾' },
-      { href: '/import', label: 'ورود از بانک', icon: '📥', hint: 'گردش حساب و پیامک' },
+      { href: '/accounts', label: 'حساب‌ها و کارت‌ها', icon: '💳', hint: 'موجودی از پیامک بانک، دارایی‌ها' },
+      { href: '/import', label: 'ورود از بانک و پیامک', icon: '📥', hint: 'گردش حساب و پیامک' },
       { href: '/budget', label: 'بودجه', icon: '🎯' },
+    ],
+  },
+  {
+    title: 'بدهی، طلب و گروه',
+    tone: 'rose',
+    items: [
       { href: '/debts', label: 'وام، چک و قبض', icon: '🏦' },
+      { href: '/fund', label: 'صندوق خانگی', icon: '🏺', hint: 'سهم ماهانه، وام به نوبت و قرعه‌کشی' },
+      { href: '/split', label: 'دنگ و خرج گروهی', icon: '🧮', hint: 'چه کسی به چه کسی بدهکار است' },
+    ],
+  },
+  {
+    title: 'پس‌انداز و برنامه',
+    tone: 'plum',
+    items: [
       { href: '/goals', label: 'اهداف', icon: '🏁' },
-      { href: '/accounts', label: 'حساب و دارایی', icon: '💼' },
-      { href: '/tools', label: 'ماشین‌حساب', icon: '🧮' },
+      { href: '/tools', label: 'ماشین‌حساب', icon: '📐' },
       { href: '/advisor', label: 'مشاور', icon: '💬' },
-      { href: '/learn', label: 'آموزش', icon: '🎓', hint: 'اقتصاد، معامله و نظم مالی' },
     ],
   },
   {
@@ -35,7 +50,7 @@ export const NAV_GROUPS: NavGroup[] = [
     tone: 'saffron',
     items: [
       { href: '/market', label: 'نمای بازار', icon: '🏷' },
-      { href: '/charts', label: 'نمودار', icon: '📉' },
+      { href: '/charts', label: 'نمودار و پیش‌بینی', icon: '📉' },
       { href: '/scenarios', label: 'سناریوها', icon: '🔭' },
       { href: '/risk', label: 'ریسک', icon: '⚖' },
       { href: '/stocks', label: 'بورس', icon: '📈' },
@@ -53,11 +68,12 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: 'ابزار',
-    tone: 'plum',
+    title: 'یادگیری و تنظیمات',
+    tone: 'slate',
     items: [
-      { href: '/alerts', label: 'هشدار و اعلان', icon: '🔔' },
+      { href: '/learn', label: 'آموزش', icon: '🎓', hint: 'اقتصاد، معامله و نظم مالی' },
       { href: '/game', label: 'بازی اقتصاد', icon: '🎮' },
+      { href: '/alerts', label: 'هشدار و اعلان', icon: '🔔' },
       { href: '/bot', label: 'ربات و منابع', icon: '🤖' },
     ],
   },
@@ -66,6 +82,6 @@ export const NAV_GROUPS: NavGroup[] = [
 export const ALL_PAGES: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /** The four pages a thumb reaches without opening anything; the fifth slot opens «بیشتر». */
-export const BOTTOM_TABS = ['/', '/transactions', '/market', '/advisor'] as const;
+export const BOTTOM_TABS = ['/', '/transactions', '/accounts', '/market'] as const;
 
 export const pageOf = (path: string) => ALL_PAGES.find((p) => p.href === path) ?? null;

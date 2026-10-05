@@ -4,8 +4,9 @@
 // a last price when the market is closed — CLAUDE.md rule 54); a chart is a request the screen fetches
 // from /api/chart (only the asset and range leave the device); everything about the user's own book is
 // computed here, on the device (rule 7).
+import { openChecks } from '../finance/balance';
 import { accountBalances, monthBounds, monthLabel, monthOf, netWorth, shiftMonth, totalsBetween, addDays, type PriceItem } from '../finance/calc';
-import type { FinanceData, Iso } from '../finance/model';
+import { isMoneyAccount, type FinanceData, type Iso } from '../finance/model';
 import { accountHits, amountIn, amountWords, categoryIn, clean, dateWords, kindIn, numberValue, numToWords, tokens } from '../finance/voice';
 import { isoToJalali, jalaliToIso } from '../jalali';
 
@@ -215,12 +216,18 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
     }
     case 'balance': {
       const bal = accountBalances(d);
-      const live = d.accounts.filter((a) => !a.archived);
+      const live = d.accounts.filter(isMoneyAccount);
       if (q.accountId) {
         const a = live.find((x) => x.id === q.accountId)!;
         const r = bal[a.id] ?? 0;
         return {
-          text: `موجودی ${a.name} در دفتر: ${fa(r / 10)} تومان${a.reported ? ` (آخرین مانده‌ای که بانک گفت: ${fa(a.reported.rial / 10)} تومان، ${dateWords(a.reported.date, today)})` : ''}.`,
+          // the bank's latest balance is the basis (rule 76); a mismatch with the book is said, not hidden
+          text:
+            `موجودی ${a.name}: ${fa(r / 10)} تومان${a.reported ? ` (بر پایه مانده‌ای که بانک ${dateWords(a.reported.date, today)} گفت)` : ' (طبق دفتر)'}.` +
+            (() => {
+              const c = openChecks(d).find((x) => x.accountId === a.id);
+              return c ? ` با دفتر ${fa(Math.abs(c.diffRial) / 10)} تومان اختلاف دارد؛ در صفحه حساب‌ها بگویید چرا.` : '';
+            })(),
           speech: `موجودی ${a.name} ${r < 0 ? 'منفی ' : ''}${amountWords(Math.abs(Math.round(r / 10) * 10))} است.`,
           link: { href: '/accounts', label: 'حساب‌ها' },
         };

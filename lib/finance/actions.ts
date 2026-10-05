@@ -1,5 +1,8 @@
+import { forgetFundTxn } from './fund';
+import { forgetSplitTxn } from './split';
 // Mutations that touch more than one list at once. Kept pure (they mutate a draft passed in) so the
 // UI and scripts/finance-test.ts exercise the exact same code.
+import { setCurrentBalance } from './balance';
 import type { Due } from './calc';
 import { accountBalances, monthKey, monthOf } from './calc';
 import { newId, type AccountKind, type FinanceData, type Iso, type Loan } from './model';
@@ -81,6 +84,10 @@ export function deleteTxn(d: FinanceData, id: string): void {
   } else if (link.type === 'income') {
     const inc = (d.incomes ?? []).find((x) => x.id === link.id);
     if (inc) inc.receivedMonths = inc.receivedMonths.filter((m) => m !== link.mk);
+  } else if (link.type === 'fund') {
+    forgetFundTxn(d, id);
+  } else if (link.type === 'split') {
+    forgetSplitTxn(d, id);
   } else if (link.type === 'bill') {
     const b = d.bills.find((x) => x.id === link.id);
     if (b) {
@@ -101,7 +108,7 @@ export function deleteAccount(d: FinanceData, id: string): string | null {
  * Edits an account. A new current balance moves only the opening balance, so every transaction
  * stays as recorded and the book shows exactly the balance the user typed.
  */
-export function editAccount(d: FinanceData, id: string, patch: { name?: string; kind?: AccountKind; openedOn?: Iso; currentRial?: number | null }): string | null {
+export function editAccount(d: FinanceData, id: string, patch: { name?: string; kind?: AccountKind; openedOn?: Iso; currentRial?: number | null }, now = Date.now()): string | null {
   const a = d.accounts.find((x) => x.id === id);
   if (!a) return 'حساب پیدا نشد.';
   if (patch.name !== undefined) {
@@ -112,7 +119,9 @@ export function editAccount(d: FinanceData, id: string, patch: { name?: string; 
   if (patch.openedOn && /^\d{4}-\d{2}-\d{2}$/.test(patch.openedOn)) a.openedOn = patch.openedOn;
   if (patch.currentRial != null) {
     if (!Number.isFinite(patch.currentRial)) return 'موجودی نامعتبر است.';
-    a.openingRial += Math.round(patch.currentRial) - (accountBalances(d)[id] ?? 0);
+    // an account the bank reports on: «موجودی الان» is a statement at this moment (rule 76); otherwise the opening moves
+    if (a.reported) setCurrentBalance(d, id, patch.currentRial, now);
+    else a.openingRial += Math.round(patch.currentRial) - (accountBalances(d)[id] ?? 0);
   }
   return null;
 }

@@ -129,7 +129,7 @@ function StatementCard({ d }: { d: FinanceData }) {
         از اینترنت‌بانک یا همراه‌بانک «صورتحساب / گردش حساب» را بگیرید. فایل همین‌جا در مرورگر خوانده می‌شود و به هیچ سروری فرستاده نمی‌شود. PDF باید متنی باشد (نه
         عکس اسکن‌شده).
       </p>
-      {accounts.length ? null : <p className="fin-err">اول در صفحه «حساب و دارایی» یک حساب بانکی بسازید.</p>}
+      {accounts.length ? null : <p className="fin-err">اول در صفحه «حساب‌ها و کارت‌ها» یک حساب بانکی بسازید.</p>}
       <div className="fin-grid">
         <AccountSelect d={d} label="این گردش مال کدام حساب است؟" value={accountId} onChange={setAccountId} allowNone="— انتخاب حساب —" />
         <SelectBox<'auto' | 'rial' | 'toman'>
@@ -328,7 +328,7 @@ function SmsCard({ d }: { d: FinanceData }) {
           </p>
           {result.newSources ? (
             <p className="banner info">
-              {faN(result.newSources)} کارت یا حساب تازه در پیامک‌ها شناسایی شد. در <Link href="/accounts">حساب و دارایی</Link> به حساب‌هایتان وصلشان کنید تا تراکنش‌ها و مانده بانکشان
+              {faN(result.newSources)} کارت یا حساب تازه در پیامک‌ها شناسایی شد. در <Link href="/accounts">حساب‌ها و کارت‌ها</Link> به حساب‌هایتان وصلشان کنید تا تراکنش‌ها و مانده بانکشان
               خودکار به همان حساب برود.
             </p>
           ) : null}

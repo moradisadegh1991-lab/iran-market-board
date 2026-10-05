@@ -32,6 +32,12 @@ const ICONS: Record<string, React.ReactNode> = {
     </>
   ),
   '/advisor': <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-7l-4.5 3.5V16H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01" />,
+  '/accounts': (
+    <>
+      <rect x="3" y="6" width="18" height="13" rx="2" />
+      <path d="M3 10h18M7 15h4" />
+    </>
+  ),
   more: (
     <>
       <rect x="4" y="4" width="6.5" height="6.5" rx="1.6" />
@@ -46,7 +52,7 @@ const Icon = ({ k }: { k: string }) => (
     {ICONS[k]}
   </svg>
 );
-const BOTTOM_LABEL: Record<string, string> = { '/': 'خانه', '/transactions': 'تراکنش‌ها', '/market': 'بازار', '/advisor': 'مشاور' };
+const BOTTOM_LABEL: Record<string, string> = { '/': 'خانه', '/transactions': 'تراکنش‌ها', '/accounts': 'حساب‌ها', '/market': 'بازار', '/advisor': 'مشاور' };
 
 function Tiles({ path, onPick }: { path: string; onPick?: () => void }) {
   return (

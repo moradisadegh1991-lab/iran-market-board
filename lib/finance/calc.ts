@@ -2,8 +2,9 @@
 // document and "today" explicitly so scripts/finance-test.ts can pin the arithmetic.
 //
 // Units: inputs and outputs are RIAL unless a name says otherwise (`…Toman`).
+import { balances } from './balance';
 import { isoToJalali, jalaliMonthLength, jalaliToIso, JALALI_MONTHS } from '@/lib/jalali';
-import type { Bill, Cheque, ExpectedIncome, FinanceData, Goal, Iso, Loan, MarketKey, Txn } from './model';
+import { isMoneyAccount, type Bill, type Cheque, type ExpectedIncome, type FinanceData, type Goal, type Iso, type Loan, type MarketKey, type Txn } from './model';
 
 // ── dates ──────────────────────────────────────────────────────────────────
 
@@ -47,19 +48,9 @@ export function addJalaliMonths(iso: Iso, n: number): Iso {
 // ── accounts ───────────────────────────────────────────────────────────────
 
 /** Current balance of every account: opening balance plus every transaction since. */
+/** Each account's balance: the bank's latest stated balance + what was booked after it, or the book when the bank never said (balance.ts, rule 76). */
 export function accountBalances(d: FinanceData): Record<string, number> {
-  const bal: Record<string, number> = {};
-  for (const a of d.accounts) bal[a.id] = a.openingRial;
-  for (const t of d.txns) {
-    if (!(t.accountId in bal)) continue;
-    if (t.kind === 'income') bal[t.accountId] += t.amountRial;
-    else if (t.kind === 'expense') bal[t.accountId] -= t.amountRial;
-    else if (t.kind === 'transfer') {
-      bal[t.accountId] -= t.amountRial;
-      if (t.toAccountId && t.toAccountId in bal) bal[t.toAccountId] += t.amountRial;
-    }
-  }
-  return bal;
+  return balances(d);
 }
 
 // ── month totals and budgets ───────────────────────────────────────────────
@@ -311,7 +302,7 @@ export interface ForecastPoint {
  */
 export function cashForecast(d: FinanceData, today: Iso, days = 30): { points: ForecastPoint[]; low: ForecastPoint; startRial: number } {
   const bal = accountBalances(d);
-  const startRial = d.accounts.filter((a) => !a.archived).reduce((s, a) => s + (bal[a.id] ?? 0), 0);
+  const startRial = d.accounts.filter(isMoneyAccount).reduce((s, a) => s + (bal[a.id] ?? 0), 0);
   const dues = upcoming(d, today, days);
   // anything overdue or due today is treated as settled today
   let run = startRial + dues.filter((x) => x.date <= today).reduce((s, x) => s + x.rial, 0);
@@ -445,7 +436,7 @@ export interface NetWorth {
 
 export function netWorth(d: FinanceData, items: PriceItem[], today: Iso): NetWorth {
   const bal = accountBalances(d);
-  const cashRial = d.accounts.filter((a) => !a.archived).reduce((s, a) => s + (bal[a.id] ?? 0), 0);
+  const cashRial = d.accounts.filter(isMoneyAccount).reduce((s, a) => s + (bal[a.id] ?? 0), 0);
   let marketRial = 0;
   let manualRial = 0;
   let liquidExtra = 0;
@@ -472,6 +463,13 @@ export function netWorth(d: FinanceData, items: PriceItem[], today: Iso): NetWor
   }
   let receivableRial = 0;
   let debtRial = 0;
+  // the user's position in a home fund or a دنگ group: owed to them (+) or by them (−)
+  for (const a of d.accounts) {
+    if (a.archived || isMoneyAccount(a)) continue;
+    const b = bal[a.id] ?? 0;
+    if (b > 0) receivableRial += b;
+    else debtRial -= b;
+  }
   for (const l of d.loans) {
     const st = loanState(l, today);
     if (l.direction === 'borrowed') debtRial += st.remainingPrincipalRial;
