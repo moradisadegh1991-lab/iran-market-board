@@ -6,7 +6,9 @@
 // computed here, on the device (rule 7).
 import { dailyProfit, lowStock, sumRows } from '@/lib/biz/reports';
 import { creditBalance } from '@/lib/biz/ops';
-import { tehranParts } from '@/lib/biz/slots';
+import { availableSlots, fits, tehranMs, tehranParts, withinHours } from '@/lib/biz/slots';
+import { calendarOf } from '@/lib/biz/ops';
+import { dayIn, dayWords, itemsIn, nearestFree, timeIn, timeWords } from '@/lib/biz/voice';
 import { openChecks } from '../finance/balance';
 import { accountBalances, monthBounds, monthLabel, monthOf, netWorth, shiftMonth, totalsBetween, addDays, type PriceItem } from '../finance/calc';
 import { isMoneyAccount, type FinanceData, type Iso } from '../finance/model';
@@ -62,7 +64,9 @@ export type Question =
   | { type: 'networth' }
   | { type: 'help' }
   | { type: 'need-asset' }
-  | { type: 'biz'; what: 'sales' | 'profit' | 'pending' | 'bookings' | 'stock' | 'credit'; from: Iso; to: Iso; period: string };
+  | { type: 'biz'; what: 'sales' | 'profit' | 'pending' | 'stock' | 'credit'; from: Iso; to: Iso; period: string }
+  /** the shop's bookings: a day's (or this week's) list, the next one, the free times of a day, or whether one time is free */
+  | { type: 'slots'; ask: 'list' | 'next' | 'free' | 'check'; from: Iso; to: Iso; time: string | null; serviceId: string | null };
 
 const ASKING = /(^| )(چند|چنده|چنده؟|چقدر|چقدره|چه قدر|چطوره|چطور|کدومه|بگو|بگید|بفرما|نشون|نشان|نشونم|ببینم|میخوام|می خوام|قیمت|نرخ|موجودی|مانده)( |$)/;
 const CHART = /(^| )(نمودار|چارت|گراف|روند)/;
@@ -141,7 +145,7 @@ export function parseQuestion(d: FinanceData, raw: string, today: Iso): Question
   // کسب‌وکار من (lib/biz): asked about the shop, not the person
   if (d.biz) {
     const shop = /(^| )(مغازه|کسب ?و ?کار|کسب‌وکار|فروشگاه|کافه|سالن|آرایشگاه|کارگاه)/.test(c);
-    const what: Extract<Question, { type: 'biz' }>['what'] | null = /(^| )(نوبت|نوبتا|نوبت‌ها|نوبتهای|رزرو)/.test(c)
+    const what: Extract<Question, { type: 'biz' }>['what'] | 'bookings' | null = /(^| )(نوبت|نوبتا|نوبت‌ها|نوبتهای|رزرو)/.test(c)
       ? 'bookings'
       : /(^| )سفارش/.test(c) && /(انتظار|تأیید|تایید|جدید|تازه|چند)/.test(c)
         ? 'pending'
@@ -154,13 +158,18 @@ export function parseQuestion(d: FinanceData, raw: string, today: Iso): Question
               : /(^| )(فروش|فروشم|فروختم|فروختیم|دخل)/.test(c) && (shop || asked || /(^| )(امروز|دیروز|این)/.test(c))
                 ? 'sales'
                 : null;
-    if (what) {
-      if (what === 'bookings') {
-        const day = / فردا /.test(` ${c} `) ? addDays(today, 1) : today;
-        return { type: 'biz', what, from: day, to: day, period: day === today ? 'امروز' : 'فردا' };
-      }
-      return { type: 'biz', what, ...flowPeriod(c, today) };
+    // «فردا ساعت پنج خالیه؟», «وقت خالی پنجشنبه», «نوبت بعدی کیه؟», «نوبت‌های این هفته»
+    const free = /(^| )(خالی|خالیه|آزاد|آزاده|جا داریم|جا دارم|وقت داریم|وقت دارم|وقت داری|جا داری)( |$)/.test(c);
+    const svc = free || what === 'bookings' ? (itemsIn(d.biz, raw, 'service').find((f) => f.item)?.item?.id ?? null) : null;
+    if (what === 'bookings' || (free && (/(^| )(وقت|ساعت|نوبت)/.test(c) || !!timeIn(raw) || !!svc || !!dayIn(raw, today)))) {
+      const time = timeIn(raw);
+      if (!free && /(^| )(بعدی|بعد|بعدیم|بعدیمون)( |$)/.test(c) && !/(^| )(هفته|ماه)( |$)/.test(c)) return { type: 'slots', ask: 'next', from: today, to: today, time: null, serviceId: null };
+      if (/(^| )(این هفته|هفته)( |$)/.test(c) && !free) return { type: 'slots', ask: 'list', from: today, to: addDays(today, 6), time: null, serviceId: null };
+      const day = dayIn(raw, today) ?? today;
+      if (free) return { type: 'slots', ask: time ? 'check' : 'free', from: day, to: day, time, serviceId: svc };
+      return { type: 'slots', ask: 'list', from: day, to: day, time: null, serviceId: null };
     }
+    if (what) return { type: 'biz', what, ...flowPeriod(c, today) };
   }
   const spend = /(^| )(خرج|هزینه|خرید|پرداخت)/.test(c);
   const earn = /(^| )(درآمد|درامد|دریافتی|حقوق|دخل)/.test(c);
@@ -204,10 +213,15 @@ const pctFa = (p: number) => `${fa(Math.abs(p), 1)}٪`;
 export const HELP_TEXT =
   'می‌توانید تراکنش ثبت کنید («پنجاه هزار تومن نون خریدم از کیف پول») یا بپرسید: «قیمت دلار چنده؟»، «نمودار سه ماه گذشته طلای ۱۸ عیار»، «این ماه چقدر خرج کردم؟»، «خرج خوراک ماه پیش»، «موجودی حساب ملت»، «دارایی خالصم چقدره؟».';
 
-export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q: Question): Reply {
+export const BIZ_HELP_TEXT =
+  ' برای کسب‌وکار: «دو تا لاته و یه کیک فروختم، نقد»، «برای سارا فردا ساعت پنج عصر اصلاح مو نوبت بذار»، «نوبت ساعت پنج انجام شد، کارت»، «نوبت‌های فردا»، «نوبت بعدی کیه؟»، «پنجشنبه ساعت چند خالیه؟»، «فروش امروز چقدر بود؟».';
+
+export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q: Question, now = Date.now()): Reply {
   switch (q.type) {
     case 'help':
-      return { text: HELP_TEXT, speech: 'می‌تونی یه تراکنش بگی تا ثبتش کنم، یا قیمت و نمودار بپرسی، یا بپرسی این ماه چقدر خرج کردی.' };
+      return d.biz
+        ? { text: HELP_TEXT + BIZ_HELP_TEXT, speech: 'می‌تونی یه تراکنش یا یه فروش بگی تا ثبتش کنم، نوبت بذاری یا بپرسی نوبت‌های فردا چیه، یا قیمت و نمودار بپرسی.' }
+        : { text: HELP_TEXT, speech: 'می‌تونی یه تراکنش بگی تا ثبتش کنم، یا قیمت و نمودار بپرسی، یا بپرسی این ماه چقدر خرج کردی.' };
     case 'need-asset':
       return { text: 'نمودار کدام را نشان بدهم؟ مثلاً «نمودار سه ماه گذشته طلای ۱۸ عیار» یا «نمودار یک ساله دلار».', speech: 'نمودار کدوم رو نشونت بدم؟ مثلاً طلا، دلار یا سکه.' };
     case 'chart': {
@@ -282,6 +296,8 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
     }
     case 'biz':
       return bizAnswer(d, today, q);
+    case 'slots':
+      return slotsAnswer(d, today, q, now);
     case 'flow': {
       const t = totalsBetween(d, q.from, q.to);
       const cat = q.categoryId ? d.categories.find((c) => c.id === q.categoryId) : null;
@@ -337,15 +353,6 @@ function bizAnswer(d: FinanceData, today: Iso, q: Extract<Question, { type: 'biz
         link: { href: '/biz/orders', label: 'سفارش‌ها' },
       };
     }
-    case 'bookings': {
-      const list = b.bookings.filter((x) => x.status !== 'canceled' && tehranParts(x.startsAt).date === q.from).sort((x, y) => x.startsAt - y.startsAt);
-      const time = (ms: number) => tehranParts(ms).time;
-      return {
-        text: list.length ? `نوبت‌های ${q.period}: ${list.map((x) => `${time(x.startsAt).replace(/\d/g, (c) => '۰۱۲۳۴۵۶۷۸۹'[+c])} ${x.customerName ?? x.customerPhone} (${x.serviceNames.join(' + ')})`).join('، ')}.` : `${q.period} نوبتی ندارید.`,
-        speech: list.length ? `${per} ${numToWords(list.length)} تا نوبت داری؛ اولیش ساعت ${numToWords(+time(list[0].startsAt).slice(0, 2))}${+time(list[0].startsAt).slice(3) ? ` و ${numToWords(+time(list[0].startsAt).slice(3))} دقیقه` : ''} است.` : `${per} نوبتی نداری.`,
-        link: { href: '/biz/booking', label: 'نوبت‌دهی' },
-      };
-    }
     case 'stock': {
       const low = lowStock(b);
       return {
@@ -364,6 +371,82 @@ function bizAnswer(d: FinanceData, today: Iso, q: Extract<Question, { type: 'biz
       };
     }
   }
+}
+
+const faT = (t: string) => t.replace(/\d/g, (c) => '۰۱۲۳۴۵۶۷۸۹'[+c]);
+
+/** The booking calendar, from the same slots as «نوبت‌دهی» and the online page (lib/biz/slots.ts). */
+function slotsAnswer(d: FinanceData, today: Iso, q: Extract<Question, { type: 'slots' }>, now: number): Reply {
+  const b = d.biz!;
+  const link = { href: '/biz/booking', label: 'نوبت‌دهی' };
+  const open = b.bookings.filter((x) => x.status === 'pending' || x.status === 'confirmed').sort((x, y) => x.startsAt - y.startsAt);
+  const who = (x: (typeof open)[number]) => x.customerName ?? x.customerPhone ?? 'مشتری';
+  const at = (ms: number) => tehranParts(ms).time;
+  const dayOf = (ms: number) => tehranParts(ms).date;
+  const per = q.from === q.to ? dayWords(q.from, today) : 'این هفته';
+  if (q.ask === 'next') {
+    const x = open.find((y) => y.startsAt + y.durationMin * 60_000 > now);
+    if (!x) return { text: 'نوبت بازی پیش رو ندارید.', speech: 'نوبت دیگه‌ای نداری.', link };
+    const inMin = Math.round((x.startsAt - now) / 60_000);
+    const when = `${dayWords(dayOf(x.startsAt), today)} ساعت`;
+    const soon = inMin <= 0 ? 'همین الان' : inMin < 120 ? `${numToWords(inMin)} دقیقه دیگه` : '';
+    return {
+      text: `نوبت بعدی: ${who(x)}، ${x.serviceNames.join(' + ')}، ${when} ${faT(at(x.startsAt))}${inMin > 0 && inMin < 120 ? ` (${fa(inMin)} دقیقه دیگر)` : inMin <= 0 ? ' (همین الان)' : ''}${x.status === 'pending' ? '، منتظر تأیید' : ''}.`,
+      speech: `نوبت بعدی ${who(x)}ه، ${x.serviceNames.join(' و ')}، ${when} ${timeWords(at(x.startsAt))}${soon ? `؛ ${soon}` : ''}.`,
+      link,
+    };
+  }
+  if (q.ask === 'list') {
+    const list = open.filter((x) => dayOf(x.startsAt) >= q.from && dayOf(x.startsAt) <= q.to);
+    if (!list.length) return { text: `${per} نوبتی ندارید.`, speech: `${per} نوبتی نداری.`, link };
+    const multi = q.from !== q.to;
+    const line = (x: (typeof list)[number]) => `${multi ? `${dayWords(dayOf(x.startsAt), today)} ` : ''}${faT(at(x.startsAt))} ${who(x)} (${x.serviceNames.join(' + ')}${x.status === 'pending' ? '، منتظر تأیید' : ''})`;
+    const first = list.find((x) => x.startsAt + x.durationMin * 60_000 > now) ?? list[0];
+    return {
+      text: `نوبت‌های ${per}: ${list.map(line).join('، ')}.`,
+      speech: `${per} ${numToWords(list.length)} تا نوبت داری${multi ? '' : `؛ ${first === list[0] ? 'اولیش' : 'بعدیش'} ساعت ${timeWords(at(first.startsAt))}، ${who(first)}`}.`,
+      link,
+    };
+  }
+  // free times: for the said service, else the shortest one (any visit fits there at least)
+  const svcs = b.services.filter((s) => s.active);
+  if (!svcs.length) return { text: 'هنوز خدمتی برای نوبت‌دهی تعریف نشده.', speech: 'اول توی نوبت‌دهی خدمت‌ها رو تعریف کن.', link };
+  const svc = svcs.find((s) => s.id === q.serviceId) ?? [...svcs].sort((x, y) => x.durationMin - y.durationMin)[0];
+  const cal = calendarOf(b);
+  const free = availableSlots(cal, q.from, svc.durationMin, now);
+  const forSvc = q.serviceId ? ` برای ${svc.name}` : '';
+  if (q.ask === 'check' && q.time) {
+    const ms = tehranMs(q.from, q.time);
+    const tw = `${dayWords(q.from, today)} ساعت ${timeWords(q.time)}`;
+    const tf = `${dayWords(q.from, today)} ساعت ${faT(q.time)}`;
+    const nf = nearestFree(free, ms);
+    const near = [nf.before, nf.after].filter((x): x is number => x != null);
+    const nearT = near.length ? ` نزدیک‌ترین وقت خالی: ${near.map((t) => faT(at(t))).join(' یا ')}.` : ` ${dayWords(q.from, today)} وقت خالی دیگری نیست.`;
+    const nearS = near.length ? ` نزدیک‌ترین وقت خالی ${near.map((t) => timeWords(at(t))).join(' یا ')}ه.` : '';
+    if (ms < now) return { text: `${tf} گذشته.${nearT}`, speech: `اون ساعت گذشته.${nearS}`, link };
+    if (!withinHours(cal, ms, svc.durationMin)) return { text: `${tf}${forSvc} بیرون از ساعت کاری است.${nearT}`, speech: `${tw} بیرون از ساعت کاریه.${nearS}`, link };
+    if (fits(cal, ms, svc.durationMin)) return { text: `بله، ${tf}${forSvc} خالی است (${fa(svc.durationMin)} دقیقه).`, speech: `آره، ${tw}${forSvc} خالیه.`, link };
+    const busy = open.find((x) => x.startsAt < ms + svc.durationMin * 60_000 && ms < x.startsAt + x.durationMin * 60_000);
+    const by = busy ? ` (نوبت ${who(busy)}، ${faT(at(busy.startsAt))})` : '';
+    return { text: `نه، ${tf}${forSvc} پر است${by}.${nearT}`, speech: `نه، ${tw} پره${busy ? `؛ نوبت ${who(busy)}ه` : ''}.${nearS}`, link };
+  }
+  if (!free.length) return { text: `${per}${forSvc} وقت خالی ندارید.`, speech: `${per}${forSvc} وقت خالی نداری.`, link };
+  // start times come every 15 minutes: said as free stretches («از ۹ تا ۱۰، از ۱۲ تا ۲۰»), not as a list of 40 times
+  const spans: { from: number; to: number }[] = [];
+  for (const t of free) {
+    const last = spans[spans.length - 1];
+    if (last && t - (last.to - svc.durationMin * 60_000) <= 15 * 60_000) last.to = t + svc.durationMin * 60_000;
+    else spans.push({ from: t, to: t + svc.durationMin * 60_000 });
+  }
+  const endT = (ms: number) => at(ms) === '00:00' ? '24:00' : at(ms);
+  return {
+    text: `وقت خالی ${per}${forSvc} (${fa(svc.durationMin)} دقیقه): ${spans.map((x) => (x.to - x.from === svc.durationMin * 60_000 ? `ساعت ${faT(at(x.from))}` : `از ${faT(at(x.from))} تا ${faT(endT(x.to))}`)).join('، ')}.`,
+    speech: `${per}${forSvc} ${spans
+      .slice(0, 3)
+      .map((x) => (x.to - x.from === svc.durationMin * 60_000 ? `ساعت ${timeWords(at(x.from))}` : `از ${timeWords(at(x.from))} تا ${timeWords(endT(x.to))}`))
+      .join('، ')}${spans.length > 3 ? ' و چند وقت دیگه' : ''} خالیه.`,
+    link,
+  };
 }
 
 /** After the chart arrives: what it shows, in a sentence (and in words for speaking). */

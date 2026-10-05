@@ -6,6 +6,7 @@ import { BOOKING_STATUS_LABEL, typeInfo, type Booking, type BookingStatus, type 
 import { addBooking, assignSeat, calendarOf, rescheduleBooking, setBookingStatus } from '@/lib/biz/ops';
 import { availableSlots, tehranParts, weekdayOf } from '@/lib/biz/slots';
 import { templatesFor } from '@/lib/biz/templates';
+import Assistant from '../assistant/Assistant';
 import { useFinance } from '../finance/FinanceProvider';
 import { Card, fmtDateFa, JalaliDate, Money, NumInput, parseAmount, TextInput, TomanInput } from '../finance/kit';
 import { Chips } from '../ui';
@@ -136,7 +137,7 @@ function BookingRow({ b, bk }: { b: Business; bk: Booking }) {
       <div className="fin-list-row">
         <span className="fin-list-main">
           <b>
-            {faTime(bk.startsAt)} · {bk.customerName ?? bk.customerPhone}
+            {faTime(bk.startsAt)}، {bk.customerName ?? bk.customerPhone}
           </b>
           <small>
             {bk.serviceNames.join(' + ')}، {fa(bk.durationMin)} دقیقه
@@ -194,9 +195,11 @@ function BookingRow({ b, bk }: { b: Business; bk: Booking }) {
             ))}
           </select>
         ) : null}
-        <a className="fin-mini ghost" href={smsHref([bk.customerPhone], `نوبت شما در ${b.name}: ${fmtDateFa(tehranParts(bk.startsAt).date)} ساعت ${faTime(bk.startsAt)}.`)}>
-          ✉ پیامک
-        </a>
+        {bk.customerPhone ? (
+          <a className="fin-mini ghost" href={smsHref([bk.customerPhone], `نوبت شما در ${b.name}: ${fmtDateFa(tehranParts(bk.startsAt).date)} ساعت ${faTime(bk.startsAt)}.`)}>
+            ✉ پیامک
+          </a>
+        ) : null}
       </div>
       {mode === 'done' ? (
         <div className="biz-confirm">
@@ -516,8 +519,18 @@ function Seats({ b }: { b: Business }) {
 
 function BookingPage({ b }: { b: Business }) {
   const [tab, setTab] = useState<'cal' | 'svc' | 'hours' | 'seats'>('cal');
+  const [voice, setVoice] = useState(false);
   return (
     <>
+      {b.services.some((s) => s.active) ? (
+        <div className="voice-entry">
+          <button type="button" className="btn ghost voice-open" onClick={() => setVoice(true)}>
+            🎙 نوبت با صدا
+          </button>
+          <span className="muted small">«برای سارا فردا ساعت پنج اصلاح مو»، «نوبت ساعت پنج انجام شد، کارت»؛ یا بپرسید «فردا ساعت چند خالیه؟».</span>
+          {voice ? <Assistant mode="book" onClose={() => setVoice(false)} /> : null}
+        </div>
+      ) : null}
       <Chips
         label="بخش"
         value={tab}

@@ -1,7 +1,8 @@
 'use client';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { answerQuestion, HELP_TEXT, parseQuestion, type Reply } from '@/lib/assistant/ask';
+import { answerQuestion, BIZ_HELP_TEXT, HELP_TEXT, parseQuestion, type Reply } from '@/lib/assistant/ask';
+import { bizAnswer, bizBegin, bizChoose, bizEdit, bizRows, bizStart, commitBiz, undoBiz, type BizUndo, type BizVoiceState } from '@/lib/biz/voice';
 import { deleteTxn } from '@/lib/finance/actions';
 import type { Txn } from '@/lib/finance/model';
 import { answer, choose, commitVoice, draftRows, edit, startVoice, type Ask, type VoiceState } from '@/lib/finance/voice';
@@ -36,11 +37,23 @@ interface Item {
 // opened by the phone's assist gesture, the tile or the shortcut (rule 74): short, and it listens right away
 const ASSIST_HI = 'بفرمایید؛ گوش می‌دهم. بپرسید یا تراکنش بگویید.';
 const GREETING = 'سلام! تراکنش بگویید تا ثبت کنم، یا بپرسید: «قیمت دلار چنده؟»، «نمودار سه ماه گذشته طلای ۱۸ عیار»، «این ماه چقدر خرج کردم؟».';
+// with a business (rule 81): the shop first — a sale, a booking, the calendar
+const GREETING_BIZ =
+  'سلام! فروش بگویید («دو تا لاته و یه کیک فروختم، نقد»)، نوبت بگذارید («برای سارا فردا ساعت پنج نوبت اصلاح مو بذار») یا بپرسید: «نوبت‌های فردا»، «فردا ساعت پنج خالیه؟»، «فروش امروز چقدر بود؟». تراکنش و قیمت هم می‌شود.';
+const BOOK_HI = 'نوبت بگویید («برای سارا فردا ساعت پنج اصلاح مو»)، بگویید کدام نوبت انجام یا لغو شد، یا بپرسید: «نوبت‌های فردا»، «فردا ساعت چند خالیه؟».';
+const UNDONE: Record<BizUndo['kind'], string> = {
+  sale: 'برگردانده شد؛ آن فاکتور لغو شد.',
+  book: 'برگردانده شد؛ آن نوبت حذف شد.',
+  done: 'برگردانده شد؛ نوبت دوباره باز شد و فروشش لغو شد.',
+  cancel: 'برگردانده شد؛ نوبت دوباره باز شد.',
+};
 
 /**
  * The assistant: say (or type) a transaction and it asks for what is missing, reads it back and records it
  * on «بله» (lib/finance/voice.ts); ask a question and it answers in text and speech, with a chart when asked
- * (lib/assistant/ask.ts). Hearing and speaking: lib/voice-io.ts. `mode="txn"` starts by asking for a transaction.
+ * (lib/assistant/ask.ts). With a business, a sale or a booking said the same way goes through lib/biz/voice.ts
+ * (rule 81). Hearing and speaking: lib/voice-io.ts. `mode="txn"` starts by asking for a transaction, `"sale"` for a
+ * sale and `"book"` for a booking.
  */
 export default function Assistant({
   onClose,
@@ -49,7 +62,7 @@ export default function Assistant({
   byName = false,
 }: {
   onClose: () => void;
-  mode?: 'any' | 'txn';
+  mode?: 'any' | 'txn' | 'sale' | 'book';
   listen?: number;
   /** opened because the «مالی من» listener heard its name: nothing said after it → it was a false wake, go away */
   byName?: boolean;
@@ -65,6 +78,9 @@ export default function Assistant({
   const nextId = useRef(1);
   const [txn, setTxn] = useState<VoiceState | null>(null);
   const txnRef = useRef<VoiceState | null>(null);
+  const [biz, setBiz] = useState<BizVoiceState | null>(null);
+  const bizRef = useRef<BizVoiceState | null>(null);
+  const [bizSaved, setBizSaved] = useState<BizUndo | null>(null);
   const [phase, setPhase] = useState<'idle' | 'speaking' | 'listening'>('idle');
   const [partial, setPartial] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
@@ -129,7 +145,15 @@ export default function Assistant({
       txnRef.current = s.done ? null : s;
       setTxn(txnRef.current);
       push({ who: 'bot', text: s.say });
-    } else push({ who: 'bot', text: assisted.current ? ASSIST_HI : GREETING });
+    } else if (mode === 'book' && data.biz) {
+      // the booking page: a new booking, «… انجام شد/لغو» or a question — the first sentence decides
+      push({ who: 'bot', text: BOOK_HI });
+    } else if (mode === 'sale' && data.biz) {
+      const s = bizBegin(data, mode, today, Date.now());
+      bizRef.current = s.done ? null : s;
+      setBiz(bizRef.current);
+      push({ who: 'bot', text: s.say });
+    } else push({ who: 'bot', text: assisted.current ? ASSIST_HI : data.biz ? GREETING_BIZ : GREETING });
   }, [data, today, mode, push]);
 
   // say the opening line when the voice is ready
@@ -155,7 +179,7 @@ export default function Assistant({
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [log, partial, txn]);
+  }, [log, partial, txn, biz]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -177,12 +201,17 @@ export default function Assistant({
     txnRef.current = s;
     setTxn(s);
   }
+  function setBizState(s: BizVoiceState | null) {
+    bizRef.current = s;
+    setBiz(s);
+  }
+  /** a dialog (transaction, sale, booking) still waiting for an answer */
+  const waiting = () => (txnRef.current && !txnRef.current.done) || (bizRef.current && !bizRef.current.done);
 
   /** After the bot spoke: keep listening while a transaction still needs an answer. */
   async function speakThenMaybeListen(text: string) {
     await say(text);
-    const t = txnRef.current;
-    if (alive.current && handsFree.current && t && !t.done) {
+    if (alive.current && handsFree.current && waiting()) {
       await new Promise((r) => setTimeout(r, 350));
       if (alive.current) void listenOnce(true);
     }
@@ -205,7 +234,7 @@ export default function Assistant({
     setPartial('');
     setPhase('listening');
     try {
-      const alts = await x.listen((t) => alive.current && setPartial(t), txnRef.current?.say);
+      const alts = await x.listen((t) => alive.current && setPartial(t), bizRef.current?.say ?? txnRef.current?.say);
       listening.current = false;
       if (!alive.current) return;
       setPhase('idle');
@@ -246,7 +275,36 @@ export default function Assistant({
     falseWake.current = false;
     const d = dataRef.current;
     if (!d || !alts.length) return;
+    const now = Date.now();
+    const bcur = bizRef.current && !bizRef.current.done ? bizRef.current : null;
+    if (bcur) {
+      // the sale or booking under way gets the answer; a question in the middle is answered, then back to it
+      const next = bizAnswer(d, bcur, alts, today, now);
+      if (next.misses > bcur.misses) {
+        for (const a of alts) {
+          const q = parseQuestion(d, a, today);
+          if (q && q.type !== 'help') {
+            const r = answerQuestion(d, itemsRef.current, today, q, now);
+            push({ who: 'me', text: a }, { who: 'bot', text: r.text, chart: r.chart, link: r.link }, { who: 'bot', text: `برگردیم: ${bcur.say}` });
+            void say(`${r.speech} برگردیم. ${bcur.say}`);
+            return;
+          }
+        }
+      }
+      return bizStep(next, alts[0]);
+    }
     const cur = txnRef.current && !txnRef.current.done ? txnRef.current : null;
+
+    // a sale or a booking said in one go («دو تا لاته فروختم، نقد») — before questions, since «نوبت» is in both
+    if (d.biz && (!cur || cur.asking === 'open')) {
+      for (const a of alts) {
+        const s = bizStart(d, a, today, now);
+        if (s) {
+          if (cur) setTxnState(null);
+          return bizStep(s, a);
+        }
+      }
+    }
 
     // a question — unless a transaction is waiting for an answer these words could be
     if (!cur || cur.asking === 'open') {
@@ -254,9 +312,15 @@ export default function Assistant({
         const q = parseQuestion(d, a, today);
         if (q) {
           if (cur) setTxnState(null);
-          return reply(answerQuestion(d, itemsRef.current, today, q), a);
+          return reply(answerQuestion(d, itemsRef.current, today, q, now), a);
         }
       }
+    }
+
+    // opened from «فروش با صدا» / «نوبت با صدا»: whatever else is said is taken as (the start of) a sale or booking
+    if ((mode === 'sale' || mode === 'book') && d.biz && !cur) {
+      const s1 = bizAnswer(d, bizBegin(d, mode, today, now), alts, today, now);
+      if (!s1.misses) return bizStep(s1, alts[0]);
     }
 
     const base = cur ?? startVoice(d, today);
@@ -274,8 +338,8 @@ export default function Assistant({
         }
       }
       if (!cur) {
-        push({ who: 'me', text: said }, { who: 'bot', text: `متوجه نشدم. ${HELP_TEXT}` });
-        void say('متوجه نشدم. می‌توانید تراکنش بگویید یا قیمت و نمودار بپرسید.');
+        push({ who: 'me', text: said }, { who: 'bot', text: `متوجه نشدم. ${HELP_TEXT}${d.biz ? BIZ_HELP_TEXT : ''}` });
+        void say(d.biz ? 'متوجه نشدم. می‌توانید فروش یا تراکنش بگویید، نوبت بذارید یا بپرسید.' : 'متوجه نشدم. می‌توانید تراکنش بگویید یا قیمت و نمودار بپرسید.');
         return;
       }
     }
@@ -285,6 +349,7 @@ export default function Assistant({
         t = commitVoice(dd, next);
       });
       setSaved(t);
+      setBizSaved(null);
       setUndone(false);
     }
     setTxnState(next.done ? null : next);
@@ -326,6 +391,7 @@ export default function Assistant({
         t = commitVoice(dd, next);
       });
       setSaved(t);
+      setBizSaved(null);
       setUndone(false);
     }
     setTxnState(next.done ? null : next);
@@ -333,23 +399,63 @@ export default function Assistant({
     void say(next.say);
   }
 
+  /** The sale/booking dialog moved on; on «بله» it is recorded (or the book says why not). */
+  function bizStep(next: BizVoiceState, said: string | null) {
+    const prev = bizRef.current;
+    let text = next.say;
+    if (next.done === 'save' && prev?.done !== 'save') {
+      let r: BizUndo | string = '';
+      update((dd) => {
+        r = commitBiz(dd, next, Date.now());
+      });
+      const res = r as BizUndo | string;
+      if (typeof res === 'string') text = `ثبت نشد: ${res}`;
+      else {
+        setBizSaved(res);
+        setSaved(null);
+        setUndone(false);
+        if (res.kind === 'sale') text = `ثبت شد؛ فاکتور ${res.no.toLocaleString('fa-IR')}.`;
+      }
+    }
+    setBizState(next.done ? null : next);
+    push(...(said ? [{ who: 'me' as const, text: said }] : []), { who: 'bot', text });
+    void speakThenMaybeListen(text);
+  }
+
   function tap(key: string) {
     const d = dataRef.current;
+    const bcur = bizRef.current;
+    if (d && bcur) {
+      quiet();
+      return bizStep(bizChoose(d, bcur, key, today, Date.now()), bcur.options.find((o) => o.key === key)?.label ?? null);
+    }
     const cur = txnRef.current;
     if (!d || !cur) return;
     quiet();
     step(choose(d, today, cur, key), cur.options.find((o) => o.key === key)?.label ?? null);
   }
 
-  function fix(what: Ask) {
+  function fix(what: Ask | string) {
     const d = dataRef.current;
+    const bcur = bizRef.current;
+    if (d && bcur && !bcur.done) {
+      quiet();
+      return bizStep(bizEdit(d, bcur, what, today, Date.now()), null);
+    }
     const cur = txnRef.current;
     if (!d || !cur || cur.done) return;
     quiet();
-    step(edit(d, today, cur, what), null);
+    step(edit(d, today, cur, what as Ask), null);
   }
 
   function undo() {
+    if (bizSaved) {
+      const u = bizSaved;
+      update((d) => undoBiz(d, u, Date.now()));
+      setUndone(true);
+      push({ who: 'bot', text: UNDONE[u.kind] });
+      return;
+    }
     if (!saved) return;
     update((d) => deleteTxn(d, saved.id));
     setUndone(true);
@@ -369,7 +475,8 @@ export default function Assistant({
   }
 
   if (!data) return null;
-  const rows = txn ? draftRows(data, today, txn.draft) : [];
+  const rows: { key: string; label: string; value: string | null }[] = biz ? bizRows(data, biz, today) : txn ? draftRows(data, today, txn.draft) : [];
+  const dlg = biz ?? txn;
   const canListen = !!io?.canListen;
 
   return (
@@ -398,7 +505,7 @@ export default function Assistant({
           {partial ? <li className="me partial">{partial}…</li> : null}
         </ol>
 
-        {txn && rows.some((r) => r.value) ? (
+        {dlg && rows.some((r) => r.value) ? (
           <dl className="voice-draft" data-testid="voice-draft">
             {rows.map((r) => (
               <button key={r.label} type="button" onClick={() => fix(r.key)} disabled={r.key === 'open'} aria-label={`${r.label}: ${r.value ?? 'هنوز معلوم نیست'} — تغییر`}>
@@ -415,7 +522,7 @@ export default function Assistant({
           </p>
         ) : null}
 
-        {saved && !undone && !txn ? (
+        {(saved || bizSaved) && !undone && !dlg ? (
           <div className="voice-done" data-testid="voice-saved">
             <p role="status">ثبت شد ✓</p>
             <button className="btn ghost" onClick={undo}>
@@ -424,10 +531,10 @@ export default function Assistant({
           </div>
         ) : null}
 
-        {txn?.options.length ? (
+        {dlg?.options.length ? (
           <div className="voice-opts" role="group" aria-label="گزینه‌ها">
-            {txn.options.map((o) => (
-              <button key={o.key} type="button" className={txn.asking === 'confirm' && o.key === 'yes' ? 'btn' : 'voice-opt'} onClick={() => tap(o.key)}>
+            {dlg.options.map((o) => (
+              <button key={o.key} type="button" className={dlg.asking === 'confirm' && o.key === 'yes' ? 'btn' : 'voice-opt'} onClick={() => tap(o.key)}>
                 {o.label}
               </button>
             ))}
@@ -494,7 +601,7 @@ export default function Assistant({
               : io?.kind === 'web'
                 ? 'در مرورگر، صدا را خود مرورگر (کروم: گوگل) به متن تبدیل می‌کند؛ فهمیدن، جواب و ثبت روی همین دستگاه است.'
                 : 'فهمیدن، جواب و ثبت روی همین دستگاه است.'}{' '}
-            هیچ تراکنشی بدون «بله» ثبت نمی‌شود.
+            هیچ تراکنش، فروش یا نوبتی بدون «بله» ثبت نمی‌شود.
           </span>
         </div>
       </div>
