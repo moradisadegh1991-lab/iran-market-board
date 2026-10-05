@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="imf_assist_short">دستیار</string>
+    <string name="imf_assist_long">دستیار صوتی مالی من</string>
+    <string name="imf_assist_tile">دستیار مالی من</string>
+</resources>

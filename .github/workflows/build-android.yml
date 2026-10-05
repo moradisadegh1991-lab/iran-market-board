@@ -197,6 +197,8 @@ jobs:
           echo "SMS receivers OK"
           # the voice assistant: the mic, and the speech services Android 11+ hides without <queries>
           echo "$MF" | grep -q "android.permission.RECORD_AUDIO" && echo "$MF" | grep -q "android.speech.RecognitionService" && echo "$MF" | grep -q "android.intent.action.TTS_SERVICE" || { echo "::error::voice: RECORD_AUDIO or the speech <queries> missing from the manifest"; exit 1; }
+          # the assistant with the app closed (CLAUDE.md rule 74): assist gesture, headset button, tile, icon shortcut
+          for x in android.intent.action.ASSIST android.intent.action.VOICE_COMMAND android.app.shortcuts AssistTile android.service.quicksettings.action.QS_TILE; do echo "$MF" | grep -q "$x" || { echo "::error::assistant entry point $x missing from the manifest"; exit 1; }; done
           echo "voice OK"
           # the built-in Persian voice: engine for arm64 and the voice files
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libsherpa-onnx-jni.so" && unzip -l "$APK" | grep -q "assets/tts-fa/model.onnx" && unzip -l "$APK" | grep -q "assets/tts-fa/espeak-ng-data/fa_dict" || { echo "::error::built-in Persian voice missing from the APK"; exit 1; }

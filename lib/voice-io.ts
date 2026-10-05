@@ -38,6 +38,48 @@ export function speakable(text: string): string {
     .trim();
 }
 
+// Written Persian → how it is said. The screen keeps the written form; only the voice gets this.
+const SPOKEN: [RegExp, string][] = [
+  [/تومان/g, 'تومن'],
+  [/پانصد/g, 'پونصد'],
+  [/(^|\s)نان(?=\s|$)/g, '$1نون'],
+  [/(^|\s)خانه/g, '$1خونه'],
+  [/(^|\s)را(?=\s|$)/g, '$1رو'],
+  [/(^|\s)آن(?=\s|$)/g, '$1اون'],
+  [/(^|\s)کدام/g, '$1کدوم'],
+  [/(^|\s)چیست(?=\s|[؟?.،]|$)/g, '$1چیه'],
+  [/می[\u200c ]?توان/g, 'می\u200cتون'],
+  [/نمی[\u200c ]?توان/g, 'نمی\u200cتون'],
+  [/(می|نمی)[\u200c ]?شود/g, '$1\u200cشه'],
+  [/(^|\s)(ن?)آمد/g, '$1$2اومد'],
+  [/بگویید/g, 'بگید'],
+  [/بگویی(?=\s|$)/g, 'بگی'],
+  [/(^|\s)هستند/g, '$1هستن'],
+  [/(^|\s)بودند/g, '$1بودن'],
+  [/(^|\s)شدند/g, '$1شدن'],
+];
+
+/**
+ * The assistant speaks like a person, not a newsreader: «تومن» not «تومان», «می‌شه», «چیه», «است» folded into the
+ * word («تومنه», «بالاست»), and «و» said the way it is said — joined to the word before («دویستُ شصتُ هشت»),
+ * which the voice reads «devisto shasto hasht» instead of a stressed «va» with a pause (measured on the
+ * phonemizer: rule 73). A bare «نه» that is the number nine becomes «نُه».
+ */
+export function colloquial(text: string): string {
+  let t = ` ${text} `;
+  for (const [rx, to] of SPOKEN) t = t.replace(rx, to);
+  // «… X است.» → «… Xه.» (X ends in a vowel: «بالاست»; in a silent «ه»: just «رفته»)
+  t = t.replace(/(\S+) است(?=[\s.،؛!؟?]|$)/g, (_, w: string) => (/[اوآ]$/.test(w) ? `${w}ست` : /ه$/.test(w) ? w : `${w}ه`));
+  // the number nine: the phonemizer reads a bare «نه» as «na» (“no”) — «نود و نه» came out «نود وَ نَه»
+  t = t.replace(/((?:^|\s)(?:بیست|سی|چهل|پنجاه|شصت|هفتاد|هشتاد|نود|صد|هزار|میلیون|میلیارد) و )نه(?=[\s.،؛!؟?]|$)/g, '$1نُه');
+  t = t.replace(/(^|\s)نه(?=\s+(?:هزار|میلیون|میلیارد|درصد|دهم|تومن|ریال|روز|ماه|سال|سکه|گرم|دلار|ممیز)(?=[\s.،؛!؟?]|$))/g, '$1نُه');
+  t = t.replace(/(^|\s)نه(?= و (?:یک|دو|سه|چهار|پنج|شش|هفت|هشت|نیم|ده|یازده|دوازده|بیست|سی|چهل|پنجاه|شصت|هفتاد|هشتاد|نود|صد)(?=[\s.،؛!؟?]|$))/g, '$1نُه');
+  // «X و Y» → «Xُ Y» («دویستُ شصت»: devisto shast; «سیُ پنج»: sio panj); after «ا», «و» or a silent «ه» it stays a
+  // separate «وُ» («بالا وُ پایین», «دو وُ نیم», «هزینه وُ درآمد»)
+  t = t.replace(/(\S+) و (?=\S)/g, (_, w: string) => (/[اآوهۀ]$/.test(w) ? `${w} وُ ` : `${w}ُ `));
+  return t.replace(/\s+/g, ' ').trim();
+}
+
 export type VoiceErr = 'permission' | 'no-match' | 'network' | 'language' | 'busy' | 'unavailable' | 'audio' | 'cancelled' | 'client';
 export class VoiceError extends Error {
   constructor(public code: VoiceErr) {
@@ -53,6 +95,10 @@ export interface VoiceIO {
   voice?: 'built-in' | 'phone' | 'browser' | null;
   /** the app's own voice is in this APK but did not start on this phone — why (shown, so it can be reported) */
   voiceError?: string | null;
+  /** the app closed unexpectedly last time: what Android recorded (shown once) */
+  lastCrash?: AppCrash | null;
+  /** try the built-in voice again after it was turned off */
+  retryVoice?: () => Promise<void>;
   /** resolves with the recogniser's guesses, best first; rejects with VoiceError */
   listen(onPartial: (text: string) => void, prompt?: string): Promise<string[]>;
   /** use what was heard so far */
@@ -68,6 +114,15 @@ export interface VoiceIO {
 interface Handle {
   remove(): void | Promise<void>;
 }
+/** Why the app closed last time (android-app CrashLog): an uncaught Java exception and/or the system's exit record. */
+export interface AppCrash {
+  at?: number;
+  thread?: string;
+  stack?: string;
+  reason?: 'crash' | 'native-crash' | 'anr' | 'low-memory';
+  description?: string;
+}
+
 interface VoicePlugin {
   available(): Promise<{
     recognition?: boolean;
@@ -85,9 +140,13 @@ interface VoicePlugin {
   stop(): Promise<void>;
   cancel(): Promise<void>;
   speak(o: { text: string }): Promise<void>;
+  // absent on an APK built before them
+  lastCrash?(): Promise<{ crash?: AppCrash | null }>;
+  retryBuiltIn?(): Promise<Awaited<ReturnType<VoicePlugin['available']>>>;
   stopSpeaking(): Promise<void>;
   ttsSettings?(): Promise<void>;
-  addListener(event: 'partial' | 'state', fn: (e: { text?: string; state?: string }) => void): Promise<Handle> | Handle;
+  takeAssist?(): Promise<{ assist?: boolean }>;
+  addListener(event: 'partial' | 'state' | 'assist', fn: (e: { text?: string; state?: string }) => void): Promise<Handle> | Handle;
 }
 
 const codeOf = (e: unknown): VoiceErr => {
@@ -95,11 +154,18 @@ const codeOf = (e: unknown): VoiceErr => {
   return (['permission', 'no-match', 'network', 'language', 'busy', 'unavailable', 'audio', 'cancelled'] as const).find((x) => x === c) ?? 'client';
 };
 
-function appIO(p: VoicePlugin, av: Awaited<ReturnType<VoicePlugin['available']>>): VoiceIO {
+function appIO(p: VoicePlugin, av: Awaited<ReturnType<VoicePlugin['available']>>, lastCrash: AppCrash | null): VoiceIO {
   // the in-app recogniser refused Persian once → Google's voice-typing screen from then on
   let useDialog = !av.recognition && !!av.dialog;
   return {
     kind: 'app',
+    lastCrash,
+    retryVoice: p.retryBuiltIn
+      ? async () => {
+          const a = await p.retryBuiltIn!().catch(() => null);
+          if (a) Object.assign(av, { tts: a.tts, ttsEngine: a.ttsEngine, builtInError: a.builtInError ?? null });
+        }
+      : undefined,
     canListen: !!(av.recognition || av.dialog),
     get canSpeak() {
       return !!av.tts;
@@ -145,7 +211,7 @@ function appIO(p: VoicePlugin, av: Awaited<ReturnType<VoicePlugin['available']>>
     },
     async speak(text) {
       if (!av.tts) return;
-      await p.speak({ text: speakable(text) }).catch(async () => {
+      await p.speak({ text: colloquial(speakable(text)) }).catch(async () => {
         // the built-in voice failed to start (only known once it tried): ask again what can speak, and why not
         const a = await p.available().catch(() => null);
         if (a) Object.assign(av, { tts: a.tts, ttsEngine: a.ttsEngine, builtInError: a.builtInError ?? null });
@@ -262,7 +328,7 @@ function webIO(Rec: (new () => SR) | null, voice: SpeechSynthesisVoice | null): 
     speak(text) {
       if (!voice) return Promise.resolve();
       return new Promise<void>((res) => {
-        const u = new SpeechSynthesisUtterance(speakable(text));
+        const u = new SpeechSynthesisUtterance(colloquial(speakable(text)));
         u.voice = voice;
         u.lang = voice.lang;
         u.onend = () => res();
@@ -277,12 +343,40 @@ function webIO(Rec: (new () => SR) | null, voice: SpeechSynthesisVoice | null): 
   };
 }
 
+/**
+ * The phone asked for the assistant — the assist gesture when «مالی من» is the default digital assistant, the
+ * quick-settings tile, the icon shortcut or a headset's voice button (CLAUDE.md rule 74). Calls `fn` now if the app was
+ * opened that way, and again each time it is asked while the app runs. Returns the unsubscribe. App only.
+ */
+export function onAssist(fn: () => void): () => void {
+  const p = (window as { Capacitor?: { Plugins?: { Voice?: VoicePlugin } } }).Capacitor?.Plugins?.Voice;
+  if (!p?.takeAssist) return () => {};
+  let h: Handle | null = null;
+  let off = false;
+  void Promise.resolve(p.addListener('assist', () => fn()))
+    .then((x) => {
+      if (off) void x.remove();
+      else h = x;
+    })
+    .catch(() => {});
+  p.takeAssist()
+    .then((r) => {
+      if (!off && r?.assist) fn();
+    })
+    .catch(() => {});
+  return () => {
+    off = true;
+    void h?.remove();
+  };
+}
+
 /** What this device can do. Call after mount (the Capacitor bridge does not exist during the static render). */
 export async function voiceIO(): Promise<VoiceIO> {
   const plugin = (window as { Capacitor?: { Plugins?: { Voice?: VoicePlugin } } }).Capacitor?.Plugins?.Voice;
   if (plugin && typeof plugin.available === 'function') {
     try {
-      return appIO(plugin, await plugin.available());
+      const crash = plugin.lastCrash ? ((await plugin.lastCrash().catch(() => null))?.crash ?? null) : null;
+      return appIO(plugin, await plugin.available(), crash);
     } catch {
       // an APK built before the plugin existed: fall through to the web path (none in a WebView)
     }

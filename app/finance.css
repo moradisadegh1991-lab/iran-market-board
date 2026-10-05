@@ -271,3 +271,6 @@ b.fin-raw { display: block; font-weight: 400; }
 .ask-link { display: block; width: fit-content; margin-top: 6px; font-size: 13px; color: var(--teal); font-weight: 600; text-decoration: none; }
 .ask-chart-wait, .ask-chart-err { margin: 6px 0 0; }
 .voice-foot .fin-mini { margin-top: 4px; }
+.crash-note { border: 1px solid var(--down-soft); border-radius: 10px; padding: 6px 10px; background: var(--surface); }
+.crash-note summary { cursor: pointer; color: var(--down); font-weight: 600; }
+.crash-note pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-height: 160px; overflow: auto; margin: 6px 0; text-align: left; }

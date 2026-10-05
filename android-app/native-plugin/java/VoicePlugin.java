@@ -57,6 +57,8 @@ public class VoicePlugin extends Plugin {
     static final String LANG = "fa-IR";
     static final Locale FA = Locale.forLanguageTag("fa-IR");
     static final String GOOGLE_TTS = "com.google.android.tts";
+    /** the app's own «open the assistant» action: the quick-settings tile and the icon shortcut (rule 74) */
+    static final String ACTION_ASSIST = "ir.moradisadegh.marketboard.ASSIST";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private SpeechRecognizer recognizer;
@@ -68,11 +70,16 @@ public class VoicePlugin extends Plugin {
     private final List<String> ttsTried = new ArrayList<>();
     private List<String> ttsInstalled = new ArrayList<>();
     private final Map<String, PluginCall> speaking = new HashMap<>();
+    /** the app was opened to talk to the assistant (assist gesture, tile, shortcut) and the page has not taken it yet */
+    private volatile boolean pendingAssist;
     /** the built-in voice, or null when this APK was built without it */
     private Speaker builtIn;
 
     /** A voice the plugin can speak with besides the phone's TextToSpeech. */
     public interface Speaker {
+        /** start loading the engine in the background (once) */
+        void warm();
+
         boolean ok();
 
         String error();
@@ -102,8 +109,79 @@ public class VoicePlugin extends Plugin {
 
     @Override
     public void load() {
+        Context ctx = getContext();
+        CrashLog.install(ctx);
+        try {
+            if (getActivity() != null && takeAssistFrom(getActivity().getIntent())) pendingAssist = true;
+        } catch (Throwable ignored) {
+            // no launch intent to read
+        }
+        // the last run died inside the built-in voice's native code: keep it off until the user retries
+        TtsGuard.check(ctx, CrashLog.lastExitWasCrash(ctx));
+        builtIn = loadBuiltIn(ctx);
+        try {
+            initTts(null);
+        } catch (Throwable t) {
+            ttsFa = false;
+        }
+    }
+
+    /**
+     * Was the app opened to talk to the assistant? The phone's assist gesture (long-press the side or home key, when
+     * «مالی من» is the default digital assistant: ACTION_ASSIST), a headset's voice button (VOICE_COMMAND), the
+     * quick-settings tile and the icon shortcut (ACTION_ASSIST of this app).
+     */
+    static boolean isAssist(Intent i) {
+        if (i == null || i.getAction() == null) return false;
+        String a = i.getAction();
+        return Intent.ACTION_ASSIST.equals(a) || Intent.ACTION_VOICE_COMMAND.equals(a) || ACTION_ASSIST.equals(a);
+    }
+
+    /** isAssist, and the intent is marked used so a rotation or a return to the app does not open it again. */
+    static boolean takeAssistFrom(Intent i) {
+        if (!isAssist(i)) return false;
+        i.setAction(Intent.ACTION_MAIN);
+        return true;
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        if (!takeAssistFrom(intent)) return;
+        // the page is up and listening → tell it now; otherwise it asks with takeAssist once it is
+        if (hasListeners("assist")) notifyListeners("assist", new JSObject());
+        else pendingAssist = true;
+    }
+
+    /** The page asks once it is up: «open the assistant and listen». */
+    @PluginMethod
+    public void takeAssist(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("assist", pendingAssist);
+        pendingAssist = false;
+        call.resolve(ret);
+    }
+
+    /** Why the app closed last time (once), for the assistant to show: CrashLog. */
+    @PluginMethod
+    public void lastCrash(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            org.json.JSONObject c = CrashLog.takeLast(getContext());
+            if (c != null) ret.put("crash", JSObject.fromJSONObject(c));
+        } catch (Throwable ignored) {
+            // nothing to show
+        }
+        call.resolve(ret);
+    }
+
+    /** «امتحان دوباره» after the built-in voice was turned off or failed. */
+    @PluginMethod
+    public void retryBuiltIn(PluginCall call) {
+        TtsGuard.reset(getContext());
+        if (builtIn != null) builtIn.shutdown();
         builtIn = loadBuiltIn(getContext());
-        initTts(null);
+        if (builtIn != null) builtIn.warm();
+        available(call);
     }
 
     private boolean builtInOk() {
@@ -114,10 +192,14 @@ public class VoicePlugin extends Plugin {
     @Override
     protected void handleOnResume() {
         if (!ttsFa && tts != null) {
-            ttsTried.clear();
-            tts.shutdown();
-            tts = null;
-            initTts(null);
+            try {
+                ttsTried.clear();
+                tts.shutdown();
+                tts = null;
+                initTts(null);
+            } catch (Throwable ignored) {
+                // the phone's engines stay as they were
+            }
         }
     }
 
@@ -199,6 +281,7 @@ public class VoicePlugin extends Plugin {
         ret.put("service", svc == null ? null : svc.getPackageName());
         ret.put("dialog", ctx.getPackageManager().resolveActivity(recognizeIntent(ctx, null), PackageManager.MATCH_DEFAULT_ONLY) != null);
         ret.put("mic", micGranted());
+        if (builtIn != null) builtIn.warm(); // the assistant opened: get the voice ready for its first answer
         ret.put("tts", builtInOk() || ttsFa);
         ret.put("ttsEngine", builtInOk() ? "built-in" : ttsEngine);
         ret.put("builtIn", builtIn != null);
@@ -233,6 +316,7 @@ public class VoicePlugin extends Plugin {
         }
         String prompt = call.getString("prompt");
         main.post(() -> {
+          try {
             if (listenCall != null) listenCall.reject("گوش دادن قبلی قطع شد", "cancelled");
             listenCall = null;
             Context ctx = getContext();
@@ -253,6 +337,11 @@ public class VoicePlugin extends Plugin {
             }
             listenCall = call;
             recognizer.startListening(recognizeIntent(ctx, prompt));
+          } catch (Throwable t) {
+            listenCall = null;
+            destroyRecognizer();
+            call.reject("تشخیص گفتار شروع نشد: " + t.getClass().getSimpleName(), "client");
+          }
         });
     }
 
@@ -260,7 +349,11 @@ public class VoicePlugin extends Plugin {
     @PluginMethod
     public void stop(PluginCall call) {
         main.post(() -> {
-            if (recognizer != null) recognizer.stopListening();
+            try {
+                if (recognizer != null) recognizer.stopListening();
+            } catch (Throwable ignored) {
+                // nothing to stop
+            }
         });
         call.resolve();
     }
@@ -269,7 +362,11 @@ public class VoicePlugin extends Plugin {
     @PluginMethod
     public void cancel(PluginCall call) {
         main.post(() -> {
-            if (recognizer != null) recognizer.cancel();
+            try {
+                if (recognizer != null) recognizer.cancel();
+            } catch (Throwable ignored) {
+                // nothing to cancel
+            }
             if (listenCall != null) listenCall.reject("لغو شد", "cancelled");
             listenCall = null;
         });
@@ -350,7 +447,11 @@ public class VoicePlugin extends Plugin {
 
     private void destroyRecognizer() {
         if (recognizer != null) {
-            recognizer.destroy();
+            try {
+                recognizer.destroy();
+            } catch (Throwable ignored) {
+                // already gone
+            }
             recognizer = null;
             recognizerSvc = null;
         }
@@ -433,6 +534,7 @@ public class VoicePlugin extends Plugin {
 
     private void initTts(String engine) {
         TextToSpeech.OnInitListener onInit = status -> {
+          try {
             if (tts == null) return;
             String current = engine != null ? engine : tts.getDefaultEngine();
             ttsTried.add(current);
@@ -468,6 +570,9 @@ public class VoicePlugin extends Plugin {
                     finishUtterance(id, true);
                 }
             });
+          } catch (Throwable t) {
+            ttsFa = false;
+          }
         };
         tts = engine == null ? new TextToSpeech(getContext(), onInit) : new TextToSpeech(getContext(), onInit, engine);
     }

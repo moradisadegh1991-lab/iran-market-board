@@ -121,7 +121,40 @@ if (!existsSync(manifestPath)) {
     changed = true;
     console.log('✓ AndroidManifest.xml: speech <queries> declared');
   }
+  // the assistant from anywhere (rule 74): the phone's assist gesture and a headset's voice button open MainActivity
+  // (an app with an ACTION_ASSIST activity can be chosen as the «digital assistant app»), the icon shortcut, the tile
+  if (mf.includes('android.intent.action.ASSIST')) console.log('✓ AndroidManifest.xml already opens the assistant from the assist gesture (no change)');
+  else {
+    const filters = `<intent-filter>\n                <action android:name="android.intent.action.ASSIST" />\n                <category android:name="android.intent.category.DEFAULT" />\n            </intent-filter>\n            <intent-filter>\n                <action android:name="android.intent.action.VOICE_COMMAND" />\n                <category android:name="android.intent.category.DEFAULT" />\n            </intent-filter>\n            <meta-data android:name="android.app.shortcuts" android:resource="@xml/assist_shortcuts" />`;
+    const selfClosing = /<activity([^>]*android:name="[^"]*MainActivity"[^>]*?)\s*\/>/;
+    const main = /(<activity[^>]*android:name="[^"]*MainActivity"[^>]*[^/]>[\s\S]*?)(\s*<\/activity>)/;
+    if (selfClosing.test(mf)) mf = mf.replace(selfClosing, `<activity$1>\n            ${filters}\n        </activity>`);
+    else if (main.test(mf)) mf = mf.replace(main, `$1\n            ${filters}$2`);
+    else fail('AndroidManifest.xml has no MainActivity to open the assistant from');
+    changed = true;
+    console.log('✓ AndroidManifest.xml: MainActivity opens the assistant (assist gesture, voice button, icon shortcut)');
+  }
+  if (mf.includes('android:name=".AssistTile"')) console.log('✓ AndroidManifest.xml already declares AssistTile (no change)');
+  else {
+    const tile = `<service android:name=".AssistTile" android:exported="true" android:icon="@drawable/ic_stat_mali" android:label="@string/imf_assist_tile" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">\n            <intent-filter>\n                <action android:name="android.service.quicksettings.action.QS_TILE" />\n            </intent-filter>\n        </service>`;
+    mf = mf.replace(/(\s*)<\/application>/, `\n        ${tile}$1</application>`);
+    changed = true;
+    console.log('✓ AndroidManifest.xml: AssistTile (quick settings) declared');
+  }
   if (changed) writeFileSync(manifestPath, mf);
+}
+
+// ── 3b. resources of the assistant's shortcut and tile (strings, the shortcut XML with this app's id) ──
+const resSrc = join(ROOT, 'native-plugin/res');
+const resDst = join(ROOT, 'android/app/src/main/res');
+if (existsSync(resSrc) && existsSync(join(ROOT, 'android/app/src/main'))) {
+  for (const sub of readdirSync(resSrc)) {
+    mkdirSync(join(resDst, sub), { recursive: true });
+    for (const f of readdirSync(join(resSrc, sub))) {
+      writeFileSync(join(resDst, sub, f), readFileSync(join(resSrc, sub, f), 'utf8').replaceAll('ir.moradisadegh.marketboard', appId));
+    }
+  }
+  console.log('✓ assistant shortcut and tile resources copied');
 }
 
 // ── 4. the built-in Persian voice (fetch-tts.mjs → android-app/tts/): engine, voice files, its Java class ──
