@@ -73,6 +73,9 @@ public class VoicePlugin extends Plugin {
 
     /** A voice the plugin can speak with besides the phone's TextToSpeech. */
     public interface Speaker {
+        /** start loading the engine in the background (once) */
+        void warm();
+
         boolean ok();
 
         String error();
@@ -102,8 +105,39 @@ public class VoicePlugin extends Plugin {
 
     @Override
     public void load() {
+        Context ctx = getContext();
+        CrashLog.install(ctx);
+        // the last run died inside the built-in voice's native code: keep it off until the user retries
+        TtsGuard.check(ctx, CrashLog.lastExitWasCrash(ctx));
+        builtIn = loadBuiltIn(ctx);
+        try {
+            initTts(null);
+        } catch (Throwable t) {
+            ttsFa = false;
+        }
+    }
+
+    /** Why the app closed last time (once), for the assistant to show: CrashLog. */
+    @PluginMethod
+    public void lastCrash(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            org.json.JSONObject c = CrashLog.takeLast(getContext());
+            if (c != null) ret.put("crash", JSObject.fromJSONObject(c));
+        } catch (Throwable ignored) {
+            // nothing to show
+        }
+        call.resolve(ret);
+    }
+
+    /** «امتحان دوباره» after the built-in voice was turned off or failed. */
+    @PluginMethod
+    public void retryBuiltIn(PluginCall call) {
+        TtsGuard.reset(getContext());
+        if (builtIn != null) builtIn.shutdown();
         builtIn = loadBuiltIn(getContext());
-        initTts(null);
+        if (builtIn != null) builtIn.warm();
+        available(call);
     }
 
     private boolean builtInOk() {
@@ -114,10 +148,14 @@ public class VoicePlugin extends Plugin {
     @Override
     protected void handleOnResume() {
         if (!ttsFa && tts != null) {
-            ttsTried.clear();
-            tts.shutdown();
-            tts = null;
-            initTts(null);
+            try {
+                ttsTried.clear();
+                tts.shutdown();
+                tts = null;
+                initTts(null);
+            } catch (Throwable ignored) {
+                // the phone's engines stay as they were
+            }
         }
     }
 
@@ -199,6 +237,7 @@ public class VoicePlugin extends Plugin {
         ret.put("service", svc == null ? null : svc.getPackageName());
         ret.put("dialog", ctx.getPackageManager().resolveActivity(recognizeIntent(ctx, null), PackageManager.MATCH_DEFAULT_ONLY) != null);
         ret.put("mic", micGranted());
+        if (builtIn != null) builtIn.warm(); // the assistant opened: get the voice ready for its first answer
         ret.put("tts", builtInOk() || ttsFa);
         ret.put("ttsEngine", builtInOk() ? "built-in" : ttsEngine);
         ret.put("builtIn", builtIn != null);
@@ -233,6 +272,7 @@ public class VoicePlugin extends Plugin {
         }
         String prompt = call.getString("prompt");
         main.post(() -> {
+          try {
             if (listenCall != null) listenCall.reject("گوش دادن قبلی قطع شد", "cancelled");
             listenCall = null;
             Context ctx = getContext();
@@ -253,6 +293,11 @@ public class VoicePlugin extends Plugin {
             }
             listenCall = call;
             recognizer.startListening(recognizeIntent(ctx, prompt));
+          } catch (Throwable t) {
+            listenCall = null;
+            destroyRecognizer();
+            call.reject("تشخیص گفتار شروع نشد: " + t.getClass().getSimpleName(), "client");
+          }
         });
     }
 
@@ -260,7 +305,11 @@ public class VoicePlugin extends Plugin {
     @PluginMethod
     public void stop(PluginCall call) {
         main.post(() -> {
-            if (recognizer != null) recognizer.stopListening();
+            try {
+                if (recognizer != null) recognizer.stopListening();
+            } catch (Throwable ignored) {
+                // nothing to stop
+            }
         });
         call.resolve();
     }
@@ -269,7 +318,11 @@ public class VoicePlugin extends Plugin {
     @PluginMethod
     public void cancel(PluginCall call) {
         main.post(() -> {
-            if (recognizer != null) recognizer.cancel();
+            try {
+                if (recognizer != null) recognizer.cancel();
+            } catch (Throwable ignored) {
+                // nothing to cancel
+            }
             if (listenCall != null) listenCall.reject("لغو شد", "cancelled");
             listenCall = null;
         });
@@ -350,7 +403,11 @@ public class VoicePlugin extends Plugin {
 
     private void destroyRecognizer() {
         if (recognizer != null) {
-            recognizer.destroy();
+            try {
+                recognizer.destroy();
+            } catch (Throwable ignored) {
+                // already gone
+            }
             recognizer = null;
             recognizerSvc = null;
         }
@@ -433,6 +490,7 @@ public class VoicePlugin extends Plugin {
 
     private void initTts(String engine) {
         TextToSpeech.OnInitListener onInit = status -> {
+          try {
             if (tts == null) return;
             String current = engine != null ? engine : tts.getDefaultEngine();
             ttsTried.add(current);
@@ -468,6 +526,9 @@ public class VoicePlugin extends Plugin {
                     finishUtterance(id, true);
                 }
             });
+          } catch (Throwable t) {
+            ttsFa = false;
+          }
         };
         tts = engine == null ? new TextToSpeech(getContext(), onInit) : new TextToSpeech(getContext(), onInit, engine);
     }

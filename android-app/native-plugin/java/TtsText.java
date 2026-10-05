@@ -24,4 +24,27 @@ public final class TtsText {
         String s = b.toString().replaceAll("\\s+", " ").trim();
         return s;
     }
+
+    /**
+     * One answer → sentences, each made and played in turn (the next is made while the previous plays). A long
+     * sentence is also cut at «،» so the first sound comes quickly.
+     */
+    public static java.util.List<String> sentences(String text) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        StringBuilder cur = new StringBuilder();
+        String s = prepare(text);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            cur.append(c);
+            boolean end = ".!?؟؛".indexOf(c) >= 0 || (c == '،' && cur.length() > 80);
+            if (end) {
+                String t = cur.toString().trim();
+                if (t.replaceAll("[\\p{Punct}\\s،؛؟]", "").length() > 0) out.add(t);
+                cur.setLength(0);
+            }
+        }
+        String t = cur.toString().trim();
+        if (t.replaceAll("[\\p{Punct}\\s،؛؟]", "").length() > 0) out.add(t);
+        return out;
+    }
 }

@@ -5,7 +5,7 @@ import { answerQuestion, HELP_TEXT, parseQuestion, type Reply } from '@/lib/assi
 import { deleteTxn } from '@/lib/finance/actions';
 import type { Txn } from '@/lib/finance/model';
 import { answer, choose, commitVoice, draftRows, edit, startVoice, type Ask, type VoiceState } from '@/lib/finance/voice';
-import { VOICE_SPEAK_KEY, VoiceError, voiceIO, type VoiceErr, type VoiceIO } from '@/lib/voice-io';
+import { VOICE_SPEAK_KEY, VoiceError, voiceIO, type AppCrash, type VoiceErr, type VoiceIO } from '@/lib/voice-io';
 import { useFinance } from '../finance/FinanceProvider';
 import AskChart from './AskChart';
 
@@ -418,7 +418,17 @@ export default function Assistant({ onClose, mode = 'any' }: { onClose: () => vo
               ) : null}
             </span>
           ) : null}
-          {io?.voiceError ? <span className="fin-err">صدای فارسی خود اپ روی این گوشی بالا نیامد: {io.voiceError}</span> : null}
+          {io?.lastCrash ? <CrashNote crash={io.lastCrash} /> : null}
+          {io?.voiceError ? (
+            <span className="fin-err" data-testid="voice-error">
+              صدای فارسی خود اپ خاموش است: {io.voiceError}. دستیار بدون صدا کار می‌کند.{' '}
+              {io.retryVoice ? (
+                <button type="button" className="fin-mini" onClick={() => void io.retryVoice!().then(() => setIo({ ...io } as VoiceIO))}>
+                  امتحان دوباره صدای داخلی
+                </button>
+              ) : null}
+            </span>
+          ) : null}
           <span>
             {io?.kind === 'app'
               ? 'صدا را سرویس گفتار گوشی (معمولاً گوگل) به متن تبدیل می‌کند؛ فهمیدن، جواب و ثبت روی همین گوشی است و برای نمودار فقط نام دارایی و بازه به سرور می‌رود.'
@@ -438,4 +448,36 @@ export default function Assistant({ onClose, mode = 'any' }: { onClose: () => vo
     setLog((l) => l.map((x) => (x.id === id ? { ...x, summary: s.text } : x)));
     void say(s.speech);
   }
+}
+
+/** The app closed unexpectedly last time: what Android recorded, to copy and send (shown once). */
+function CrashNote({ crash }: { crash: AppCrash }) {
+  const [copied, setCopied] = useState(false);
+  const text = [
+    crash.reason ? `reason: ${crash.reason}` : '',
+    crash.description ? `description: ${crash.description}` : '',
+    crash.at ? `at: ${new Date(crash.at).toISOString()}` : '',
+    crash.thread ? `thread: ${crash.thread}` : '',
+    crash.stack ?? '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return (
+    <details className="crash-note" data-testid="crash-note">
+      <summary>اپ دفعه قبل ناگهان بسته شد — جزئیات برای گزارش</summary>
+      <pre dir="ltr">{text}</pre>
+      <button
+        type="button"
+        className="fin-mini"
+        onClick={() => {
+          void navigator.clipboard?.writeText(text).then(
+            () => setCopied(true),
+            () => setCopied(false),
+          );
+        }}
+      >
+        {copied ? 'کپی شد' : 'کپی متن'}
+      </button>
+    </details>
+  );
 }

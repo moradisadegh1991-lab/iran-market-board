@@ -53,6 +53,10 @@ export interface VoiceIO {
   voice?: 'built-in' | 'phone' | 'browser' | null;
   /** the app's own voice is in this APK but did not start on this phone — why (shown, so it can be reported) */
   voiceError?: string | null;
+  /** the app closed unexpectedly last time: what Android recorded (shown once) */
+  lastCrash?: AppCrash | null;
+  /** try the built-in voice again after it was turned off */
+  retryVoice?: () => Promise<void>;
   /** resolves with the recogniser's guesses, best first; rejects with VoiceError */
   listen(onPartial: (text: string) => void, prompt?: string): Promise<string[]>;
   /** use what was heard so far */
@@ -68,6 +72,15 @@ export interface VoiceIO {
 interface Handle {
   remove(): void | Promise<void>;
 }
+/** Why the app closed last time (android-app CrashLog): an uncaught Java exception and/or the system's exit record. */
+export interface AppCrash {
+  at?: number;
+  thread?: string;
+  stack?: string;
+  reason?: 'crash' | 'native-crash' | 'anr' | 'low-memory';
+  description?: string;
+}
+
 interface VoicePlugin {
   available(): Promise<{
     recognition?: boolean;
@@ -85,6 +98,9 @@ interface VoicePlugin {
   stop(): Promise<void>;
   cancel(): Promise<void>;
   speak(o: { text: string }): Promise<void>;
+  // absent on an APK built before them
+  lastCrash?(): Promise<{ crash?: AppCrash | null }>;
+  retryBuiltIn?(): Promise<Awaited<ReturnType<VoicePlugin['available']>>>;
   stopSpeaking(): Promise<void>;
   ttsSettings?(): Promise<void>;
   addListener(event: 'partial' | 'state', fn: (e: { text?: string; state?: string }) => void): Promise<Handle> | Handle;
@@ -95,11 +111,18 @@ const codeOf = (e: unknown): VoiceErr => {
   return (['permission', 'no-match', 'network', 'language', 'busy', 'unavailable', 'audio', 'cancelled'] as const).find((x) => x === c) ?? 'client';
 };
 
-function appIO(p: VoicePlugin, av: Awaited<ReturnType<VoicePlugin['available']>>): VoiceIO {
+function appIO(p: VoicePlugin, av: Awaited<ReturnType<VoicePlugin['available']>>, lastCrash: AppCrash | null): VoiceIO {
   // the in-app recogniser refused Persian once → Google's voice-typing screen from then on
   let useDialog = !av.recognition && !!av.dialog;
   return {
     kind: 'app',
+    lastCrash,
+    retryVoice: p.retryBuiltIn
+      ? async () => {
+          const a = await p.retryBuiltIn!().catch(() => null);
+          if (a) Object.assign(av, { tts: a.tts, ttsEngine: a.ttsEngine, builtInError: a.builtInError ?? null });
+        }
+      : undefined,
     canListen: !!(av.recognition || av.dialog),
     get canSpeak() {
       return !!av.tts;
@@ -282,7 +305,8 @@ export async function voiceIO(): Promise<VoiceIO> {
   const plugin = (window as { Capacitor?: { Plugins?: { Voice?: VoicePlugin } } }).Capacitor?.Plugins?.Voice;
   if (plugin && typeof plugin.available === 'function') {
     try {
-      return appIO(plugin, await plugin.available());
+      const crash = plugin.lastCrash ? ((await plugin.lastCrash().catch(() => null))?.crash ?? null) : null;
+      return appIO(plugin, await plugin.available(), crash);
     } catch {
       // an APK built before the plugin existed: fall through to the web path (none in a WebView)
     }
