@@ -78,10 +78,13 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const [ask, setAsk] = useState(false);
   // the phone asked for the assistant (assist gesture, tile, shortcut — rule 74): open it and listen
   const [assistN, setAssistN] = useState(0);
+  // …by its name, «مالی من» (rule 75): if nothing is said after, it goes away again
+  const [byName, setByName] = useState(false);
   useEffect(
     () =>
-      onAssist(() => {
+      onAssist(({ wake }) => {
         setAsk(true);
+        setByName(wake);
         setAssistN((n) => n + 1);
       }),
     [],
@@ -189,9 +192,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       {ask ? (
         <Assistant
           listen={assistN}
+          byName={byName}
           onClose={() => {
             setAsk(false);
             setAssistN(0);
+            setByName(false);
           }}
         />
       ) : null}

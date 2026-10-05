@@ -202,7 +202,10 @@ jobs:
           echo "voice OK"
           # the built-in Persian voice: engine for arm64 and the voice files
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libsherpa-onnx-jni.so" && unzip -l "$APK" | grep -q "assets/tts-fa/model.onnx" && unzip -l "$APK" | grep -q "assets/tts-fa/espeak-ng-data/fa_dict" || { echo "::error::built-in Persian voice missing from the APK"; exit 1; }
-          echo "built-in voice OK; APK $(du -h "$APK" | cut -f1)"
+          # «مالی من» (CLAUDE.md rule 75): the listener service, its permissions, and the spotter model beside the voice
+          for x in WakeService android.permission.FOREGROUND_SERVICE_MICROPHONE android.permission.SYSTEM_ALERT_WINDOW; do echo "$MF" | grep -q "$x" || { echo "::error::«مالی من»: $x missing from the manifest"; exit 1; }; done
+          for f in encoder.int8.onnx decoder.onnx joiner.int8.onnx tokens.txt; do unzip -l "$APK" | grep -q "assets/tts-fa/kws/$f" || { echo "::error::«مالی من»: kws/$f missing from the APK"; exit 1; }; done
+          echo "built-in voice and «مالی من» listener OK; APK $(du -h "$APK" | cut -f1)"
 
       - name: Collect the APK
         id: apk

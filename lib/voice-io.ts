@@ -145,8 +145,15 @@ interface VoicePlugin {
   retryBuiltIn?(): Promise<Awaited<ReturnType<VoicePlugin['available']>>>;
   stopSpeaking(): Promise<void>;
   ttsSettings?(): Promise<void>;
-  takeAssist?(): Promise<{ assist?: boolean }>;
-  addListener(event: 'partial' | 'state' | 'assist', fn: (e: { text?: string; state?: string }) => void): Promise<Handle> | Handle;
+  takeAssist?(): Promise<{ assist?: boolean; wake?: boolean }>;
+  // «مالی من» (rule 75) — absent on an APK built before it
+  wakeStatus?(): Promise<WakeState>;
+  wakeSet?(o: { on: boolean; sensitivity?: WakeSensitivity }): Promise<WakeState>;
+  wakePause?(): Promise<void>;
+  wakeResume?(): Promise<void>;
+  overlaySettings?(): Promise<void>;
+  moveToBack?(): Promise<void>;
+  addListener(event: 'partial' | 'state' | 'assist', fn: (e: { text?: string; state?: string; wake?: boolean }) => void): Promise<Handle> | Handle;
 }
 
 const codeOf = (e: unknown): VoiceErr => {
@@ -343,17 +350,66 @@ function webIO(Rec: (new () => SR) | null, voice: SpeechSynthesisVoice | null): 
   };
 }
 
+export type WakeSensitivity = 'sensitive' | 'careful';
+/** The «مالی من» listener (android-app Wake/WakeService): what the settings show. */
+export interface WakeState {
+  /** this APK has the listener and its model */
+  shipped: boolean;
+  /** the user turned it on */
+  on: boolean;
+  running: boolean;
+  /** let go of the microphone for the assistant */
+  paused?: boolean;
+  sensitivity: WakeSensitivity;
+  /** «نمایش روی برنامه‌های دیگر» granted: the app can bring itself up */
+  overlay: boolean;
+  mic: boolean;
+  error?: string;
+}
+export interface WakeIO {
+  status(): Promise<WakeState>;
+  /** turning on asks for the microphone first */
+  set(on: boolean, sensitivity?: WakeSensitivity): Promise<WakeState>;
+  pause(): void;
+  resume(): void;
+  overlaySettings(): void;
+  /** back to what was on screen before the name was heard */
+  moveToBack(): void;
+}
+
+const voicePlugin = () => (window as { Capacitor?: { Plugins?: { Voice?: VoicePlugin } } }).Capacitor?.Plugins?.Voice;
+
+/** «مالی من»: the assistant called by name (rule 75). null in the browser and on an APK built without it. */
+export function wakeIO(): WakeIO | null {
+  const p = voicePlugin();
+  if (!p?.wakeStatus || !p.wakeSet) return null;
+  return {
+    status: () => p.wakeStatus!(),
+    async set(on, sensitivity) {
+      if (on) {
+        const m = await p.requestMic().catch(() => ({ mic: false }));
+        if (!m.mic) throw new VoiceError('permission');
+      }
+      return p.wakeSet!({ on, sensitivity });
+    },
+    pause: () => void p.wakePause?.().catch(() => {}),
+    resume: () => void p.wakeResume?.().catch(() => {}),
+    overlaySettings: () => void p.overlaySettings?.().catch(() => {}),
+    moveToBack: () => void p.moveToBack?.().catch(() => {}),
+  };
+}
+
 /**
  * The phone asked for the assistant — the assist gesture when «مالی من» is the default digital assistant, the
  * quick-settings tile, the icon shortcut or a headset's voice button (CLAUDE.md rule 74). Calls `fn` now if the app was
  * opened that way, and again each time it is asked while the app runs. Returns the unsubscribe. App only.
  */
-export function onAssist(fn: () => void): () => void {
-  const p = (window as { Capacitor?: { Plugins?: { Voice?: VoicePlugin } } }).Capacitor?.Plugins?.Voice;
+export function onAssist(fn: (o: { wake: boolean }) => void): () => void {
+  const p = voicePlugin();
   if (!p?.takeAssist) return () => {};
   let h: Handle | null = null;
   let off = false;
-  void Promise.resolve(p.addListener('assist', () => fn()))
+  void Promise.resolve(p.addListener('assist', (e) => fn({ wake: !!e?.wake })))
     .then((x) => {
       if (off) void x.remove();
       else h = x;
@@ -361,7 +417,7 @@ export function onAssist(fn: () => void): () => void {
     .catch(() => {});
   p.takeAssist()
     .then((r) => {
-      if (!off && r?.assist) fn();
+      if (!off && r?.assist) fn({ wake: !!r.wake });
     })
     .catch(() => {});
   return () => {

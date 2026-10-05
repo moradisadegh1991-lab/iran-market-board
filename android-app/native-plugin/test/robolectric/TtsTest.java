@@ -84,6 +84,11 @@ public class TtsTest {
         assertEquals(TtsText.prepare(longOne), String.join(" ", TtsText.sentences(longOne)));
     }
 
+    /** The note was left by an earlier process (a phase of this very process is never taken for a crash). */
+    private static void nextRun(Application app) {
+        app.getSharedPreferences(TtsGuard.PREFS, 0).edit().putInt("pid", -42).commit();
+    }
+
     @Test
     public void aCrashInsideTheEngineTurnsTheVoiceOffAtTheNextStart() {
         Application app = ApplicationProvider.getApplicationContext();
@@ -93,18 +98,21 @@ public class TtsTest {
         TtsGuard.leave(app);
         TtsGuard.check(app, Boolean.TRUE);
         assertTrue(!TtsGuard.off(app));
-        // the process died while speaking, and the phone says it was a crash → off, with the reason
+        // the process died while speaking, and the phone says it was a crash → off, with the reason (checked by the next run)
         TtsGuard.enter(app, "speak");
+        nextRun(app);
         TtsGuard.check(app, Boolean.TRUE);
         assertTrue(TtsGuard.off(app));
         assertEquals("اپ هنگام ساختن صدا با صدای داخلی بسته شد", TtsGuard.why(app));
         TtsGuard.reset(app);
         // swiped away while speaking (Android 11+ says: not a crash) → stays on
         TtsGuard.enter(app, "speak");
+        nextRun(app);
         TtsGuard.check(app, Boolean.FALSE);
         assertTrue(!TtsGuard.off(app));
         // an older phone that cannot tell → treated as a crash, the safe side
         TtsGuard.enter(app, "load");
+        nextRun(app);
         TtsGuard.check(app, null);
         assertTrue(TtsGuard.off(app));
         assertEquals("اپ هنگام آماده کردن صدای داخلی بسته شد", TtsGuard.why(app));

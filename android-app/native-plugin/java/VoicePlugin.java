@@ -72,6 +72,8 @@ public class VoicePlugin extends Plugin {
     private final Map<String, PluginCall> speaking = new HashMap<>();
     /** the app was opened to talk to the assistant (assist gesture, tile, shortcut) and the page has not taken it yet */
     private volatile boolean pendingAssist;
+    /** …and it was the «مالی من» listener that opened it (rule 75): the page closes again when nothing is said */
+    private volatile boolean pendingWake;
     /** the built-in voice, or null when this APK was built without it */
     private Speaker builtIn;
 
@@ -112,7 +114,12 @@ public class VoicePlugin extends Plugin {
         Context ctx = getContext();
         CrashLog.install(ctx);
         try {
-            if (getActivity() != null && takeAssistFrom(getActivity().getIntent())) pendingAssist = true;
+            Intent launch = getActivity() != null ? getActivity().getIntent() : null;
+            boolean wake = launch != null && launch.getBooleanExtra(Wake.EXTRA_WAKE, false);
+            if (takeAssistFrom(launch)) {
+                pendingAssist = true;
+                pendingWake = wake;
+            }
         } catch (Throwable ignored) {
             // no launch intent to read
         }
@@ -146,10 +153,17 @@ public class VoicePlugin extends Plugin {
 
     @Override
     protected void handleOnNewIntent(Intent intent) {
+        boolean wake = intent != null && intent.getBooleanExtra(Wake.EXTRA_WAKE, false);
         if (!takeAssistFrom(intent)) return;
         // the page is up and listening → tell it now; otherwise it asks with takeAssist once it is
-        if (hasListeners("assist")) notifyListeners("assist", new JSObject());
-        else pendingAssist = true;
+        if (hasListeners("assist")) {
+            JSObject e = new JSObject();
+            e.put("wake", wake);
+            notifyListeners("assist", e);
+        } else {
+            pendingAssist = true;
+            pendingWake = wake;
+        }
     }
 
     /** The page asks once it is up: «open the assistant and listen». */
@@ -157,8 +171,124 @@ public class VoicePlugin extends Plugin {
     public void takeAssist(PluginCall call) {
         JSObject ret = new JSObject();
         ret.put("assist", pendingAssist);
+        ret.put("wake", pendingAssist && pendingWake);
         pendingAssist = false;
+        pendingWake = false;
         call.resolve(ret);
+    }
+
+    // ── «مالی من»: the assistant called by name (Wake, WakeService — rule 75) ──
+
+    /**
+     * Turned on and not running (after a reboot, or the system stopped it): start again — only from onResume, when the
+     * app is surely on screen: Android 14+ refuses a microphone service otherwise, and a refused
+     * startForegroundService can take the app down.
+     */
+    private void ensureWake() {
+        try {
+            Context ctx = getContext();
+            if (Wake.enabled(ctx) && !Wake.running && Wake.shipped(ctx) && micGranted() && !TtsGuard.wakeOff(ctx)) Wake.start(ctx);
+        } catch (Throwable t) {
+            Wake.error = t.getMessage();
+        }
+    }
+
+    private JSObject wakeState() {
+        Context ctx = getContext();
+        JSObject ret = new JSObject();
+        ret.put("shipped", Wake.shipped(ctx));
+        ret.put("on", Wake.enabled(ctx));
+        ret.put("running", Wake.running);
+        ret.put("paused", Wake.paused);
+        ret.put("sensitivity", Wake.sensitivity(ctx));
+        ret.put("overlay", Wake.overlay(ctx));
+        ret.put("mic", micGranted());
+        String err = TtsGuard.wakeOff(ctx) ? "اپ دفعه قبل هنگام شنیدن «مالی من» بسته شد؛ شنیدن خاموش ماند" : Wake.error;
+        if (err != null) ret.put("error", err);
+        return ret;
+    }
+
+    @PluginMethod
+    public void wakeStatus(PluginCall call) {
+        call.resolve(wakeState());
+    }
+
+    /** { on, sensitivity: 'sensitive' | 'careful' } — needs the microphone permission first (requestMic). */
+    @PluginMethod
+    public void wakeSet(PluginCall call) {
+        Context ctx = getContext();
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", Wake.enabled(ctx)));
+        String sens = call.getString("sensitivity", Wake.sensitivity(ctx));
+        try {
+            if (!on) {
+                Wake.save(ctx, false, sens);
+                Intent i = Wake.serviceIntent(ctx, Wake.ACTION_STOP);
+                if (i != null && Wake.running) ctx.startService(i);
+                Wake.running = false;
+            } else {
+                if (!Wake.shipped(ctx)) {
+                    call.reject("این نسخه اپ شنیدن «مالی من» را ندارد", "unavailable");
+                    return;
+                }
+                if (!micGranted()) {
+                    call.reject("اجازه میکروفون لازم است", "permission");
+                    return;
+                }
+                boolean restart = Wake.running && !sens.equals(Wake.sensitivity(ctx));
+                TtsGuard.wakeReset(ctx);
+                Wake.save(ctx, true, sens);
+                if (restart) {
+                    Intent i = Wake.serviceIntent(ctx, Wake.ACTION_STOP);
+                    ctx.stopService(i);
+                    Wake.running = false;
+                }
+                Wake.start(ctx);
+            }
+            call.resolve(wakeState());
+        } catch (Throwable t) {
+            Wake.error = t.getMessage();
+            call.reject(t.getMessage() != null ? t.getMessage() : "شروع شنیدن ممکن نشد", "client");
+        }
+    }
+
+    /** The assistant is open and needs the microphone: the listener lets go of it until wakeResume (or a few minutes). */
+    @PluginMethod
+    public void wakePause(PluginCall call) {
+        Wake.send(getContext(), Wake.ACTION_PAUSE);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void wakeResume(PluginCall call) {
+        Wake.send(getContext(), Wake.ACTION_RESUME);
+        call.resolve();
+    }
+
+    /** «نمایش روی برنامه‌های دیگر» for this app: the only way Android lets it bring itself up when the name is heard. */
+    @PluginMethod
+    public void overlaySettings(PluginCall call) {
+        Context ctx = getContext();
+        try {
+            ctx.startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION, android.net.Uri.parse("package:" + ctx.getPackageName()))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Throwable t) {
+            ctx.startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        }
+        call.resolve();
+    }
+
+    /** A wake that heard nothing after it: back to whatever was on screen before. */
+    @PluginMethod
+    public void moveToBack(PluginCall call) {
+        Activity a = getActivity();
+        if (a != null) main.post(() -> {
+            try {
+                a.moveTaskToBack(true);
+            } catch (Throwable ignored) {
+                // stays on screen
+            }
+        });
+        call.resolve();
     }
 
     /** Why the app closed last time (once), for the assistant to show: CrashLog. */
@@ -191,6 +321,7 @@ public class VoicePlugin extends Plugin {
     /** Back from the phone's settings (a Persian voice may have been installed): look again. */
     @Override
     protected void handleOnResume() {
+        ensureWake();
         if (!ttsFa && tts != null) {
             try {
                 ttsTried.clear();

@@ -5,7 +5,7 @@ import { answerQuestion, HELP_TEXT, parseQuestion, type Reply } from '@/lib/assi
 import { deleteTxn } from '@/lib/finance/actions';
 import type { Txn } from '@/lib/finance/model';
 import { answer, choose, commitVoice, draftRows, edit, startVoice, type Ask, type VoiceState } from '@/lib/finance/voice';
-import { VOICE_SPEAK_KEY, VoiceError, voiceIO, type AppCrash, type VoiceErr, type VoiceIO } from '@/lib/voice-io';
+import { VOICE_SPEAK_KEY, VoiceError, voiceIO, wakeIO, type AppCrash, type VoiceErr, type VoiceIO, type WakeSensitivity, type WakeState } from '@/lib/voice-io';
 import { useFinance } from '../finance/FinanceProvider';
 import AskChart from './AskChart';
 
@@ -42,7 +42,18 @@ const GREETING = 'سلام! تراکنش بگویید تا ثبت کنم، یا 
  * on «بله» (lib/finance/voice.ts); ask a question and it answers in text and speech, with a chart when asked
  * (lib/assistant/ask.ts). Hearing and speaking: lib/voice-io.ts. `mode="txn"` starts by asking for a transaction.
  */
-export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClose: () => void; mode?: 'any' | 'txn'; listen?: number }) {
+export default function Assistant({
+  onClose,
+  mode = 'any',
+  listen = 0,
+  byName = false,
+}: {
+  onClose: () => void;
+  mode?: 'any' | 'txn';
+  listen?: number;
+  /** opened because the «مالی من» listener heard its name: nothing said after it → it was a false wake, go away */
+  byName?: boolean;
+}) {
   const { data, today, update, items } = useFinance();
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -69,6 +80,8 @@ export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClo
   // `listen` counts the phone's requests for the assistant; the first one opened this sheet
   const assisted = useRef(listen > 0);
   const lastListen = useRef(listen);
+  const falseWake = useRef(byName);
+  falseWake.current = falseWake.current && byName;
   const logRef = useRef<HTMLOListElement | null>(null);
   const started = useRef(false);
   const chartsSaid = useRef(new Set<number>());
@@ -92,11 +105,18 @@ export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClo
       setIo(x);
     });
     document.body.classList.add('sheet-open');
+    // the «مالی من» listener lets go of the microphone while the assistant is open (and while the app is on screen)
+    const wake = wakeIO();
+    wake?.pause();
+    const onVis = () => (document.visibilityState === 'hidden' ? wake?.resume() : wake?.pause());
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       alive.current = false;
       ioRef.current?.cancel();
       ioRef.current?.hush();
       document.body.classList.remove('sheet-open');
+      document.removeEventListener('visibilitychange', onVis);
+      wake?.resume();
     };
   }, []);
 
@@ -124,6 +144,7 @@ export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClo
   useEffect(() => {
     if (listen === lastListen.current) return;
     lastListen.current = listen;
+    if (byName) falseWake.current = true;
     if (ioRef.current) void assist();
     else assisted.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -202,6 +223,13 @@ export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClo
         return;
       }
       handsFree.current = false;
+      if (falseWake.current && (code === 'no-match' || code === 'cancelled')) {
+        // «مالی من» was heard, then nothing: most likely the listener misheard — back to what was on screen
+        falseWake.current = false;
+        onClose();
+        wakeIO()?.moveToBack();
+        return;
+      }
       if (auto && code === 'no-match') return; // a pause is not an error: the user taps the mic when ready
       if (code === 'permission' && x.kind === 'web') setProblem('مرورگر اجازه میکروفون نداد. از نماد قفل کنار نشانی سایت، میکروفون را مجاز کنید؛ تا آن موقع می‌توانید بنویسید.');
       else if (PROBLEM[code]) setProblem(PROBLEM[code]);
@@ -215,6 +243,7 @@ export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClo
 
   /** One thing the user said or typed (the recogniser's guesses, best first). */
   function heard(alts: string[]) {
+    falseWake.current = false;
     const d = dataRef.current;
     if (!d || !alts.length) return;
     const cur = txnRef.current && !txnRef.current.done ? txnRef.current : null;
@@ -274,6 +303,7 @@ export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClo
   /** Typing or tapping: the user left the mic, so stop listening by itself until it is tapped again. */
   function quiet() {
     handsFree.current = false;
+    falseWake.current = false;
     ioRef.current?.cancel();
     setProblem(null);
   }
@@ -446,6 +476,7 @@ export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClo
               ) : null}
             </span>
           ) : null}
+          {io?.kind === 'app' ? <WakeSettings /> : null}
           {io?.lastCrash ? <CrashNote crash={io.lastCrash} /> : null}
           {io?.voiceError ? (
             <span className="fin-err" data-testid="voice-error">
@@ -476,6 +507,80 @@ export default function Assistant({ onClose, mode = 'any', listen = 0 }: { onClo
     setLog((l) => l.map((x) => (x.id === id ? { ...x, summary: s.text } : x)));
     void say(s.speech);
   }
+}
+
+const WAKE_LABEL: Record<WakeSensitivity, string> = {
+  sensitive: 'حساس‌تر: بیشتر می‌شنود، گاهی اشتباهی باز می‌شود',
+  careful: 'کم‌اشتباه‌تر: گاهی باید دو بار بگویید',
+};
+
+/** «صدا زدن با «مالی من»» (rule 75): on/off, sensitivity, and what Android needs for it — app only. */
+function WakeSettings() {
+  const [w] = useState(() => wakeIO());
+  const [st, setSt] = useState<WakeState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!w) return;
+    const look = () => void w.status().then(setSt, () => setSt(null));
+    look();
+    // back from Android's settings (the overlay permission): look again
+    const onVis = () => document.visibilityState === 'visible' && look();
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [w]);
+  if (!w || !st || !st.shipped) return null;
+
+  async function change(on: boolean, sensitivity: WakeSensitivity = st!.sensitivity) {
+    setBusy(true);
+    setErr(null);
+    try {
+      setSt(await w!.set(on, sensitivity));
+    } catch (e) {
+      setErr(e instanceof VoiceError && e.code === 'permission' ? 'بدون اجازه میکروفون نمی‌شود؛ از تنظیمات گوشی › برنامه‌ها › مالی من › مجوزها روشنش کنید.' : `روشن نشد: ${(e as Error)?.message ?? e}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <details className="wake-set" data-testid="wake-settings" open={st.on && !st.overlay ? true : undefined}>
+      <summary>
+        صدا زدن با «مالی من» —{' '}
+        <b data-testid="wake-state">{!st.on ? 'خاموش' : st.running ? (st.paused ? 'روشن (مکث تا بسته شدن دستیار)' : 'روشن، گوش می‌دهد') : 'روشن، ولی متوقف'}</b>
+      </summary>
+      <label className="wake-row">
+        <input type="checkbox" checked={st.on} disabled={busy} onChange={(e) => void change(e.target.checked)} /> وقتی بگویید «مالی من»، دستیار باز شود — حتی وقتی اپ بسته است
+      </label>
+      <fieldset className="wake-row" disabled={busy}>
+        <legend className="sr-only">حساسیت</legend>
+        {(['sensitive', 'careful'] as const).map((k) => (
+          <label key={k} className="wake-opt">
+            <input type="radio" name="wake-sens" checked={st.sensitivity === k} onChange={() => void change(st.on, k)} /> {WAKE_LABEL[k]}
+          </label>
+        ))}
+      </fieldset>
+      {st.on && !st.overlay ? (
+        <p className="fin-err" data-testid="wake-overlay">
+          برای این‌که اپ خودش باز شود، اندروید اجازه «نمایش روی برنامه‌های دیگر» را می‌خواهد؛ بدون آن فقط اعلان «مالی من را شنیدم» می‌آید که باید لمسش کنید.{' '}
+          <button type="button" className="fin-mini" onClick={() => w.overlaySettings()}>
+            دادن اجازه
+          </button>
+        </p>
+      ) : null}
+      {st.on && !st.running && st.error ? <p className="fin-err">{st.error}</p> : null}
+      {err ? (
+        <p className="fin-err" role="alert">
+          {err}
+        </p>
+      ) : null}
+      <p>
+        تشخیص روی خود گوشی است و صدا هیچ‌جا ذخیره یا فرستاده نمی‌شود. تا روشن است: یک اعلان همیشگی و نقطه سبز میکروفون؛ وقتی صدایی هست حدود ۵٪ یک هسته پردازنده و
+        در سکوت تقریباً هیچ (مصرف باتری روی گوشی واقعی سنجیده نشده). اگر اشتباهی باز شد و چیزی نگفتید، خودش بسته می‌شود. بعد از روشن کردن دوباره گوشی، یک بار اپ را باز
+        کنید.
+      </p>
+    </details>
+  );
 }
 
 /** The app closed unexpectedly last time: what Android recorded, to copy and send (shown once). */
