@@ -170,6 +170,8 @@ export interface Order {
   /** came from the online inbox (its id), or from a booking */
   ref?: string | null;
   bookingId?: string | null;
+  /** online orders: the status last told to the customer (lib/biz/server.ts) */
+  refSent?: string | null;
 }
 
 /** the customer club: built from orders that carry a phone number */
@@ -266,6 +268,7 @@ export interface Booking {
   /** first time it was set, when moved */
   originalStartsAt?: number | null;
   ref?: string | null;
+  refSent?: string | null;
 }
 
 /** weekday as JavaScript counts it: 0 = Sunday … 6 = Saturday */
@@ -321,6 +324,8 @@ export interface Online {
   error?: string | null;
   /** inbox items already applied, so a pull that repeats one never books it twice */
   seen: string[];
+  /** what was last published (catalog without its time), so a change republishes by itself */
+  hash?: string | null;
 }
 
 export interface Business {

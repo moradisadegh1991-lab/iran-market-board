@@ -2,6 +2,7 @@ import { kv } from '@/lib/store';
 import { getSnapshot } from '@/lib/snapshot';
 import { baseUrl } from '@/lib/auth';
 import { safeSend, tg } from './api';
+import { bizCallback, bizContact, startBiz } from './biz';
 import { statusMessage } from './paper';
 import { getPaperState, NOTIFY_KEY, stopSession } from '@/lib/paper';
 import { coinsMsg, fullReport, memesMsg, portfolioMsg, pricesMsg, riskMsg, scenariosMsg, stocksMsg } from './format';
@@ -9,12 +10,13 @@ import type { Profile, Snapshot } from '@/lib/types';
 
 export const SUBS_KEY = 'tg:subscribers';
 
-type Route = { match: RegExp; build?: (s: Snapshot) => string[]; special?: 'start' | 'stop' | 'dashboard' | 'help' | 'live' | 'live_on' | 'live_off' | 'live_stop' };
+type Route = { match: RegExp; build?: (s: Snapshot) => string[]; special?: 'shops' | 'start' | 'stop' | 'dashboard' | 'help' | 'live' | 'live_on' | 'live_off' | 'live_stop' };
 const ROUTES: Route[] = [
   { match: /^\/live_on\b/, special: 'live_on' },
   { match: /^\/live_off\b/, special: 'live_off' },
   { match: /^\/live_stop\b|پایان معامله/, special: 'live_stop' },
   { match: /^\/live\b|معامله برخط/, special: 'live' },
+  { match: /^\/shops\b|کسب‌وکارها/, special: 'shops' },
   { match: /^\/start/, special: 'start' },
   { match: /^\/stop/, special: 'stop' },
   { match: /^\/(help)|راهنما/, special: 'help' },
@@ -43,17 +45,33 @@ const HELP = [
   '/all گزارش کامل',
   '/live وضعیت معامله برخط · /live_on رمز: دریافت اعلان هر معامله · /live_off لغو اعلان · /live_stop پایان معامله',
   '/stop لغو گزارش روزانه',
+  '/shops سفارش و نوبت از کسب‌وکارها',
 ].join('\n');
 
 export async function handleUpdate(update: any): Promise<void> {
+  // «فروشگاه آنلاین» of a business (lib/telegram/biz.ts): buttons, a shared number, a business link
+  if (update?.callback_query) {
+    await bizCallback(update.callback_query);
+    return;
+  }
   const msg = update?.message ?? update?.channel_post;
   const chatId = msg?.chat?.id;
+  if (chatId && (msg.contact || msg.text === 'انصراف') && (await bizContact(msg))) return;
   const text: string = (msg?.text ?? '').trim();
   if (!chatId || !text) return;
+  const bizLink = text.match(/^\/start\s+b_([a-z0-9][a-z0-9-]{2,31})$/);
+  if (bizLink) {
+    await startBiz(chatId, bizLink[1]);
+    return;
+  }
 
   const route = ROUTES.find((r) => r.match.test(text));
   if (!route) {
     await safeSend(chatId, [HELP], true);
+    return;
+  }
+  if (route.special === 'shops') {
+    await bizCallback({ id: '', data: 'bz:dir', message: { chat: { id: chatId }, message_id: 0 } });
     return;
   }
   if (route.special === 'start') {

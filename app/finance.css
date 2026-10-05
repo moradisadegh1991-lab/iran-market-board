@@ -383,3 +383,22 @@ b.fin-raw { display: block; font-weight: 400; }
   .appbar, .bottombar, .sidebar, .foot, .biz-tabs, .page-head, .no-print, .biz > :not(.biz-invoice-card) { display: none !important; }
   .biz-invoice { border: 0; }
 }
+
+/* online: QR codes, and the customers' page (/shop) */
+.biz-qrs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 8px 0; }
+.biz-qr { margin: 0; display: grid; justify-items: center; gap: 6px; text-align: center; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-m); background: #fff; }
+.biz-qr-img svg { width: 180px; height: 180px; display: block; }
+.biz-qr figcaption { display: grid; gap: 4px; justify-items: center; min-width: 0; max-width: 100%; }
+.biz-url { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.app.public .page { padding-bottom: 24px; }
+.shop-head h1 { font-family: var(--display); font-weight: 400; font-size: 30px; margin: 14px 0 0; color: var(--lapis); }
+.shop-body { display: grid; gap: 10px; margin: 12px 0; }
+.shop-menu { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.shop-menu li { display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; }
+.shop-menu img { width: 56px; height: 56px; object-fit: cover; border-radius: var(--r-s); flex: none; }
+.shop-item-main { flex: 1; display: grid; min-width: 0; }
+.shop-item-main small { color: var(--muted); font-size: 12.5px; }
+.shop-cart { position: sticky; bottom: calc(10px + env(safe-area-inset-bottom)); display: grid; gap: 8px; box-shadow: 0 -4px 18px rgba(22, 32, 45, 0.12); }
+.shop-done h2 { margin: 0 0 6px; font-size: 19px; }
+.shop-foot { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 10px; display: grid; gap: 6px; }
+.shop-foot p { margin: 0; }

@@ -9,6 +9,11 @@ export interface KV {
   sadd(key: string, member: string): Promise<void>;
   srem(key: string, member: string): Promise<void>;
   smembers(key: string): Promise<string[]>;
+  /** counter that starts its expiry on first use (rate limits) */
+  incr(key: string, ttlSec: number): Promise<number>;
+  rpush(key: string, member: string): Promise<void>;
+  lrange(key: string): Promise<string[]>;
+  lrem(key: string, member: string): Promise<void>;
 }
 
 const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
@@ -42,13 +47,28 @@ function redisKV(): KV {
     async smembers(key) {
       return ((await r.smembers(key)) as unknown[]).map(String);
     },
+    async incr(key, ttlSec) {
+      const n = await r.incr(key);
+      if (n === 1) await r.expire(key, ttlSec);
+      return n;
+    },
+    async rpush(key, member) {
+      await r.rpush(key, member);
+    },
+    async lrange(key) {
+      return ((await r.lrange(key, 0, -1)) as unknown[]).map(String);
+    },
+    async lrem(key, member) {
+      await r.lrem(key, 0, member);
+    },
   };
 }
 
 function memoryKV(): KV {
   const g = globalThis as any;
-  g.__imbStore ??= { data: new Map<string, { v: unknown; exp: number }>(), sets: new Map<string, Set<string>>() };
-  const { data, sets } = g.__imbStore as { data: Map<string, { v: unknown; exp: number }>; sets: Map<string, Set<string>> };
+  g.__imbStore ??= { data: new Map<string, { v: unknown; exp: number }>(), sets: new Map<string, Set<string>>(), lists: new Map<string, string[]>() };
+  g.__imbStore.lists ??= new Map<string, string[]>();
+  const { data, sets, lists } = g.__imbStore as { data: Map<string, { v: unknown; exp: number }>; sets: Map<string, Set<string>>; lists: Map<string, string[]> };
   const alive = (k: string) => {
     const e = data.get(k);
     if (!e) return undefined;
@@ -83,6 +103,21 @@ function memoryKV(): KV {
     },
     async smembers(key) {
       return [...(sets.get(key) ?? [])];
+    },
+    async incr(key, ttlSec) {
+      const e = alive(key);
+      const n = (typeof e?.v === 'number' ? e.v : 0) + 1;
+      data.set(key, { v: n, exp: e?.exp || Date.now() + ttlSec * 1000 });
+      return n;
+    },
+    async rpush(key, member) {
+      lists.set(key, [...(lists.get(key) ?? []), member]);
+    },
+    async lrange(key) {
+      return [...(lists.get(key) ?? [])];
+    },
+    async lrem(key, member) {
+      lists.set(key, (lists.get(key) ?? []).filter((x) => x !== member));
     },
   };
 }

@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   if (!secret) return NextResponse.json({ ok: false, error: 'TELEGRAM_WEBHOOK_SECRET is not set' }, { status: 400 });
   try {
     const url = `${baseUrl(req)}/api/telegram/webhook`;
-    await tg('setWebhook', { url, secret_token: secret, allowed_updates: ['message', 'channel_post'], drop_pending_updates: true });
+    await tg('setWebhook', { url, secret_token: secret, allowed_updates: ['message', 'channel_post', 'callback_query'], drop_pending_updates: true });
     await tg('setMyCommands', {
       commands: [
         { command: 'prices', description: 'قیمت لحظه‌ای' },
@@ -22,6 +22,7 @@ export async function GET(req: Request) {
         { command: 'stocks', description: '۱۰ سهم بورس و فرابورس' },
         { command: 'portfolio', description: 'سبد پیشنهادی' },
         { command: 'all', description: 'گزارش کامل' },
+        { command: 'shops', description: 'سفارش و نوبت از کسب‌وکارها' },
         { command: 'stop', description: 'لغو گزارش روزانه' },
       ],
     });

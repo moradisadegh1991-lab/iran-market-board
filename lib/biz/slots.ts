@@ -67,7 +67,7 @@ const clash = (a: number, ad: number, b: number, bd: number) => a < b + bd * MIN
  * are seats (a booking that has no seat yet still takes one).
  */
 export function fits(cal: Calendar, startsAt: number, durationMin: number, seatId?: string | null, excludeId?: string | null): boolean {
-  const over = cal.busy.filter((b) => b.id !== excludeId && clash(startsAt, durationMin, b.startsAt, b.durationMin));
+  const over = cal.busy.filter((b) => (excludeId == null || b.id !== excludeId) && clash(startsAt, durationMin, b.startsAt, b.durationMin));
   if (!cal.seatIds.length) return over.length === 0;
   if (seatId && over.some((b) => b.seatId === seatId)) return false;
   return over.length < cal.seatIds.length;
