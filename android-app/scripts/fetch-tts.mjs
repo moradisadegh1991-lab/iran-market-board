@@ -6,6 +6,8 @@
  *   tts/voice/tokens.txt
  *   tts/voice/espeak-ng-data/   only what Persian needs (1.1 MB of the 19 MB): the phoneme tables and fa/en
  *                               dictionaries; scripts/tts-smoke.py proves the output is identical
+ *   tts/voice/kws/              the keyword spotter that hears «مالی من» (rule 75): zipformer zh-en 3M, int8,
+ *                               streaming chunk 16 — 5.5 MB of the 33 MB release; the same engine runs it
  * Both downloads are pinned by SHA-256, so a changed file on the release page fails the build instead of
  * shipping something else. Idempotent: skips what is already there. wire-native-plugin.mjs puts it in the
  * Android project. Run: node scripts/fetch-tts.mjs
@@ -19,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url))); // android-app/
 const OUT = join(ROOT, 'tts');
 export const TTS = {
-  version: 'ganji_adabi-int8-1.13.8',
+  version: 'ganji_adabi-int8-1.13.8+kws-zh-en-3M',
   aar: {
     url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-static-link-onnxruntime-1.13.8.aar',
     sha256: 'b22c3fc1b6a45666d28892bb2f7694beeb77a8362d7ebd77c1a5431ec9435471',
@@ -29,6 +31,17 @@ export const TTS = {
     sha256: '42cc4a913e9e5a703a5a5d758267dd38ae6d86b47d4defad1e826be7885b050c',
     dir: 'vits-piper-fa_IR-ganji_adabi-medium-int8',
     onnx: 'fa_IR-ganji_adabi-medium.onnx',
+  },
+  kws: {
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2',
+    sha256: '68447f4fbc67e70eee3a93961f36e81e98f47aef73ce7e7ca00885c6cd3616a6',
+    dir: 'sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20',
+    files: {
+      'encoder.int8.onnx': 'encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx',
+      'decoder.onnx': 'decoder-epoch-13-avg-2-chunk-16-left-64.onnx',
+      'joiner.int8.onnx': 'joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx',
+      'tokens.txt': 'tokens.txt',
+    },
   },
   // what Persian needs from espeak-ng-data (English for the odd Latin word: BTC, DXY)
   espeak: ['phondata', 'phonindex', 'phontab', 'intonations', 'fa_dict', 'en_dict', 'lang/ira/fa', 'lang/gmw/en'],
@@ -60,7 +73,7 @@ async function download(url, to, want) {
 async function main() {
   mkdirSync(OUT, { recursive: true });
   const stamp = join(OUT, 'VERSION');
-  if (existsSync(stamp) && readFileSync(stamp, 'utf8').trim() === TTS.version && existsSync(join(OUT, 'voice/model.onnx'))) {
+  if (existsSync(stamp) && readFileSync(stamp, 'utf8').trim() === TTS.version && existsSync(join(OUT, 'voice/model.onnx')) && existsSync(join(OUT, 'voice/kws/tokens.txt'))) {
     console.log(`✓ built-in Persian voice ${TTS.version} already in android-app/tts/`);
     return;
   }
@@ -81,6 +94,12 @@ async function main() {
     cpSync(join(src, 'espeak-ng-data', f), join(voice, 'espeak-ng-data', f), { recursive: true });
   }
   rmSync(join(dl, TTS.voice.dir), { recursive: true, force: true });
+  const ktar = join(dl, 'kws.tar.bz2');
+  await download(TTS.kws.url, ktar, TTS.kws.sha256);
+  execFileSync('tar', ['xjf', ktar, '-C', dl]);
+  mkdirSync(join(voice, 'kws'), { recursive: true });
+  for (const [to, from] of Object.entries(TTS.kws.files)) cpSync(join(dl, TTS.kws.dir, from), join(voice, 'kws', to));
+  rmSync(join(dl, TTS.kws.dir), { recursive: true, force: true });
   writeFileSync(stamp, TTS.version + '\n');
   console.log(`✓ built-in Persian voice ${TTS.version} → android-app/tts/`);
 }

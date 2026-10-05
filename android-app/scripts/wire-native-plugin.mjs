@@ -161,6 +161,10 @@ if (existsSync(resSrc) && existsSync(join(ROOT, 'android/app/src/main'))) {
 const TTS = join(ROOT, 'tts');
 const gradlePath = join(ROOT, 'android/app/build.gradle');
 const ttsJava = join(ROOT, 'native-plugin/tts/EmbeddedTts.java');
+const wakeJava = join(ROOT, 'native-plugin/tts/WakeService.java');
+// «مالی من» (rule 75): a microphone foreground service; «display over other apps» lets it bring the app up
+const WAKE_PERMS = ['android.permission.FOREGROUND_SERVICE', 'android.permission.FOREGROUND_SERVICE_MICROPHONE', 'android.permission.SYSTEM_ALERT_WINDOW'];
+const WAKE_SERVICE = `<service android:name=".WakeService" android:exported="false" android:foregroundServiceType="microphone" />`;
 if (existsSync(join(TTS, 'sherpa-onnx.aar')) && existsSync(join(TTS, 'voice/model.onnx')) && existsSync(gradlePath)) {
   mkdirSync(join(ROOT, 'android/app/libs'), { recursive: true });
   cpSync(join(TTS, 'sherpa-onnx.aar'), join(ROOT, 'android/app/libs/sherpa-onnx.aar'));
@@ -169,6 +173,15 @@ if (existsSync(join(TTS, 'sherpa-onnx.aar')) && existsSync(join(TTS, 'voice/mode
   cpSync(join(TTS, 'voice'), assets, { recursive: true });
   cpSync(join(TTS, 'VERSION'), join(assets, 'VERSION'));
   writeFileSync(join(javaDir, 'EmbeddedTts.java'), readFileSync(ttsJava, 'utf8').replace(/^package [\w.]+;/m, `package ${appId};`));
+  writeFileSync(join(javaDir, 'WakeService.java'), readFileSync(wakeJava, 'utf8').replace(/^package [\w.]+;/m, `package ${appId};`));
+  if (existsSync(manifestPath)) {
+    let mf = readFileSync(manifestPath, 'utf8');
+    const before = mf;
+    for (const perm of WAKE_PERMS) if (!mf.includes(`"${perm}"`)) mf = mf.replace(/(<manifest[^>]*>)/, `$1\n    <uses-permission android:name="${perm}" />`);
+    if (!mf.includes('android:name=".WakeService"')) mf = mf.replace(/(\s*)<\/application>/, `\n        ${WAKE_SERVICE}$1</application>`);
+    if (mf !== before) writeFileSync(manifestPath, mf);
+    console.log('✓ «مالی من» listener: WakeService, its permissions and the spotter model wired');
+  }
   const MARK = '// built-in Persian voice (wire-native-plugin.mjs)';
   let g = readFileSync(gradlePath, 'utf8');
   if (!g.includes(MARK)) {
@@ -194,6 +207,13 @@ android {
   console.log(`✓ built-in Persian voice ${readFileSync(join(TTS, 'VERSION'), 'utf8').trim()}: engine, voice files and EmbeddedTts wired`);
 } else {
   rmSync(join(javaDir, 'EmbeddedTts.java'), { force: true });
+  rmSync(join(javaDir, 'WakeService.java'), { force: true });
+  if (existsSync(manifestPath)) {
+    // no engine, no listener: the manifest must not name a class that is not there
+    const mf = readFileSync(manifestPath, 'utf8');
+    const out = mf.replace(/\n\s*<service android:name="\.WakeService"[^>]*\/>/, '');
+    if (out !== mf) writeFileSync(manifestPath, out);
+  }
   console.warn('⚠ built-in Persian voice not fetched (node scripts/fetch-tts.mjs) — the APK will use the phone\'s own voice only');
 }
 

@@ -135,7 +135,20 @@ console.log('\nscenario D: the built-in Persian voice fetched (fetch-tts.mjs)');
   const g = readFileSync(GRADLE, 'utf8');
   assert.equal((g.match(/implementation files\('libs\/sherpa-onnx\.aar'\)/g) || []).length, 1, 'gradle patched once');
   assert.match(g, /excludes \+= \['lib\/armeabi-v7a\/\*\*', 'lib\/x86\/\*\*', 'lib\/x86_64\/\*\*'\]/);
-  console.log('  ✓ engine, voice files and EmbeddedTts wired; gradle patched once; without it nothing is');
+  // «مالی من» (rule 75): the listener service, once, with its permissions
+  const mf = readFileSync(join(TMP, 'android/app/src/main/AndroidManifest.xml'), 'utf8');
+  assert.ok(existsSync(join(PKG_DIR, 'WakeService.java')));
+  assert.equal((mf.match(/android:name="\.WakeService"/g) || []).length, 1, 'WakeService declared once');
+  assert.match(mf, /<service android:name="\.WakeService" android:exported="false" android:foregroundServiceType="microphone" \/>/);
+  for (const p of ['FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_MICROPHONE', 'SYSTEM_ALERT_WINDOW']) {
+    assert.equal((mf.match(new RegExp(`"android\\.permission\\.${p}"`, 'g')) || []).length, 1, `${p} once`);
+  }
+  // the voice gone again (a build without it): no class, and the manifest names no missing service
+  rmSync(join(TMP, 'tts'), { recursive: true, force: true });
+  run();
+  assert.ok(!existsSync(join(PKG_DIR, 'WakeService.java')));
+  assert.ok(!readFileSync(join(TMP, 'android/app/src/main/AndroidManifest.xml'), 'utf8').includes('.WakeService'));
+  console.log('  ✓ engine, voice files, EmbeddedTts and the «مالی من» listener wired; gradle patched once; without it nothing is');
 }
 
 rmSync(TMP, { recursive: true, force: true });
