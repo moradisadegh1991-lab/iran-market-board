@@ -183,8 +183,8 @@ ok('the shop (کسب‌وکار من): sales, profit, bookings, stock, credit, p
   addBooking(b, { serviceIds: ['s'], customerName: 'نیما', customerPhone: '09120000000', startsAt: tehranMs(T, '17:30'), source: 'manual' }, 0);
   const ask = (s: string) => {
     const x = parseQuestion(d, s, T);
-    assert.ok(x && x.type === 'biz', s);
-    return answerQuestion(d, [], T, x);
+    assert.ok(x && (x.type === 'biz' || x.type === 'slots'), s);
+    return answerQuestion(d, [], T, x, tehranMs(T, '12:00'));
   };
   const sales = ask('فروش امروز مغازه چقدر بود؟');
   assert.equal(sales.text, 'فروش کافه نارنج امروز: ۲۷۰٬۰۰۰ تومان در ۱ فاکتور.');
@@ -197,6 +197,56 @@ ok('the shop (کسب‌وکار من): sales, profit, bookings, stock, credit, p
   // personal questions stay personal
   assert.equal(parseQuestion(d, 'این ماه چقدر خرج کردم؟', T)!.type, 'flow');
   assert.equal(parseQuestion(d, 'پنجاه هزار تومن نون خریدم', T), null);
+});
+
+ok('the booking calendar by voice: a day, this week, the next one, free times, is a time free', () => {
+  const d = book();
+  setupBusiness(d, { name: 'سالن گل', type: 'salon', card: 'none', now: tehranMs(T, '08:00'), today: T });
+  const b = d.biz!;
+  for (const h of b.hours) Object.assign(h, { open: true, from: '09:00', to: '20:00' });
+  b.services = [
+    { id: 'cut', name: 'اصلاح مو', durationMin: 30, priceRial: 2_000_000, active: true },
+    { id: 'color', name: 'رنگ مو', durationMin: 120, priceRial: 9_000_000, active: true },
+  ];
+  const tomorrow = '2026-10-05';
+  addBooking(b, { serviceIds: ['cut'], customerName: 'سارا', customerPhone: '', startsAt: tehranMs(T, '17:00'), source: 'manual' }, 0);
+  addBooking(b, { serviceIds: ['color'], customerName: 'مینا', customerPhone: '09121111111', startsAt: tehranMs(tomorrow, '10:00'), source: 'manual' }, 0);
+  const NOW = tehranMs(T, '12:00');
+  const q = (s: string) => {
+    const x = parseQuestion(d, s, T);
+    assert.ok(x && x.type === 'slots', s);
+    return { x, r: answerQuestion(d, [], T, x, NOW) };
+  };
+  // a booking with no number (taken in the shop) is allowed for a manual booking only
+  assert.equal(typeof addBooking(b, { serviceIds: ['cut'], customerName: null, customerPhone: '', startsAt: tehranMs(T, '19:00'), source: 'manual' }, 0), 'string');
+  assert.equal(typeof addBooking(b, { serviceIds: ['cut'], customerName: 'رضا', customerPhone: '', startsAt: tehranMs(T, '19:00'), source: 'web' }, 0), 'string');
+
+  assert.match(q('نوبت‌های فردا چیه؟').r.text, /^نوبت‌های فردا: ۱۰:۰۰ مینا \(رنگ مو\)\.$/);
+  const next = q('نوبت بعدی کیه؟');
+  assert.equal(next.x.type === 'slots' && next.x.ask, 'next');
+  assert.match(next.r.text, /^نوبت بعدی: سارا، اصلاح مو، امروز ساعت ۱۷:۰۰\.$/);
+  assert.match(next.r.speech, /نوبت بعدی سارا/);
+  const week = q('نوبت‌های این هفته');
+  assert.match(week.r.text, /امروز ۱۷:۰۰ سارا .*فردا ۱۰:۰۰ مینا/);
+  // free times of a day for the shortest service, and for a named one
+  const free = q('فردا وقت خالی داریم؟');
+  assert.equal(free.x.type === 'slots' && free.x.ask, 'free');
+  assert.equal(free.r.text, 'وقت خالی فردا (۳۰ دقیقه): از ۰۹:۰۰ تا ۱۰:۰۰، از ۱۲:۰۰ تا ۲۰:۰۰.');
+  assert.equal(free.r.speech, 'فردا از نه صبح تا ده صبح، از دوازده ظهر تا هشت شب خالیه.');
+  assert.equal(q('فردا برای رنگ مو کی خالیه؟').r.text, 'وقت خالی فردا برای رنگ مو (۱۲۰ دقیقه): از ۱۲:۰۰ تا ۲۰:۰۰.');
+  // one time: free, taken (by whom, with the nearest free), outside hours, past
+  const c1 = q('فردا ساعت ۵ عصر خالیه؟');
+  assert.equal(c1.x.type === 'slots' && c1.x.ask, 'check');
+  assert.match(c1.r.text, /^بله، فردا ساعت ۱۷:۰۰ خالی است/);
+  assert.match(c1.r.speech, /^آره، فردا ساعت پنج عصر خالیه/);
+  const c2 = q('فردا ساعت ده و نیم صبح خالیه؟');
+  assert.match(c2.r.text, /^نه، فردا ساعت ۱۰:۳۰ پر است \(نوبت مینا، ۱۰:۰۰\)\. نزدیک‌ترین وقت خالی: ۰۹:۳۰ یا ۱۲:۰۰\.$/);
+  assert.match(c2.r.speech, /نزدیک‌ترین وقت خالی نه و نیم صبح یا دوازده ظهره\.$/);
+  assert.match(q('فردا ساعت ۱۰ شب خالیه؟').r.text, /بیرون از ساعت کاری/);
+  assert.match(q('امروز ساعت ۱۰ صبح خالیه؟').r.text, /گذشته/);
+  // the help mentions the shop only when there is one
+  assert.match(answerQuestion(d, [], T, { type: 'help' }).text, /نوبت بذار/);
+  assert.doesNotMatch(answerQuestion(book(), [], T, { type: 'help' }).text, /نوبت/);
 });
 
 ok('nothing leaves the device from here (rule 7)', () => {

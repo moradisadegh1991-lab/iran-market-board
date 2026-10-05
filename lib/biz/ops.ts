@@ -652,8 +652,10 @@ export function addBooking(
 ): Booking | string {
   const svcs = p.serviceIds.map((id) => b.services.find((s) => s.id === id)).filter((s): s is NonNullable<typeof s> => !!s);
   if (!svcs.length) return 'حداقل یک خدمت انتخاب کنید.';
+  // a booking taken in the shop (or by voice) may have no number; one from the online shop always has one
   const phone = normPhone(p.customerPhone);
-  if (!phone) return 'شماره تماس مشتری را بنویسید.';
+  if (!phone && p.source !== 'manual') return 'شماره تماس مشتری را بنویسید.';
+  if (!phone && !p.customerName?.trim()) return 'نام یا شماره تماس مشتری را بنویسید.';
   const durationMin = svcs.reduce((s, x) => s + x.durationMin, 0);
   const cal = calendarOf(b);
   let seatId = p.seatId ?? null;
@@ -664,7 +666,7 @@ export function addBooking(
     serviceIds: svcs.map((s) => s.id),
     serviceNames: svcs.map((s) => s.name),
     customerName: p.customerName?.trim() || null,
-    customerPhone: phone,
+    customerPhone: phone ?? '',
     startsAt: p.startsAt,
     durationMin,
     priceRial: svcs.reduce((s, x) => s + x.priceRial, 0),

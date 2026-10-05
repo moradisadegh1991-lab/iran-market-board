@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useRef, useState } from 'react';
 import { SOLD, type Business, type Channel, type PayMethod } from '@/lib/biz/model';
 import { activeDiscounts, orderTotals, quickSale } from '@/lib/biz/ops';
+import Assistant from '../assistant/Assistant';
 import { useFinance } from '../finance/FinanceProvider';
 import { Money } from '../finance/kit';
 import { fa, PayPicker, WithBiz } from './kit';
@@ -18,6 +19,7 @@ function Pos({ b }: { b: Business }) {
   const [cat, setCat] = useState('__all__');
   const [open, setOpen] = useState(false);
   const [discountId, setDiscountId] = useState('');
+  const [voice, setVoice] = useState(false);
   const [channel, setChannel] = useState<Channel>('walkin');
   const [pay, setPay] = useState<PayMethod>('cash');
   const [creditId, setCreditId] = useState('');
@@ -103,6 +105,13 @@ function Pos({ b }: { b: Business }) {
 
   return (
     <>
+      <div className="voice-entry">
+        <button type="button" className="btn ghost voice-open" onClick={() => setVoice(true)}>
+          🎙 فروش با صدا
+        </button>
+        <span className="muted small">بگویید «دو تا لاته و یه کیک، نقد»؛ هرچه کم باشد می‌پرسد و با «بله» ثبت می‌کند.</span>
+        {voice ? <Assistant mode="sale" onClose={() => setVoice(false)} /> : null}
+      </div>
       <input ref={search} className="fin-input biz-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="جستجوی محصول…" aria-label="جستجوی محصول" />
       {cats.length > 1 ? (
         <div className="chips biz-cats" role="radiogroup" aria-label="دسته‌ها">
