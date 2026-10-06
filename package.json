@@ -27,6 +27,7 @@
     "test:sources": "tsx scripts/sources-test.ts",
     "test:balance": "tsx scripts/balance-test.ts",
     "test:shared": "tsx scripts/shared-test.ts",
+    "test:store": "tsx scripts/store-resilience-test.ts",
     "test:biz": "tsx scripts/biz-test.ts && tsx scripts/biz-voice-test.ts && tsx scripts/biz-online-test.ts && tsx scripts/biz-telegram-test.ts",
     "test:smsask": "tsx scripts/sms-ask-test.ts",
     "test:nativesms": "tsx scripts/native-sms-test.ts",

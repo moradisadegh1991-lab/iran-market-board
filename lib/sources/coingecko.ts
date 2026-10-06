@@ -19,13 +19,33 @@ export interface CgCoin {
   sparkline_in_7d?: { price: (number | null)[] };
 }
 
+const sig = (v: number | null) => (v == null || !Number.isFinite(v) ? null : Number(v.toPrecision(6)));
+/** Only the fields the screens read; the 7-day sparkline to 6 significant digits. The raw reply (~1 MB for 250 coins) was
+ *  cached as is and read back on every snapshot build. */
+export function slimCg(rows: CgCoin[]): CgCoin[] {
+  return (Array.isArray(rows) ? rows : []).map((c) => ({
+    id: c.id,
+    symbol: c.symbol,
+    name: c.name,
+    image: c.image,
+    current_price: c.current_price,
+    market_cap: c.market_cap,
+    market_cap_rank: c.market_cap_rank,
+    total_volume: c.total_volume,
+    price_change_percentage_24h_in_currency: c.price_change_percentage_24h_in_currency ?? null,
+    price_change_percentage_7d_in_currency: c.price_change_percentage_7d_in_currency ?? null,
+    price_change_percentage_30d_in_currency: c.price_change_percentage_30d_in_currency ?? null,
+    ...(c.sparkline_in_7d ? { sparkline_in_7d: { price: c.sparkline_in_7d.price.map(sig) } } : {}),
+  }));
+}
+
 export const fetchCgMarkets = (category?: string, perPage = 250) =>
   fetchJson<CgCoin[]>(
     `${BASE}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${perPage}&page=1&sparkline=true&price_change_percentage=24h,7d,30d${
       category ? `&category=${category}` : ''
     }`,
     { headers: headers(), timeoutMs: 20_000 },
-  );
+  ).then(slimCg);
 
 /** Daily prices for ~1y: [[ms, price], ...] */
 export async function fetchCgDaily(id: string, days = 365): Promise<[number, number][]> {

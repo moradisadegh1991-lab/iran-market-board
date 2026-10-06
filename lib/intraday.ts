@@ -1,6 +1,6 @@
 // Intraday samples recorded from each snapshot (≥10 min apart, 8 days kept) — powers 1-day / 1-week charts
 // for rial assets and the TSE index, which have no free intraday source.
-import { kv } from '@/lib/store';
+import { cacheKv } from '@/lib/store';
 import { isNum } from '@/lib/num';
 import type { AssetKey } from '@/lib/types';
 
@@ -17,7 +17,10 @@ export interface IntradayStore {
 const empty = (): IntradayStore => ({ t: [], v: Object.fromEntries(KEYS.map((k) => [k, []])) as unknown as IntradayStore['v'] });
 
 export async function loadIntraday(): Promise<IntradayStore> {
-  const s = await kv.get<IntradayStore>(KEY);
+  const r = await cacheKv.read<IntradayStore>(KEY);
+  const s = r.value;
+  // Redis away: nothing to append to — say so, so recordIntraday does not write a one-sample store over the real one
+  if (!r.ok) return { ...empty(), unread: true } as IntradayStore;
   if (!s?.t) return empty();
   for (const k of KEYS) if (!Array.isArray(s.v[k])) s.v[k] = s.t.map(() => null);
   return s;
@@ -26,6 +29,7 @@ export async function loadIntraday(): Promise<IntradayStore> {
 /** Appends a sample if the last one is older than 10 minutes. Returns true when stored. */
 export async function recordIntraday(at: number, point: Partial<Record<AssetKey, number | null>>): Promise<boolean> {
   const s = await loadIntraday();
+  if ((s as { unread?: boolean }).unread) return false;
   const last = s.t[s.t.length - 1] ?? 0;
   if (at - last < MIN_GAP_MS) return false;
   s.t.push(at);
@@ -39,7 +43,7 @@ export async function recordIntraday(at: number, point: Partial<Record<AssetKey,
     s.t.splice(0, drop);
     for (const k of KEYS) s.v[k].splice(0, drop);
   }
-  await kv.set(KEY, s, 10 * 86400);
+  await cacheKv.set(KEY, s, 10 * 86400);
   return true;
 }
 

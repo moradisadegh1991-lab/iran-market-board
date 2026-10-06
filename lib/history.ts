@@ -1,5 +1,8 @@
 // Rolling daily history in Redis + return-splicing with proxy series (so risk works from day one).
-import { kv } from '@/lib/store';
+import { cacheKv } from '@/lib/store';
+
+/** stores that came from a failed Redis read: empty stand-ins, never written back over the real history */
+const unread = new WeakSet<object>();
 import { isNum, msToTehranDate, normSymbol } from '@/lib/num';
 import type { AssetKey } from '@/lib/types';
 import type { TseSymbol } from '@/lib/sources/brsapi';
@@ -22,7 +25,13 @@ const emptyDaily = (): DailyStore => ({
 });
 
 export async function loadDaily(): Promise<DailyStore> {
-  const s = await kv.get<DailyStore>(DAILY_KEY);
+  const r = await cacheKv.read<DailyStore>(DAILY_KEY);
+  const s = r.value;
+  if (!r.ok) {
+    const e = emptyDaily();
+    unread.add(e);
+    return e;
+  }
   if (!s?.dates) return emptyDaily();
   for (const k of ASSET_KEYS) if (!Array.isArray(s.series[k])) s.series[k] = s.dates.map(() => null);
   return s;
@@ -73,7 +82,8 @@ export function lastClose(store: DailyStore, key: AssetKey, date: string): { dat
 }
 
 export async function saveDaily(store: DailyStore) {
-  await kv.set(DAILY_KEY, store);
+  if (unread.has(store)) return;
+  await cacheKv.set(DAILY_KEY, store);
 }
 
 export function dailyMap(store: DailyStore, key: AssetKey): Map<string, number> {
@@ -135,11 +145,15 @@ export interface TseStore {
 }
 
 export async function loadTse(): Promise<TseStore> {
-  return (await kv.get<TseStore>(TSE_KEY)) ?? { dates: [], sym: {} };
+  const r = await cacheKv.read<TseStore>(TSE_KEY);
+  const s = r.value ?? { dates: [], sym: {} };
+  if (!r.ok) unread.add(s);
+  return s;
 }
 
 export async function saveTse(store: TseStore) {
-  await kv.set(TSE_KEY, store);
+  if (unread.has(store)) return;
+  await cacheKv.set(TSE_KEY, store);
 }
 
 function tseArrays(store: TseStore) {
