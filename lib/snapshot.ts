@@ -1,9 +1,9 @@
-import { kv, storeMode } from '@/lib/store';
+import { cacheKv, storeMode } from '@/lib/store';
 import { errMsg } from '@/lib/http';
 import { clamp, fmtInt, fmtNum, fmtPct, fmtPrice, isNum, isTseSessionOpen, isTseTradingDay, rialToToman, tehranDate } from '@/lib/num';
 import { median } from '@/lib/engine/stats';
 import { cachedSource } from '@/lib/sources/cache';
-import { fetchTgju, parseTgju } from '@/lib/sources/tgju';
+import { fetchTgjuSlim, parseTgju } from '@/lib/sources/tgju';
 import { fetchGoldApi, parseGoldApi } from '@/lib/sources/goldapi';
 import { fetchNobitexStats, fetchNobitexTradable, parseNobitex } from '@/lib/sources/nobitex';
 import { fetchBrsGoldCurrency, fetchBrsIndex, fetchBrsSymbols, parseBrsIndex, parseBrsSymbols, parseBrsTetherRial, type TseSymbol } from '@/lib/sources/brsapi';
@@ -30,21 +30,37 @@ const ROB_PURE_GRAMS = 1.8306; // ربع سکه: 2.034 g × 0.900
 const SILVER_999 = 0.999;
 const OZ = 31.1035;
 
+// The last snapshot this server instance built or read (per warm instance): every client polls once a minute, and each
+// poll used to read the 115 KB snapshot back from Redis. Redis now holds a copy for cold instances, written every 5 minutes.
+const SNAP_SYNC_MS = 5 * 60_000;
+const gs = globalThis as unknown as { __snapL1?: { snap: Snapshot; syncedAt: number } };
+const age = (s: Snapshot) => Date.now() - Date.parse(s.generatedAt);
+
 export async function getSnapshot(opts: { force?: boolean } = {}): Promise<Snapshot> {
-  const ttl = Number(process.env.SNAPSHOT_TTL_SEC || 60);
-  const cached = await kv.get<Snapshot>(SNAP_KEY);
-  if (!opts.force && cached && Date.now() - Date.parse(cached.generatedAt) < ttl * 1000) return cached;
-  const gotLock = await kv.setNx(LOCK_KEY, '1', 40);
+  const ttl = Number(process.env.SNAPSHOT_TTL_SEC || 60) * 1000;
+  const mem = gs.__snapL1?.snap ?? null;
+  if (!opts.force && mem && age(mem) < ttl) return mem;
+  // an instance that has nothing yet looks at the shared copy before building
+  const shared = mem ? null : await cacheKv.get<Snapshot>(SNAP_KEY);
+  const cached = [mem, shared].filter((x): x is Snapshot => !!x?.generatedAt).sort((a, b) => age(a) - age(b))[0] ?? null;
+  if (!opts.force && cached && age(cached) < ttl) {
+    gs.__snapL1 = { snap: cached, syncedAt: gs.__snapL1?.syncedAt ?? Date.now() };
+    return cached;
+  }
+  const gotLock = await cacheKv.setNx(LOCK_KEY, '1', 40);
   if (!gotLock && cached) return cached;
   try {
     const snap = await buildSnapshot();
-    await kv.set(SNAP_KEY, snap, 7 * 24 * 3600);
+    const syncedAt = gs.__snapL1?.syncedAt ?? 0;
+    const sync = Date.now() - syncedAt >= SNAP_SYNC_MS;
+    gs.__snapL1 = { snap, syncedAt: sync ? Date.now() : syncedAt };
+    if (sync) await cacheKv.set(SNAP_KEY, snap, 7 * 24 * 3600);
     return snap;
   } catch (e) {
     if (cached) return cached;
     throw new Error(`snapshot build failed: ${errMsg(e)}`);
   } finally {
-    if (gotLock) await kv.del(LOCK_KEY);
+    if (gotLock) await cacheKv.del(LOCK_KEY);
   }
 }
 
@@ -71,7 +87,7 @@ async function buildSnapshot(): Promise<Snapshot> {
   const tseTtl = isTseSessionOpen(now) ? Number(process.env.TSE_SESSION_TTL_SEC || 240) : Number(process.env.TSE_OFFHOURS_TTL_SEC || 3600);
 
   const [tgjuR, goldR, nobR, idxR, symR, gcR, cgR, memeR, daily] = await Promise.all([
-    cachedSource('tgju', 60, fetchTgju),
+    cachedSource('tgju', 60, fetchTgjuSlim),
     cachedSource('goldapi', 60, fetchGoldApi),
     cachedSource('nobitex', 60, fetchNobitexStats),
     cachedSource('brsIndex', tseTtl, fetchBrsIndex, 4 * 24 * 3600),
@@ -170,19 +186,19 @@ async function buildSnapshot(): Promise<Snapshot> {
     it.asOf = lc.date;
     it.note = `آخرین قیمت ثبت‌شده، ${isoToJalaliLabel(lc.date)}`;
   }
-  const lastDailyWrite = (await kv.get<number>('hist:daily:lastWrite')) ?? 0;
+  const lastDailyWrite = (await cacheKv.get<number>('hist:daily:lastWrite')) ?? 0;
   if (Date.now() - lastDailyWrite > 10 * 60 * 1000) {
     await saveDaily(daily);
-    await kv.set('hist:daily:lastWrite', Date.now());
+    await cacheKv.set('hist:daily:lastWrite', Date.now());
   }
   await recordIntraday(now.getTime(), { ...livePoint, tse: isTseSessionOpen(now) ? idx?.value : null });
 
   const tseStore = await loadTse();
   if (symbols && isTseTradingDay(now)) {
-    const lastTseWrite = (await kv.get<number>('hist:tse:lastWrite')) ?? 0;
+    const lastTseWrite = (await cacheKv.get<number>('hist:tse:lastWrite')) ?? 0;
     if (Date.now() - lastTseWrite > 20 * 60 * 1000 && upsertTseDay(tseStore, today, symbols)) {
       await saveTse(tseStore);
-      await kv.set('hist:tse:lastWrite', Date.now());
+      await cacheKv.set('hist:tse:lastWrite', Date.now());
     }
   }
 

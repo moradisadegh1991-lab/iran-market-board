@@ -18,6 +18,17 @@ function quote(cur: any, slug: string): Quote | null {
   return { price: p, changePct: isNum(dp) ? Math.abs(dp) * dir : null };
 }
 
+const OIL_SLUGS = ['oil_brent', 'brent_oil', 'crude_oil_brent', 'oil-brent', 'energy_brent_oil', 'anrژی-نفت-برنت', 'oil_energy_brent', 'oil'];
+const DXY_SLUGS = ['dxy', 'usdx', 'dollar_index', 'us_dollar_index', 'usd_index', 'shakhes_dollar'];
+const BOARD_SLUGS = ['price_dollar_rl', 'sekee', 'nim', 'rob', 'geram18', 'geram24', 'ons', 'silver_999', 'silver', ...OIL_SLUGS, ...DXY_SLUGS];
+
+/** The live reply is ~160 KB; the board reads a dozen quotes of it. What is cached is just those. */
+export function slimTgju(json: any): { current: Record<string, unknown> } {
+  const cur = json?.current ?? {};
+  return { current: Object.fromEntries(BOARD_SLUGS.filter((k) => cur[k]).map((k) => [k, { p: cur[k].p, dp: cur[k].dp, dt: cur[k].dt }])) };
+}
+export const fetchTgjuSlim = () => fetchTgju().then(slimTgju);
+
 export function parseTgju(json: any) {
   const cur = json?.current ?? {};
   return {
@@ -33,8 +44,8 @@ export function parseTgju(json: any) {
     silver: quote(cur, 'silver_999'),
     silverOns: quote(cur, 'silver'),
     // exact key unconfirmed — see /api/diag's tgju.matchedKeys; falls back gracefully to null
-    oilBrent: firstQuote(cur, ['oil_brent', 'brent_oil', 'crude_oil_brent', 'oil-brent', 'energy_brent_oil', 'anrژی-نفت-برنت', 'oil_energy_brent', 'oil']),
-    dxy: firstQuote(cur, ['dxy', 'usdx', 'dollar_index', 'us_dollar_index', 'usd_index', 'shakhes_dollar']),
+    oilBrent: firstQuote(cur, OIL_SLUGS),
+    dxy: firstQuote(cur, DXY_SLUGS),
   };
 }
 

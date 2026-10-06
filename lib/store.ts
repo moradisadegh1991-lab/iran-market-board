@@ -22,7 +22,9 @@ const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TO
 export const storeMode: 'redis' | 'memory' = url && token ? 'redis' : 'memory';
 
 function redisKV(): KV {
-  const r = new Redis({ url: url!, token: token!, automaticDeserialization: true });
+  // two quick retries: a Redis that is down or over its plan should be noticed in well under a second (cacheKv then
+  // serves without it), not after the client's default five retries with exponential backoff
+  const r = new Redis({ url: url!, token: token!, automaticDeserialization: true, retry: { retries: 2, backoff: (n) => 100 * (n + 1) } });
   return {
     async get<T>(key: string) {
       return ((await r.get(key)) as T) ?? null;
@@ -123,3 +125,38 @@ function memoryKV(): KV {
 }
 
 export const kv: KV = storeMode === 'redis' ? redisKV() : memoryKV();
+
+// ── caches: never take the board down ──────────────────────────────────────
+// Snapshot, source and history caches can be rebuilt from the sources, so a Redis failure (down, or the plan's limit
+// reached — "ERR … reached current Fixed plan limits", Mehr 1405) must not turn into a 503: a read gives null, a write
+// is skipped, and Redis is left alone for a minute. Durable data (paper sessions, the business inbox, subscribers) keeps
+// using `kv` and fails loudly — silently keeping an order in one instance's memory would lose it.
+const DOWN_MS = 60_000;
+const health = { downUntil: 0, lastError: null as string | null, lastErrorAt: 0 };
+export const cacheHealth = () => ({ ...health, down: Date.now() < health.downUntil });
+/** tests: Redis came back (as it would a minute later) */
+export const resetCacheHealth = () => void (health.downUntil = 0);
+
+async function guard<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  if (Date.now() < health.downUntil) return fallback;
+  try {
+    return await fn();
+  } catch (e) {
+    health.downUntil = Date.now() + DOWN_MS;
+    health.lastError = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+    health.lastErrorAt = Date.now();
+    console.warn('[store] cache read/write failed; serving without Redis for a minute:', health.lastError);
+    return fallback;
+  }
+}
+
+/** A value read through `cacheKv.get` when Redis failed: null, and remembered so it is never written back over the real one. */
+export const cacheKv = {
+  get: <T>(key: string) => guard<T | null>(() => kv.get<T>(key), null),
+  /** like get, but says whether Redis answered — a store loaded from a failed read must never be saved back */
+  read: <T>(key: string) => guard<{ ok: boolean; value: T | null }>(async () => ({ ok: true, value: await kv.get<T>(key) }), { ok: false, value: null }),
+  set: (key: string, value: unknown, ttlSec?: number) => guard(() => kv.set(key, value, ttlSec), undefined),
+  /** true when Redis is away: build anyway (one instance building twice is better than none building) */
+  setNx: (key: string, value: unknown, ttlSec: number) => guard(() => kv.setNx(key, value, ttlSec), true),
+  del: (key: string) => guard(() => kv.del(key), undefined),
+};

@@ -98,7 +98,7 @@ export default function BizSync() {
   useEffect(() => {
     if (!online) return;
     void pull();
-    const t = setInterval(() => void pull(), POLL_MS);
+    const t = setInterval(() => document.visibilityState === 'visible' && void pull(), POLL_MS);
     const onVisible = () => document.visibilityState === 'visible' && void pull();
     document.addEventListener('visibilitychange', onVisible);
     return () => {
