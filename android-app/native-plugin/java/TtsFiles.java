@@ -28,6 +28,36 @@ public final class TtsFiles {
         }
     }
 
+    /** The default voice (the model at the top of tts-fa) — older APKs carried only this one. */
+    public static final String DEFAULT_VOICE = "ganji_adabi";
+
+    /**
+     * The voices this APK carries: the default one, then each folder of tts-fa/voices (fetch-tts.mjs) — e.g. «ganji»
+     * (male) and «haaniye» (female).
+     */
+    public static java.util.List<String> voices(Context ctx) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (!shipped(ctx)) return out;
+        out.add(DEFAULT_VOICE);
+        try {
+            String[] kids = ctx.getAssets().list(ASSETS + "/voices");
+            if (kids != null) {
+                java.util.Arrays.sort(kids);
+                for (String k : kids) if (k.matches("[a-z_]+") && !k.equals(DEFAULT_VOICE)) out.add(k);
+            }
+        } catch (IOException ignored) {
+            // just the default
+        }
+        return out;
+    }
+
+    /** Where a voice's model and tokens are, inside the copied directory. */
+    public static File voiceDir(File root, String voice) {
+        if (voice == null || voice.equals(DEFAULT_VOICE)) return root;
+        File d = new File(new File(root, "voices"), voice);
+        return new File(d, "model.onnx").isFile() ? d : root;
+    }
+
     /** The voice's directory in the app's storage, copied from the assets if missing or out of date. */
     public static File ensure(Context ctx) throws IOException {
         AssetManager am = ctx.getAssets();

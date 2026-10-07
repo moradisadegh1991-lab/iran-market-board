@@ -1,4 +1,5 @@
 'use client';
+import { LEND_LABEL, type LendKind } from '@/lib/finance/lending';
 import { useMemo, useState } from 'react';
 import { monthBounds, monthLabel, monthOf, monthTotals, shiftMonth, type JMonth } from '@/lib/finance/calc';
 import { deleteTxn, txnsCsv } from '@/lib/finance/actions';
@@ -157,7 +158,14 @@ function Transactions({ d }: { d: FinanceData }) {
           <ul className="fin-list">
             {rows.map((t) => {
               const c = t.categoryId ? cat.get(t.categoryId) : null;
-              const title = t.kind === 'transfer' ? `انتقال: ${acc.get(t.accountId) ?? '?'} ← ${acc.get(t.toAccountId ?? '') ?? '?'}` : c ? `${c.emoji} ${c.name}` : 'بدون دسته';
+              const lend = t.link?.type === 'lend' ? (t.link.mk as LendKind | undefined) : undefined;
+              const title = lend
+                ? `🤝 ${LEND_LABEL[lend] ?? 'قرض'}: ${acc.get(t.link!.id) ?? '?'}`
+                : t.kind === 'transfer'
+                  ? `انتقال: ${acc.get(t.accountId) ?? '?'} ← ${acc.get(t.toAccountId ?? '') ?? '?'}`
+                  : c
+                    ? `${c.emoji} ${c.name}`
+                    : 'بدون دسته';
               return (
                 <li key={t.id}>
                   <span className="fin-list-main">

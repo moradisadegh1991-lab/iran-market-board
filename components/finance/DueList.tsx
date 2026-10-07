@@ -21,7 +21,7 @@ function when(today: string, date: string): string {
 /** Upcoming and overdue obligations, each settleable in one tap (which also records the transaction). */
 export default function DueList({ data, days = 30, limit }: { data: FinanceData; days?: number; limit?: number }) {
   const { update, today } = useFinance();
-  const accounts = data.accounts.filter((a) => !a.archived);
+  const accounts = data.accounts.filter((a) => !a.archived && a.kind !== 'person');
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
   const [msg, setMsg] = useState<string | null>(null);
   // an expected income asks what actually came in (a salary is rarely the same twice)

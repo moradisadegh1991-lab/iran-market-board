@@ -341,7 +341,7 @@ const nameWords = (name: string) =>
     .filter((w) => w.length > 1 && !GENERIC.has(w));
 const wordHit = (said: string[], w: string) => said.some((s) => s === w || (w.length >= 3 && s.startsWith(w) && s.length - w.length <= 2));
 
-interface Hit {
+export interface Hit {
   id: string;
   at: number; // first token index of the match
   score: number;
@@ -350,7 +350,7 @@ interface Hit {
 /** Accounts the sentence names, best first, each with where it was said. */
 export function accountHits(d: FinanceData, text: string): Hit[] {
   const said = clean(text).split(' ');
-  const live = d.accounts.filter((a) => !a.archived);
+  const live = d.accounts.filter((a) => !a.archived && a.kind !== 'person');
   const hits: Hit[] = [];
   for (const a of live) {
     const ws = nameWords(a.name);
@@ -532,7 +532,7 @@ const RX_NO = /^(نه|نخیر|خیر|نچ|no|غلطه|اشتباهه|درست �
 const ORD = ['اولی', 'دومی', 'سومی', 'چهارمی', 'پنجمی', 'ششمی'];
 
 function liveAccounts(d: FinanceData) {
-  return d.accounts.filter((a) => !a.archived);
+  return d.accounts.filter((a) => !a.archived && a.kind !== 'person');
 }
 function accName(d: FinanceData, id: string | null) {
   return d.accounts.find((a) => a.id === id)?.name ?? '';

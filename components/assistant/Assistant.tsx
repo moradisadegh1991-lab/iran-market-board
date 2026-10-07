@@ -1,13 +1,17 @@
 'use client';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { answerQuestion, BIZ_HELP_TEXT, HELP_TEXT, parseQuestion, type Reply } from '@/lib/assistant/ask';
-import { bizAnswer, bizBegin, bizChoose, bizEdit, bizRows, bizStart, commitBiz, undoBiz, type BizUndo, type BizVoiceState } from '@/lib/biz/voice';
+import { bizAnswer, bizBegin, bizStart } from '@/lib/biz/voice';
+import { lendStart } from '@/lib/finance/voice-lend';
+import { flowAnswer, flowChoose, flowCommit, flowEdit, flowRows, flowSavedText, flowUndo, type Flow, type FlowSaved } from './flows';
 import { deleteTxn } from '@/lib/finance/actions';
 import type { Txn } from '@/lib/finance/model';
 import { answer, choose, commitVoice, draftRows, edit, startVoice, type Ask, type VoiceState } from '@/lib/finance/voice';
-import { VOICE_SPEAK_KEY, VoiceError, voiceIO, wakeIO, type AppCrash, type VoiceErr, type VoiceIO, type WakeSensitivity, type WakeState } from '@/lib/voice-io';
+import { setVoicePref, SPEEDS, VOICE_INFO, VOICE_SPEAK_KEY, VoiceError, voiceIO, voicePref, wakeIO, type AppCrash, type VoiceErr, type VoiceIO, type WakeSensitivity, type WakeState } from '@/lib/voice-io';
 import { useFinance } from '../finance/FinanceProvider';
+import { useNotify } from '../NotifyProvider';
 import AskChart from './AskChart';
 
 const PROBLEM: Record<VoiceErr, string> = {
@@ -36,17 +40,11 @@ interface Item {
 
 // opened by the phone's assist gesture, the tile or the shortcut (rule 74): short, and it listens right away
 const ASSIST_HI = 'بفرمایید؛ گوش می‌دهم. بپرسید یا تراکنش بگویید.';
-const GREETING = 'سلام! تراکنش بگویید تا ثبت کنم، یا بپرسید: «قیمت دلار چنده؟»، «نمودار سه ماه گذشته طلای ۱۸ عیار»، «این ماه چقدر خرج کردم؟».';
+const GREETING = 'سلام! تراکنش یا قرض بگویید تا ثبت کنم، یا بپرسید: «قیمت دلار چنده؟»، «این ماه چقدر خرج کردم؟»، «قسط بعدیم کیه؟»، «دارایی‌هام از تورم جلو زدن؟». برای همه کارها بگویید «راهنما».';
 // with a business (rule 81): the shop first — a sale, a booking, the calendar
 const GREETING_BIZ =
-  'سلام! فروش بگویید («دو تا لاته و یه کیک فروختم، نقد»)، نوبت بگذارید («برای سارا فردا ساعت پنج نوبت اصلاح مو بذار») یا بپرسید: «نوبت‌های فردا»، «فردا ساعت پنج خالیه؟»، «فروش امروز چقدر بود؟». تراکنش و قیمت هم می‌شود.';
+  'سلام! فروش بگویید («دو تا لاته و یه کیک فروختم، نقد»)، نوبت بگذارید («برای سارا فردا ساعت پنج نوبت اصلاح مو بذار») یا بپرسید: «نوبت‌های فردا»، «فردا ساعت پنج خالیه؟»، «فروش امروز چقدر بود؟». تراکنش، قرض («به رضا دو میلیون از صندوق مغازه قرض دادم») و قیمت هم می‌شود.';
 const BOOK_HI = 'نوبت بگویید («برای سارا فردا ساعت پنج اصلاح مو»)، بگویید کدام نوبت انجام یا لغو شد، یا بپرسید: «نوبت‌های فردا»، «فردا ساعت چند خالیه؟».';
-const UNDONE: Record<BizUndo['kind'], string> = {
-  sale: 'برگردانده شد؛ آن فاکتور لغو شد.',
-  book: 'برگردانده شد؛ آن نوبت حذف شد.',
-  done: 'برگردانده شد؛ نوبت دوباره باز شد و فروشش لغو شد.',
-  cancel: 'برگردانده شد؛ نوبت دوباره باز شد.',
-};
 
 /**
  * The assistant: say (or type) a transaction and it asks for what is missing, reads it back and records it
@@ -68,6 +66,11 @@ export default function Assistant({
   byName?: boolean;
 }) {
   const { data, today, update, items } = useFinance();
+  const { alerts, setAlerts } = useNotify();
+  const router = useRouter();
+  // an answer that offers to do something (set a price alert, open a page): done only on «بله» or its button
+  const [pending, setPending] = useState<NonNullable<Reply['action']> | null>(null);
+  const pendingRef = useRef<NonNullable<Reply['action']> | null>(null);
   const dataRef = useRef(data);
   dataRef.current = data;
   const itemsRef = useRef(items);
@@ -78,9 +81,10 @@ export default function Assistant({
   const nextId = useRef(1);
   const [txn, setTxn] = useState<VoiceState | null>(null);
   const txnRef = useRef<VoiceState | null>(null);
-  const [biz, setBiz] = useState<BizVoiceState | null>(null);
-  const bizRef = useRef<BizVoiceState | null>(null);
-  const [bizSaved, setBizSaved] = useState<BizUndo | null>(null);
+  // a sale, a booking or a loan under way (flows.ts)
+  const [flow, setFlow] = useState<Flow | null>(null);
+  const flowRef = useRef<Flow | null>(null);
+  const [flowSaved, setFlowSaved] = useState<FlowSaved | null>(null);
   const [phase, setPhase] = useState<'idle' | 'speaking' | 'listening'>('idle');
   const [partial, setPartial] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
@@ -150,8 +154,8 @@ export default function Assistant({
       push({ who: 'bot', text: BOOK_HI });
     } else if (mode === 'sale' && data.biz) {
       const s = bizBegin(data, mode, today, Date.now());
-      bizRef.current = s.done ? null : s;
-      setBiz(bizRef.current);
+      flowRef.current = s.done ? null : { kind: 'biz', st: s };
+      setFlow(flowRef.current);
       push({ who: 'bot', text: s.say });
     } else push({ who: 'bot', text: assisted.current ? ASSIST_HI : data.biz ? GREETING_BIZ : GREETING });
   }, [data, today, mode, push]);
@@ -179,7 +183,7 @@ export default function Assistant({
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [log, partial, txn, biz]);
+  }, [log, partial, txn, flow]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -201,12 +205,12 @@ export default function Assistant({
     txnRef.current = s;
     setTxn(s);
   }
-  function setBizState(s: BizVoiceState | null) {
-    bizRef.current = s;
-    setBiz(s);
+  function setFlowState(f: Flow | null) {
+    flowRef.current = f;
+    setFlow(f);
   }
   /** a dialog (transaction, sale, booking) still waiting for an answer */
-  const waiting = () => (txnRef.current && !txnRef.current.done) || (bizRef.current && !bizRef.current.done);
+  const waiting = () => (txnRef.current && !txnRef.current.done) || (flowRef.current && !flowRef.current.st.done);
 
   /** After the bot spoke: keep listening while a transaction still needs an answer. */
   async function speakThenMaybeListen(text: string) {
@@ -234,7 +238,7 @@ export default function Assistant({
     setPartial('');
     setPhase('listening');
     try {
-      const alts = await x.listen((t) => alive.current && setPartial(t), bizRef.current?.say ?? txnRef.current?.say);
+      const alts = await x.listen((t) => alive.current && setPartial(t), flowRef.current?.st.say ?? txnRef.current?.say);
       listening.current = false;
       if (!alive.current) return;
       setPhase('idle');
@@ -267,7 +271,40 @@ export default function Assistant({
 
   function reply(r: Reply, said: string) {
     push({ who: 'me', text: said }, { who: 'bot', text: r.text, chart: r.chart, link: r.link });
-    if (r.speech) void say(r.speech);
+    pendingRef.current = r.action ?? null;
+    setPending(pendingRef.current);
+    if (r.speech) void (r.action ? speakThenListen(r.speech) : say(r.speech));
+  }
+
+  /** after an offer the answer is short («بله»): listen again when hands-free */
+  async function speakThenListen(text: string) {
+    await say(text);
+    if (alive.current && handsFree.current && pendingRef.current) {
+      await new Promise((r) => setTimeout(r, 350));
+      if (alive.current) void listenOnce(true);
+    }
+  }
+
+  function act(yes: boolean, said: string | null) {
+    const a = pendingRef.current;
+    pendingRef.current = null;
+    setPending(null);
+    if (!a) return;
+    if (!yes) {
+      push(...(said ? [{ who: 'me' as const, text: said }] : []), { who: 'bot', text: 'باشه.' });
+      void say('باشه.');
+      return;
+    }
+    if (a.type === 'alert') {
+      setAlerts([...alerts, { asset: a.asset, dir: a.dir, value: a.value, fired: 0 }]);
+      const t = `هشدار گذاشته شد: ${a.label}. وقتی اپ باز است و قیمت به آن برسد خبرتان می‌کنم.`;
+      push(...(said ? [{ who: 'me' as const, text: said }] : []), { who: 'bot', text: t, link: { href: '/alerts', label: 'هشدارها' } });
+      void say('هشدار رو گذاشتم.');
+      return;
+    }
+    push(...(said ? [{ who: 'me' as const, text: said }] : []));
+    onClose();
+    router.push(a.href);
   }
 
   /** One thing the user said or typed (the recogniser's guesses, best first). */
@@ -276,24 +313,43 @@ export default function Assistant({
     const d = dataRef.current;
     if (!d || !alts.length) return;
     const now = Date.now();
-    const bcur = bizRef.current && !bizRef.current.done ? bizRef.current : null;
+    // an offer waiting for «بله»
+    if (pendingRef.current) {
+      const c0 = alts[0].trim();
+      if (/^(بله|بلی|آره|اره|باشه|اوکی|ok|yes|حتما|بذار|بزار|بزن|باز کن|برو)( |$)/i.test(c0)) return act(true, c0);
+      if (/^(نه|نخیر|خیر|نمیخوام|نمی خوام|ولش|بیخیال)( |$)/.test(c0)) return act(false, c0);
+      pendingRef.current = null;
+      setPending(null);
+    }
+    const bcur = flowRef.current && !flowRef.current.st.done ? flowRef.current : null;
     if (bcur) {
-      // the sale or booking under way gets the answer; a question in the middle is answered, then back to it
-      const next = bizAnswer(d, bcur, alts, today, now);
-      if (next.misses > bcur.misses) {
+      // the sale, booking or loan under way gets the answer; a question in the middle is answered, then back to it
+      const next = flowAnswer(d, bcur, alts, today, now);
+      if (next.st.misses > bcur.st.misses) {
         for (const a of alts) {
           const q = parseQuestion(d, a, today);
           if (q && q.type !== 'help') {
             const r = answerQuestion(d, itemsRef.current, today, q, now);
-            push({ who: 'me', text: a }, { who: 'bot', text: r.text, chart: r.chart, link: r.link }, { who: 'bot', text: `برگردیم: ${bcur.say}` });
-            void say(`${r.speech} برگردیم. ${bcur.say}`);
+            push({ who: 'me', text: a }, { who: 'bot', text: r.text, chart: r.chart, link: r.link }, { who: 'bot', text: `برگردیم: ${bcur.st.say}` });
+            void say(`${r.speech} برگردیم. ${bcur.st.say}`);
             return;
           }
         }
       }
-      return bizStep(next, alts[0]);
+      return flowStep(next, alts[0]);
     }
     const cur = txnRef.current && !txnRef.current.done ? txnRef.current : null;
+
+    // a loan («پنج میلیون به علی قرض دادم») — before the plain transaction, which would take «دادم» for spending
+    if (!cur || cur.asking === 'open') {
+      for (const a of alts) {
+        const s = lendStart(d, a);
+        if (s) {
+          if (cur) setTxnState(null);
+          return flowStep({ kind: 'lend', st: s }, a);
+        }
+      }
+    }
 
     // a sale or a booking said in one go («دو تا لاته فروختم، نقد») — before questions, since «نوبت» is in both
     if (d.biz && (!cur || cur.asking === 'open')) {
@@ -301,7 +357,7 @@ export default function Assistant({
         const s = bizStart(d, a, today, now);
         if (s) {
           if (cur) setTxnState(null);
-          return bizStep(s, a);
+          return flowStep({ kind: 'biz', st: s }, a);
         }
       }
     }
@@ -320,7 +376,7 @@ export default function Assistant({
     // opened from «فروش با صدا» / «نوبت با صدا»: whatever else is said is taken as (the start of) a sale or booking
     if ((mode === 'sale' || mode === 'book') && d.biz && !cur) {
       const s1 = bizAnswer(d, bizBegin(d, mode, today, now), alts, today, now);
-      if (!s1.misses) return bizStep(s1, alts[0]);
+      if (!s1.misses) return flowStep({ kind: 'biz', st: s1 }, alts[0]);
     }
 
     const base = cur ?? startVoice(d, today);
@@ -349,7 +405,7 @@ export default function Assistant({
         t = commitVoice(dd, next);
       });
       setSaved(t);
-      setBizSaved(null);
+      setFlowSaved(null);
       setUndone(false);
     }
     setTxnState(next.done ? null : next);
@@ -391,7 +447,7 @@ export default function Assistant({
         t = commitVoice(dd, next);
       });
       setSaved(t);
-      setBizSaved(null);
+      setFlowSaved(null);
       setUndone(false);
     }
     setTxnState(next.done ? null : next);
@@ -399,35 +455,35 @@ export default function Assistant({
     void say(next.say);
   }
 
-  /** The sale/booking dialog moved on; on «بله» it is recorded (or the book says why not). */
-  function bizStep(next: BizVoiceState, said: string | null) {
-    const prev = bizRef.current;
-    let text = next.say;
-    if (next.done === 'save' && prev?.done !== 'save') {
-      let r: BizUndo | string = '';
+  /** The sale/booking/loan dialog moved on; on «بله» it is recorded (or the book says why not). */
+  function flowStep(next: Flow, said: string | null) {
+    const prev = flowRef.current;
+    let text = next.st.say;
+    if (next.st.done === 'save' && prev?.st.done !== 'save') {
+      let r: FlowSaved | string = '';
       update((dd) => {
-        r = commitBiz(dd, next, Date.now());
+        r = flowCommit(dd, next, today, Date.now());
       });
-      const res = r as BizUndo | string;
+      const res = r as FlowSaved | string;
       if (typeof res === 'string') text = `ثبت نشد: ${res}`;
       else {
-        setBizSaved(res);
+        setFlowSaved(res);
         setSaved(null);
         setUndone(false);
-        if (res.kind === 'sale') text = `ثبت شد؛ فاکتور ${res.no.toLocaleString('fa-IR')}.`;
+        text = flowSavedText(res);
       }
     }
-    setBizState(next.done ? null : next);
+    setFlowState(next.st.done ? null : next);
     push(...(said ? [{ who: 'me' as const, text: said }] : []), { who: 'bot', text });
     void speakThenMaybeListen(text);
   }
 
   function tap(key: string) {
     const d = dataRef.current;
-    const bcur = bizRef.current;
+    const bcur = flowRef.current;
     if (d && bcur) {
       quiet();
-      return bizStep(bizChoose(d, bcur, key, today, Date.now()), bcur.options.find((o) => o.key === key)?.label ?? null);
+      return flowStep(flowChoose(d, bcur, key, today, Date.now()), bcur.st.options.find((o) => o.key === key)?.label ?? null);
     }
     const cur = txnRef.current;
     if (!d || !cur) return;
@@ -437,10 +493,10 @@ export default function Assistant({
 
   function fix(what: Ask | string) {
     const d = dataRef.current;
-    const bcur = bizRef.current;
-    if (d && bcur && !bcur.done) {
+    const bcur = flowRef.current;
+    if (d && bcur && !bcur.st.done) {
       quiet();
-      return bizStep(bizEdit(d, bcur, what, today, Date.now()), null);
+      return flowStep(flowEdit(d, bcur, what, today, Date.now()), null);
     }
     const cur = txnRef.current;
     if (!d || !cur || cur.done) return;
@@ -449,11 +505,14 @@ export default function Assistant({
   }
 
   function undo() {
-    if (bizSaved) {
-      const u = bizSaved;
-      update((d) => undoBiz(d, u, Date.now()));
+    if (flowSaved) {
+      const u = flowSaved;
+      let msg = '';
+      update((d) => {
+        msg = flowUndo(d, u, Date.now());
+      });
       setUndone(true);
-      push({ who: 'bot', text: UNDONE[u.kind] });
+      push({ who: 'bot', text: msg });
       return;
     }
     if (!saved) return;
@@ -475,8 +534,8 @@ export default function Assistant({
   }
 
   if (!data) return null;
-  const rows: { key: string; label: string; value: string | null }[] = biz ? bizRows(data, biz, today) : txn ? draftRows(data, today, txn.draft) : [];
-  const dlg = biz ?? txn;
+  const rows: { key: string; label: string; value: string | null }[] = flow ? flowRows(data, flow, today) : txn ? draftRows(data, today, txn.draft) : [];
+  const dlg: { options: { key: string; label: string }[]; asking: string } | null = flow ? flow.st : txn;
   const canListen = !!io?.canListen;
 
   return (
@@ -522,7 +581,7 @@ export default function Assistant({
           </p>
         ) : null}
 
-        {(saved || bizSaved) && !undone && !dlg ? (
+        {(saved || flowSaved) && !undone && !dlg ? (
           <div className="voice-done" data-testid="voice-saved">
             <p role="status">ثبت شد ✓</p>
             <button className="btn ghost" onClick={undo}>
@@ -531,6 +590,16 @@ export default function Assistant({
           </div>
         ) : null}
 
+        {pending && !dlg ? (
+          <div className="voice-opts" role="group" aria-label="گزینه‌ها">
+            <button type="button" className="btn" onClick={() => (quiet(), act(true, null))}>
+              {pending.type === 'alert' ? 'بله، هشدار را بگذار' : `بله، «${pending.label}» را باز کن`}
+            </button>
+            <button type="button" className="voice-opt" onClick={() => (quiet(), act(false, null))}>
+              نه
+            </button>
+          </div>
+        ) : null}
         {dlg?.options.length ? (
           <div className="voice-opts" role="group" aria-label="گزینه‌ها">
             {dlg.options.map((o) => (
@@ -572,7 +641,9 @@ export default function Assistant({
               <input type="checkbox" checked={speakOn} onChange={toggleSpeak} /> جواب‌ها را با صدا بخوان
               {io.voice === 'built-in' ? <span data-testid="built-in-voice"> (صدای فارسی خود اپ، بدون اینترنت)</span> : null}
             </label>
-          ) : io ? (
+          ) : null}
+          {io?.canSpeak && speakOn ? <VoicePicker io={io} onSample={(t) => void say(t)} /> : null}
+          {io?.canSpeak ? null : io ? (
             <span data-testid="no-voice">
               این گوشی صدای فارسی برای خواندن ندارد؛ جواب‌ها همین‌جا نوشته می‌شوند. برای جواب صوتی، یک موتور «متن به گفتار» فارسی نصب کنید (مثلاً eSpeak NG یا یک صدای فارسی sherpa-onnx)؛ اپ خودش
               پیدایش می‌کند، لازم نیست پیش‌فرض باشد.{' '}
@@ -614,6 +685,39 @@ export default function Assistant({
     setLog((l) => l.map((x) => (x.id === id ? { ...x, summary: s.text } : x)));
     void say(s.speech);
   }
+}
+
+/** whose voice and how fast (rule 86): the app's own voices in an APK that carries them; the pace everywhere */
+function VoicePicker({ io, onSample }: { io: VoiceIO; onSample: (text: string) => void }) {
+  const [pref, setPref] = useState(() => voicePref());
+  const voices = io.voices ?? [];
+  const current = pref.voice && voices.includes(pref.voice) ? pref.voice : voices[0] ?? null;
+  const pick = (p: typeof pref, sample: string) => {
+    setPref(p);
+    setVoicePref(p);
+    onSample(sample);
+  };
+  return (
+    <div className="voice-pick" data-testid="voice-pick">
+      {voices.length > 1 ? (
+        <div className="chips" role="radiogroup" aria-label="صدای دستیار">
+          {voices.map((v) => (
+            <button key={v} type="button" role="radio" aria-checked={current === v} onClick={() => pick({ ...pref, voice: v }, `سلام، من ${VOICE_INFO[v]?.label ?? v} هستم. این‌طوری حرف می‌زنم.`)}>
+              {VOICE_INFO[v]?.label ?? v}
+              <small> ({VOICE_INFO[v]?.who ?? ''})</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="chips" role="radiogroup" aria-label="سرعت گفتن">
+        {SPEEDS.map((x) => (
+          <button key={x.v} type="button" role="radio" aria-checked={pref.speed === x.v} onClick={() => pick({ ...pref, speed: x.v }, `با این سرعت حرف می‌زنم.`)}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 const WAKE_LABEL: Record<WakeSensitivity, string> = {

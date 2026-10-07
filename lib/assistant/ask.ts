@@ -6,6 +6,7 @@
 // computed here, on the device (rule 7).
 import { dailyProfit, lowStock, sumRows } from '@/lib/biz/reports';
 import { creditBalance } from '@/lib/biz/ops';
+import { answerMore, parseMore, type MoreQ, type MoreReply } from './ask-more';
 import { availableSlots, fits, tehranMs, tehranParts, withinHours } from '@/lib/biz/slots';
 import { calendarOf } from '@/lib/biz/ops';
 import { dayIn, dayWords, itemsIn, nearestFree, timeIn, timeWords } from '@/lib/biz/voice';
@@ -66,6 +67,7 @@ export type Question =
   | { type: 'need-asset' }
   | { type: 'biz'; what: 'sales' | 'profit' | 'pending' | 'stock' | 'credit'; from: Iso; to: Iso; period: string }
   /** the shop's bookings: a day's (or this week's) list, the next one, the free times of a day, or whether one time is free */
+  | { type: 'more'; q: MoreQ }
   | { type: 'slots'; ask: 'list' | 'next' | 'free' | 'check'; from: Iso; to: Iso; time: string | null; serviceId: string | null };
 
 const ASKING = /(^| )(چند|چنده|چنده؟|چقدر|چقدره|چه قدر|چطوره|چطور|کدومه|بگو|بگید|بفرما|نشون|نشان|نشونم|ببینم|میخوام|می خوام|قیمت|نرخ|موجودی|مانده)( |$)/;
@@ -126,6 +128,9 @@ export function parseQuestion(d: FinanceData, raw: string, today: Iso): Question
   const asked = /[?؟]/.test(raw) || ASKING.test(c);
   if (amountIn(tokens(c), true) && kindIn(c)) return null;
   if (HELP.test(c)) return { type: 'help' };
+  // loans, budget, due dates, goals, assets against the dollar and inflation, a price alert, opening a page (ask-more.ts)
+  const more = parseMore(d, raw, today);
+  if (more) return { type: 'more', q: more };
   const asset = assetIn(c);
   const days = periodDays(c);
   if (CHART.test(c)) {
@@ -191,6 +196,8 @@ export interface Reply {
   /** the screen fetches /api/chart and draws it, then says `chartSummary` */
   chart?: { asset: string; tf: ChartTf; label: string; spoken: string; unit: 'toman' | 'usd' | 'point' };
   link?: { href: string; label: string };
+  /** offered by the answer; done only after «بله» (the screen holds it) */
+  action?: MoreReply['action'];
 }
 
 const fa = (n: number, digits = 0) => n.toLocaleString('fa-IR', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
@@ -211,7 +218,7 @@ export const spokenAmount = (v: number) => numToWords(Math.abs(v) >= 1e6 ? Math.
 const pctFa = (p: number) => `${fa(Math.abs(p), 1)}٪`;
 
 export const HELP_TEXT =
-  'می‌توانید تراکنش ثبت کنید («پنجاه هزار تومن نون خریدم از کیف پول») یا بپرسید: «قیمت دلار چنده؟»، «نمودار سه ماه گذشته طلای ۱۸ عیار»، «این ماه چقدر خرج کردم؟»، «خرج خوراک ماه پیش»، «موجودی حساب ملت»، «دارایی خالصم چقدره؟».';
+  'می‌توانید تراکنش ثبت کنید («پنجاه هزار تومن نون خریدم از کیف پول»)، قرض بدهید یا بگیرید («پنج میلیون به علی قرض دادم»، «رضا قرضشو پس داد») یا بپرسید: «قیمت دلار چنده؟»، «نمودار سه ماه گذشته طلای ۱۸ عیار»، «این ماه چقدر خرج کردم؟»، «از بودجه خوراک چقدر مونده؟»، «قسط بعدیم کیه؟»، «کی بهم بدهکاره؟»، «هدف خونه چقدر پیش رفته؟»، «دارایی‌هام از تورم جلو زدن؟»، «موجودی حساب ملت»، «دارایی خالصم چقدره؟». کارهایی مثل «هر وقت دلار به سیصد هزار رسید خبرم کن» یا «بودجه رو باز کن» را هم با «بله» انجام می‌دهم.';
 
 export const BIZ_HELP_TEXT =
   ' برای کسب‌وکار: «دو تا لاته و یه کیک فروختم، نقد»، «برای سارا فردا ساعت پنج عصر اصلاح مو نوبت بذار»، «نوبت ساعت پنج انجام شد، کارت»، «نوبت‌های فردا»، «نوبت بعدی کیه؟»، «پنجشنبه ساعت چند خالیه؟»، «فروش امروز چقدر بود؟».';
@@ -298,6 +305,8 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
       return bizAnswer(d, today, q);
     case 'slots':
       return slotsAnswer(d, today, q, now);
+    case 'more':
+      return answerMore(d, items, today, q.q, now);
     case 'flow': {
       const t = totalsBetween(d, q.from, q.to);
       const cat = q.categoryId ? d.categories.find((c) => c.id === q.categoryId) : null;

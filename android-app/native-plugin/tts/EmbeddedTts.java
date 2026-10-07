@@ -44,6 +44,8 @@ public class EmbeddedTts implements VoicePlugin.Speaker {
     private final AtomicInteger turn = new AtomicInteger();
     private final AtomicBoolean started = new AtomicBoolean();
     private volatile OfflineTts tts;
+    /** the voice `tts` was loaded with; another one is loaded (and this one freed) when the user picks it */
+    private volatile String loaded;
     private volatile String error;
     private volatile AudioTrack track;
 
@@ -53,10 +55,15 @@ public class EmbeddedTts implements VoicePlugin.Speaker {
         if (TtsGuard.off(this.ctx)) error = TtsGuard.why(this.ctx);
     }
 
-    /** Load the engine in the background (once). */
+    /** Load the engine in the background (once), in the last voice the user chose. */
     @Override
     public void warm() {
-        if (error == null && !started.getAndSet(true)) maker.execute(safe(this::load));
+        if (error == null && !started.getAndSet(true)) maker.execute(safe(() -> load(ctx.getSharedPreferences(TtsGuard.PREFS, 0).getString("voice", TtsFiles.DEFAULT_VOICE))));
+    }
+
+    @Override
+    public List<String> voices() {
+        return TtsFiles.voices(ctx);
     }
 
     private Runnable safe(Runnable r) {
@@ -74,17 +81,39 @@ public class EmbeddedTts implements VoicePlugin.Speaker {
         return m.length() > 300 ? m.substring(0, 300) : m;
     }
 
-    private void load() {
+    /**
+     * Each voice's own variation settings (its training config): the Piper voices 0.667 / 0.8; «haaniye» (mimic3)
+     * 0.333 / 0.333 — with the Piper values it was measurably less clear (Whisper, CLAUDE.md rule 86).
+     */
+    static float[] noiseOf(String voice) {
+        return "haaniye".equals(voice) ? new float[] {0.333f, 0.333f} : new float[] {0.667f, 0.8f};
+    }
+
+    private void load(String voice) {
         try {
-            File dir = TtsFiles.ensure(ctx);
+            File root = TtsFiles.ensure(ctx);
+            if (voice == null || !TtsFiles.voices(ctx).contains(voice)) voice = TtsFiles.DEFAULT_VOICE;
+            File dir = TtsFiles.voiceDir(root, voice);
+            float[] noise = noiseOf(voice);
             OfflineTtsVitsModelConfig vits = new OfflineTtsVitsModelConfig(
                 new File(dir, "model.onnx").getAbsolutePath(), "", new File(dir, "tokens.txt").getAbsolutePath(),
-                new File(dir, "espeak-ng-data").getAbsolutePath(), "", 0.667f, 0.8f, 1.0f);
+                new File(root, "espeak-ng-data").getAbsolutePath(), "", noise[0], noise[1], 1.0f);
             OfflineTtsModelConfig model = new OfflineTtsModelConfig(vits, new OfflineTtsMatchaModelConfig(), new OfflineTtsKokoroModelConfig(),
                 new OfflineTtsZipVoiceModelConfig(), new OfflineTtsKittenModelConfig(), new OfflineTtsPocketModelConfig(),
                 new OfflineTtsSupertonicModelConfig(), Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors() / 2)), false, "cpu");
             TtsGuard.enter(ctx, "load");
+            OfflineTts old = tts;
+            tts = null;
+            if (old != null) {
+                try {
+                    old.release();
+                } catch (Throwable ignored) {
+                    // already freed
+                }
+            }
             tts = new OfflineTts(null, new OfflineTtsConfig(model, "", "", 1, 0.2f));
+            loaded = voice;
+            ctx.getSharedPreferences(TtsGuard.PREFS, 0).edit().putString("voice", voice).apply();
         } catch (Throwable t) { // UnsatisfiedLinkError on a 32-bit phone (only arm64 is shipped), a full disk…
             error = describe(t);
         } finally {
@@ -104,13 +133,20 @@ public class EmbeddedTts implements VoicePlugin.Speaker {
 
     @Override
     public void speak(String text, VoicePlugin.SpeakDone done) {
+        speak(text, null, 1.0f, done);
+    }
+
+    @Override
+    public void speak(String text, String voice, float speed, VoicePlugin.SpeakDone done) {
         warm();
         int mine = turn.incrementAndGet();
         halt();
         List<String> parts = TtsText.sentences(text);
         maker.execute(() -> {
             try {
-                run(mine, parts, done);
+                // the user picked another voice: load it now (the next answers are quick again)
+                if (voice != null && !voice.equals(loaded) && error == null) load(voice);
+                run(mine, parts, speed, done);
             } catch (Throwable t) {
                 done.failed(describe(t));
             }
@@ -142,7 +178,7 @@ public class EmbeddedTts implements VoicePlugin.Speaker {
         }
     }
 
-    private void run(int mine, List<String> parts, VoicePlugin.SpeakDone done) {
+    private void run(int mine, List<String> parts, float speed, VoicePlugin.SpeakDone done) {
         if (turn.get() != mine || parts.isEmpty()) {
             done.finished(true);
             return;
@@ -173,7 +209,7 @@ public class EmbeddedTts implements VoicePlugin.Speaker {
                 TtsGuard.enter(ctx, "speak");
                 GeneratedAudio a;
                 try {
-                    a = engine.generate(s, 0, 1.0f);
+                    a = engine.generate(s, 0, speed);
                 } finally {
                     TtsGuard.leave(ctx);
                 }

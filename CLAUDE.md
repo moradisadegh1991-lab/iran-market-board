@@ -38,7 +38,7 @@ app/                 یک اپ، هفت گروه (components/nav.ts، قاعده
                      معامله: live (جلسه من روی دستگاه + جلسه مشترک) · swing · simulator
                      یادگیری و تنظیمات: learn · game (بازی اقتصاد) · alerts (هشدار قیمت و اعلان) · bot
 app/api/             biz/[action] (فروشگاه آنلاین، قاعده ۸۰) · advisor (مشاور Claude، stream) · snapshot · diag · ingest · chart · forecast · simulate · paper/{,tick}
-                     · live/local (معامله برخط بدون‌حالت، برای اپ) · learning
+                     · live/local (معامله برخط بدون‌حالت، برای اپ) · learning · price-on (قیمت روز خرید از تاریخچه کامل، قاعده ۸۳)
                      · swing (backtest/portfolio/scan) · swing-live/{,tick}
                      · holdings · cron/* · telegram/{webhook,setup,broadcast}
 lib/sources/         tgju · goldapi · nobitex · brsapi · coingecko · klines (کندل بایننس/OKX) · history · news · cache
@@ -56,6 +56,8 @@ lib/finance/         model (نوع داده، همه به ریال) · calc (م�
                      · prices (آخرین قیمت در بازار بسته، قیمت روز خرید) · compare (سبد من در برابر سبد پیشنهادی، دارایی‌های قابل معامله برخط)
                      · voice (دستیار صوتی ثبت تراکنش: عدد و تاریخ گفتاری فارسی، سؤال برای جاهای خالی، بازخوانی و «بله»)
                      · balance (موجودی از مانده بانک + سؤال اختلاف) · fund (صندوق خانگی) · split (دنگ)
+                     · lending (قرض با اشخاص، حساب «شخص»، قاعده ۸۴) · voice-lend (قرض با صدا، شخصی/کسب‌وکار پرسیده می‌شود)
+                     · inflation (شاخص قیمت مصرف‌کننده بانک جهانی) · performance (دارایی در برابر دلار و تورم، قاعده ۸۳)
 lib/biz/             کسب‌وکار من (قاعده ۸۰): model · voice (فروش و نوبت با صدا، قاعده ۸۱) · ops (فروش، انبار، مشتری، نسیه، هزینه، نوبت، «فروش روز» در دفتر) · reports (سود روزانه، تحلیل، مالیات)
                      · slots (زمان نوبت به وقت تهران) · public (کاتالوگ منتشرشده و بررسی سفارش/نوبت مشتری) · online (اعمال صندوق سفارش روی گوشی)
                      · server (Redis: انتشار، صندوق سفارش، کد پیگیری) · templates/qrcode/locations (عیناً از کسب‌آی)
@@ -63,16 +65,18 @@ lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت
                      · forecast-draw (رسم کاربر روی پیش‌بینی) · learn/ (درس‌ها، مرور فاصله‌دار، ماشین‌حساب‌های درس)
                      · voice-io (شنیدن/خواندن فارسی: پلاگین Voice در اپ، Web Speech در مرورگر؛ گفتار محاوره‌ای `colloquial`، `onAssist`)
                      · assistant/ask (سؤال‌های دستیار: قیمت، نمودار، موجودی، خرج/درآمد، دارایی خالص — جواب متنی و گفتاری)
+                     · assistant/ask-more (باز کردن صفحه، هشدار قیمت، قرض، بودجه، سررسید، اهداف، دارایی‌ها — قاعده ۸۵)
+                     · long-history (تاریخچه کامل TGJU از ۲۰۱۱ / بایننس ~۱۰۰۰ روز، برای پیش‌بینی و price-on)
                      · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
 components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · NotifyProvider · AppStartup
                      · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
                      · Sparkline · RollingNumber · HoldingsPanel · PositionSizer · ForecastPanel/ForecastChart (پیش‌بینی صفحه نمودار)
-                     · IndicatorChips · learn/ (LearnView، Widgets) · assistant/ (Assistant: دستیار صوتی، دکمه 🎙 سربرگ؛ AskChart)
+                     · IndicatorChips · learn/ (LearnView، Widgets) · assistant/ (Assistant: دستیار صوتی، دکمه 🎙 سربرگ؛ AskChart؛ flows: گفت‌وگوی فروش/نوبت/قرض)
 components/biz/      کسب‌وکار من: kit (WithBiz، نوار بخش‌ها) · BizHome · PosView · OrdersView (فاکتور تصویری) · BookingView · ProductsView · StockView
                      · CustomersView · MoneyView · ReportsView · TaxView · OnlineView · SettingsView · ShopPage (/shop) · BizSync (همگام‌سازی پس‌زمینه در Shell)
 components/finance/  FinanceProvider (localStorage + حافظه آخرین قیمت) · kit · TxnForm («ثبت با صدا» = Assistant در حالت تراکنش) · DueList · Markdown · Incomes (درآمد پیش‌رو + پیش‌بینی ماه)
-                     · PortfolioCompare · views/*
+                     · PortfolioCompare · People (قرض با اشخاص در «وام، چک و قبض») · views/*
 components/views/    Overview · Scenarios · Simulator · Live · Swing · Charts · Risk · Stocks
                      · Crypto · Portfolio · Bot
 scripts/             تست‌های آفلاین همه با tsx اجرا می‌شوند — بخش ۵ را ببین
@@ -617,6 +621,52 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
     نگه داشتن سفارش مشتری در حافظه یک نمونه یعنی گم شدنش. BizSync فقط وقتی صفحه دیده می‌شود می‌پرسد. تست: `scripts/store-resilience-test.ts` (۷، با سرور
     Upstash ساختگی که همان خطا را می‌دهد؛ بررسی جهش: بدون نگهبان `unread` می‌شکند) و `next start` با Redis «بالای سقف»: تابلو ۲۰۰ با قیمت زنده، یک فرمان Redis.
 
+## ۴-ع) دارایی در برابر دلار و تورم، قرض با اشخاص، دستیار گسترده‌تر، صداهای تازه (مهر ۱۴۰۵)
+
+‏به درخواست کاربر. تست: `npm run test:assetperf` (۶) + `npm run test:lending` (۷) + `npm run test:ask` (۱۰ + ۷ `ask-more`) + Robolectric `TtsTest` (۷)
++ `tts-smoke.py` + e2e (`e2e-lend`: دارایی، فرم قرض، قرض با صدا، هشدار و صفحه با «بله»، انتخاب صدا؛ وب و APK در ۳۴۴/۴۱۲).
+
+83. **‏دارایی از روز خرید: تومانی، دلاری و بعد از تورم** (`lib/finance/performance.ts`، `lib/finance/inflation.ts`). هر دارایی (بازاری و دستی: ملک، خودرو…)
+    تاریخ و کل مبلغ خرید دارد (`boughtOn`، `costRial`)؛ «قیمت روز خرید» برای دارایی بازاری از `/api/price-on` پر می‌شود که از **تاریخچه کامل منبع**
+    (`lib/long-history.ts`: TGJU از ۲۰۱۱، بایننس ~۱۰۰۰ روز؛ همان کش پیش‌بینی) بسته‌شدن همان روز یا آخرین روز کاری **قبل** از آن را می‌دهد (قاعده ۴).
+    دلار روز خرید یک بار گرفته و روی خود دارایی می‌ماند (`usdRialAtBuy`؛ `usdAtBuyFor` تا با عوض شدن تاریخ دوباره گرفته شود) — واقعیتی درباره گذشته که
+    عوض نمی‌شود. فقط تاریخ‌ها به سرور می‌روند (قاعده ۷). خروجی: رشد تومانی (سالانه بعد از ۳ ماه نگه‌داری)، «به دلار: آن روز X دلار، امروز Y دلار» = آیا از
+    نگه‌داشتن دلار بهتر بود، و بعد از تورم. **تورم:** شاخص قیمت مصرف‌کننده ایران از بانک جهانی (`FP.CPI.TOTL`، میانگین سالانه ۲۰۰۵–۲۰۲۵، به‌روزشده
+    ۲۰۲۶-۰۷-۱۳)، هر میانگین وسط سالش و بینشان خطی در لگاریتم؛ بعد از ۲۰۲۵-۰۷-۰۱ با تورم مورد انتظار خود کاربر (`settings.inflationPct`) ادامه می‌یابد و
+    روی صفحه با «*» گفته می‌شود (`basis: 'partly-assumed' | 'assumed'`)؛ پیش از ۲۰۰۵ عددی نمی‌سازیم. حکم «جلو زده/هم‌پا/عقب مانده» با آستانه ±۲٪
+    واقعی. جمع همه دارایی‌ها با وزن مبلغ خرید. دستیار: «دارایی‌هام از تورم جلو زدن؟». عددی که ماه‌ها بعد از ۲۰۲۵ می‌آید **فرض کاربر** است، نه داده.
+
+84. **‏قرض با اشخاص = انتقال به حساب «شخص»، نه درآمد یا خرج** (`lib/finance/lending.ts`، `kind: 'person'`). «قرض دادم/قرض گرفتم/پس داد/پس دادم» در فرم
+    تراکنش (نوع «قرض») و با صدا؛ هر شخص یک حساب با نامش (ي/ك و فاصله یکسان می‌شوند)؛ موجودی آن حساب = موقعیت: + او بدهکار است، − کاربر بدهکار است.
+    `isMoneyAccount` آن را نقد نمی‌شمارد؛ دارایی خالص آن را طلب/بدهی می‌شمارد. حساب‌های شخص در فهرست حساب‌ها، صف ورود، فرم‌ها و دستیار تراکنش نیستند —
+    فقط در کارت «قرض با اشخاص» (`components/finance/People.tsx`، صفحه «وام، چک و قبض») با «پس داد/پس دادم». **قرض کسب‌وکار جدا:** قرضی که از حساب
+    کسب‌وکار (`bizId`) داده/گرفته شود حساب شخصِ همان کسب‌وکار را می‌گیرد (`personAccount(…, bizId)`)، پس `personalSide` (قاعده ۸۰) آن را نمی‌شمارد و جدا
+    فهرست می‌شود؛ همان نام می‌تواند هم شخصی هم کسب‌وکاری باشد. با صدا (`lib/finance/voice-lend.ts`، همان قواعد قاعده ۶۸): نوع فقط از فعل، شخص از جمله
+    (فاعل «پس داد» اول)، و اگر کاربر کسب‌وکار دارد **همیشه پرسیده می‌شود** «از پول خودت یا از کسب‌وکار؟» مگر جمله بگوید («از صندوق مغازه» = صندوق
+    کسب‌وکار، «کارت مغازه»)؛ پس دادن قرض موجود همان سمت قرض را می‌گیرد. بازخوانی با مبلغ به حروف، ثبت فقط با «بله»، «برگرداندن» حذفش می‌کند. در
+    `Assistant` گفت‌وگوی قرض قبل از فروش بررسی می‌شود؛ هر دو از `components/assistant/flows.ts` می‌گذرند. «نسیه» (فروش اعتباری مغازه) قرض نیست.
+    `Loan` قدیمی (وام قسطی با جدول) سر جایش است؛ قرض بی‌قسط با آشنا این است.
+
+85. **‏دستیار بیشتر از اپ را می‌پوشاند، ولی کاری را بی «بله» نمی‌کند** (`lib/assistant/ask-more.ts`، خالص). صفحه («بودجه رو باز کن»، با نام منو در `nav.ts`
+    یا واژه روزمره)، هشدار قیمت («هر وقت دلار به سیصد هزار رسید خبرم کن»؛ به واحد خود آیتم تابلو، قاعده ۴۴)، قرض («کی بهم بدهکاره؟»، «کی به مغازه
+    بدهکاره؟»، یک شخص)، بودجه، سررسیدها (قسط بعدی، این هفته چی باید بدم)، اهداف و دارایی‌ها در برابر دلار و تورم. باز کردن صفحه و گذاشتن هشدار
+    **پیشنهاد** است (`Reply.action`) و فقط با «بله» یا دکمه انجام می‌شود؛ متن هشدار می‌گوید فقط با باز بودن اپ بررسی می‌شود (قاعده ۱۵). جمله‌ای با مبلغ و
+    فعل پرداخت همچنان تراکنش است و جمله قرض گفت‌وگوی قرض (تست قفل کرده).
+
+86. **‏سه صدا، انتخاب کاربر؛ انتخاب صداها اندازه‌گیری شد، نه سلیقه‌ای** (به درخواست کاربر: «طبیعی‌تر و روان‌تر، حداقل ۲ صدای دیگر، یکی زن»). کنار
+    ganji_adabi (مرد، پیش‌فرض) دو صدا: **ganji** (مرد، Piper int8 خود sherpa-onnx) و **haaniye** (زن، mimic3 `fa-haaniye_low`؛ فایل اصلی fp32 است و
+    `fetch-tts.mjs` آن را با onnxruntime ۱٫۳۰٫۰ / onnx ۱٫۲۳٫۲ `quantize_dynamic` به int8 می‌برد — نتیجه قطعی است و SHA-256 آن قفل شده؛ CI همان نسخه‌ها را
+    نصب می‌کند). هرکدام ~۱۸ MB در `assets/tts-fa/voices/<id>/` (APK حدود ۳۶ MB بزرگ‌تر). سنجش: ۲۰ جمله واقعی دستیار با متن محاوره‌ای، Whisper large-v3-turbo،
+    CER (کمتر بهتر)؛ دور اول ganji_adabi ۰٫۱۱۹، ganji ۰٫۱۳۵، haaniye (fp32) ۰٫۱۶۷، mana ۰٫۱۸۶، reza_ibrahim ۰٫۲۰۳، amir ۰٫۲۱۳، gyro ۰٫۲۱۹؛ دور دوم
+    (بعد از تغییر متن) ganji ۰٫۱۱۶، ganji_adabi ۰٫۱۳۰ — یعنی این دو در حد نوسان VITS برابرند. صدای زن: haaniye و mana (هر دو با F0 میانه ~۲۱۰–۲۳۰ Hz؛
+    مردها ۸۸–۱۲۲)؛ haaniye بهتر بود. **پارامتر نویز haaniye ۰٫۳۳۳/۰٫۳۳۳ (پیکربندی خود مدل)** است نه ۰٫۶۶۷/۰٫۸ پایپر: int8 با آن ۰٫۱۶۲ در برابر ۰٫۲۰۳
+    (`EmbeddedTts.noiseOf`، `tts-smoke.py`). سرعت (۰٫۸۵ آرام / ۱ / ۱٫۱۵ تند) به `generate(…, speed)` و برای موتور گوشی به `setSpeechRate` می‌رود؛ انتخاب در
+    `imf.voice.pref.v1` (`VoicePicker` زیر «جواب‌ها را با صدا بخوان»؛ فهرست صداها از `available().voices`، در مرورگر فقط سرعت). موتور صدای انتخابی را
+    موقع `warm` بار و با عوض شدن صدا قبلی را `release` می‌کند؛ صدای نبود (`voiceDir`) → پیش‌فرض. روانی: جمله فقط وقتی بالای ۱۲۰ حرف است در «،» شکسته
+    می‌شود (قبلاً ۸۰ — هر شکستگی مکث ۲۰۰ms است)، و گفتار کوتاه محاوره‌ای‌تر («ثبت شد» → «ثبتش کردم»). جمله‌های خیلی کوتاه («ثبتش کردم») هنوز برای همه صداها
+    بدترین CER را دارند. `tts-smoke.py` هر صدا را در سه سرعت می‌سازد و جنسیت را با F0 چک می‌کند (زن > ۱۶۵ Hz، مرد < ۱۵۵). ⚠️ روی گوشی واقعی شنیده نشده؛
+    real-time factor روی x86: صداهای int8 حدود ۰٫۱۶–۰٫۲۴ (یعنی برای هر ثانیه صدا ~۰٫۲ ثانیه کار) — روی فولد ۵ باید سنجیده شود.
+
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
 21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
@@ -684,7 +734,8 @@ npm run test:financeplus
 npm run test:forecast
 npm run test:parties && npm run test:indicators
 npm run test:timing && npm run test:learn
-npm run test:voice && npm run test:ask
+npm run test:voice && npm run test:ask       # ask = ask-test + ask-more-test
+npm run test:lending && npm run test:assetperf
 npm run test:balance && npm run test:shared
 npm run test:biz                         # کسب‌وکار من + فروشگاه آنلاین + ربات (حافظه موقت، Telegram ساختگی)
 npm run test:store                       # Redis بالای سقف یا قطع: تابلو کار می‌کند، تاریخچه رونویسی نمی‌شود
