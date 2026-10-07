@@ -137,7 +137,9 @@ async function main() {
     cpSync(join(dl, v.dir, 'tokens.txt'), join(to, 'tokens.txt'));
     if (v.int8) {
       // quantize exactly as measured (rule 86); a different onnxruntime gives a different file and fails here
-      execFileSync('python3', ['-I', '-c', `from onnxruntime.quantization import quantize_dynamic, QuantType; quantize_dynamic(${JSON.stringify(join(dl, v.dir, v.onnx))}, ${JSON.stringify(join(to, 'model.onnx'))}, weight_type=QuantType.QUInt8)`], { stdio: ['ignore', 'ignore', 'inherit'] });
+      // -E -P (not -I): no code from the environment or the working directory, but the user's site-packages stay — on the
+      // CI runner pip installs there, and -I hid onnxruntime (build 40)
+      execFileSync('python3', ['-E', '-P', '-c', `from onnxruntime.quantization import quantize_dynamic, QuantType; quantize_dynamic(${JSON.stringify(join(dl, v.dir, v.onnx))}, ${JSON.stringify(join(to, 'model.onnx'))}, weight_type=QuantType.QUInt8)`], { stdio: ['ignore', 'ignore', 'inherit'] });
       const got = sha(join(to, 'model.onnx'));
       if (got !== v.int8) throw new Error(`${v.id}: int8 model ${got} ≠ pinned ${v.int8} — use onnxruntime==1.30.0 (pip install onnxruntime==1.30.0 onnx==1.23.2)`);
       console.log(`✓ voices/${v.id}/model.onnx quantized to int8 (sha256 ok)`);
