@@ -88,6 +88,12 @@ public class VoicePlugin extends Plugin {
 
         void speak(String text, SpeakDone done);
 
+        /** in a chosen voice (TtsFiles.voices; null = the default) and speed (1 = normal, more = faster) */
+        void speak(String text, String voice, float speed, SpeakDone done);
+
+        /** the voices this APK carries */
+        java.util.List<String> voices();
+
         void stop();
 
         void shutdown();
@@ -417,6 +423,9 @@ public class VoicePlugin extends Plugin {
         ret.put("ttsEngine", builtInOk() ? "built-in" : ttsEngine);
         ret.put("builtIn", builtIn != null);
         if (builtIn != null && !builtIn.ok()) ret.put("builtInError", builtIn.error());
+        JSArray voices = new JSArray();
+        if (builtIn != null) for (String v : builtIn.voices()) voices.put(v);
+        ret.put("voices", voices);
         JSArray engines = new JSArray();
         for (String e : ttsInstalled) engines.put(e);
         ret.put("ttsEngines", engines);
@@ -525,8 +534,10 @@ public class VoicePlugin extends Plugin {
     @PluginMethod
     public void speak(PluginCall call) {
         String text = call.getString("text", "");
+        String voice = call.getString("voice", null);
+        float speed = Math.max(0.7f, Math.min(1.4f, call.getFloat("speed", 1.0f)));
         if (builtInOk()) {
-            builtIn.speak(text, new SpeakDone() {
+            builtIn.speak(text, voice, speed, new SpeakDone() {
                 @Override
                 public void finished(boolean interrupted) {
                     call.resolve();
@@ -554,6 +565,11 @@ public class VoicePlugin extends Plugin {
             speaking.put(id, call);
         }
         Bundle params = new Bundle();
+        try {
+            tts.setSpeechRate(Math.max(0.7f, Math.min(1.4f, call.getFloat("speed", 1.0f))));
+        } catch (Throwable ignored) {
+            // an engine without rate control speaks at its own pace
+        }
         if (tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, id) != TextToSpeech.SUCCESS) {
             finishUtterance(id, false);
         }

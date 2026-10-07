@@ -21,7 +21,7 @@ import { NextResponse, type NextRequest } from 'next/server';
  * only with that slug's token (publish, inbox, status); the customer calls (order, book) are
  * checked against the published catalog and rate-limited. No admin secret is involved.
  */
-const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/forecast', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor', '/api/biz'];
+const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/forecast', '/api/price-on', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor', '/api/biz'];
 
 /**
  * GET-only: the shared live session, the swing live session and the holdings list are already

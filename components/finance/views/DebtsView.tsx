@@ -5,6 +5,7 @@ import { newId, tomanToRial, type Cheque, type ChequeStatus, type FinanceData, t
 import { Empty, PageHead } from '../../ui';
 import { editLoan } from '@/lib/finance/actions';
 import DueList from '../DueList';
+import People from '../People';
 import { useFinance, WithBook } from '../FinanceProvider';
 import { Card, confirmDelete, Disclosure, fmtDateFa, fmtPctFa, JalaliDate, Money, NumInput, parseAmount, SelectBox, TextInput, TomanInput } from '../kit';
 
@@ -336,6 +337,7 @@ function Debts({ d }: { d: FinanceData }) {
       <Card title="سررسیدهای ۶۰ روز آینده">
         <DueList data={d} days={60} />
       </Card>
+      <People d={d} />
       <Loans d={d} />
       <Cheques d={d} />
       <Bills d={d} />

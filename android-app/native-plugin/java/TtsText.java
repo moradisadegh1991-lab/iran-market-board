@@ -26,8 +26,9 @@ public final class TtsText {
     }
 
     /**
-     * One answer → sentences, each made and played in turn (the next is made while the previous plays). A long
-     * sentence is also cut at «،» so the first sound comes quickly.
+     * One answer → sentences, each made and played in turn (the next is made while the previous plays). Only a long
+     * sentence (over 120 characters) is also cut at «،», so the first sound still comes quickly — cutting shorter ones
+     * broke the voice's intonation mid-sentence (rule 86).
      */
     public static java.util.List<String> sentences(String text) {
         java.util.List<String> out = new java.util.ArrayList<>();
@@ -36,7 +37,7 @@ public final class TtsText {
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
             cur.append(c);
-            boolean end = ".!?؟؛".indexOf(c) >= 0 || (c == '،' && cur.length() > 80);
+            boolean end = ".!?؟؛".indexOf(c) >= 0 || (c == '،' && cur.length() > 120);
             if (end) {
                 String t = cur.toString().trim();
                 if (t.replaceAll("[\\p{Punct}\\s،؛؟]", "").length() > 0) out.add(t);

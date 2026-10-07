@@ -61,7 +61,7 @@ export default function ClassicMigrate({ d, always = false }: { d: FinanceData; 
                 label="تراکنش‌ها مال کدام حساب‌اند؟"
                 value={accountId}
                 onChange={setAccountId}
-                options={[{ key: '', label: '— بعداً در صف انتخاب می‌کنم —' }, ...d.accounts.filter((a) => !a.archived).map((a) => ({ key: a.id, label: a.name }))]}
+                options={[{ key: '', label: '— بعداً در صف انتخاب می‌کنم —' }, ...d.accounts.filter((a) => !a.archived && a.kind !== 'person').map((a) => ({ key: a.id, label: a.name }))]}
               />
             </div>
           ) : null}

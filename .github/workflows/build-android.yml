@@ -91,15 +91,17 @@ jobs:
 
       # The app's own Persian voice (CLAUDE.md rule 71): sherpa-onnx + Piper fa_IR «ganji_adabi» int8, pinned by
       # SHA-256. Checked with the same sherpa-onnx version on the runner: it loads and speaks Persian.
-      - name: Fetch the built-in Persian voice
-        working-directory: android-app
-        run: node scripts/fetch-tts.mjs
-
-      - name: The built-in voice speaks
+      # The voices the user can pick (rule 86): «ganji» (male) and «haaniye» (female) — the latter quantized to int8 here,
+      # with exactly this onnxruntime, and checked against the pinned SHA-256 of the result.
+      - name: Fetch the built-in Persian voices
         working-directory: android-app
         run: |
-          python3 -m pip install --quiet sherpa-onnx==1.13.8 numpy
-          python3 scripts/tts-smoke.py
+          python3 -m pip install --quiet sherpa-onnx==1.13.8 numpy onnxruntime==1.30.0 onnx==1.23.2
+          node scripts/fetch-tts.mjs
+
+      - name: The built-in voices speak
+        working-directory: android-app
+        run: python3 scripts/tts-smoke.py
 
       - name: Add the Android platform
         working-directory: android-app
@@ -202,6 +204,7 @@ jobs:
           echo "voice OK"
           # the built-in Persian voice: engine for arm64 and the voice files
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libsherpa-onnx-jni.so" && unzip -l "$APK" | grep -q "assets/tts-fa/model.onnx" && unzip -l "$APK" | grep -q "assets/tts-fa/espeak-ng-data/fa_dict" || { echo "::error::built-in Persian voice missing from the APK"; exit 1; }
+          for v in ganji haaniye; do unzip -l "$APK" | grep -q "assets/tts-fa/voices/$v/model.onnx" && unzip -l "$APK" | grep -q "assets/tts-fa/voices/$v/tokens.txt" || { echo "::error::voice $v missing from the APK"; exit 1; }; done
           # «مالی من» (CLAUDE.md rule 75): the listener service, its permissions, and the spotter model beside the voice
           for x in WakeService android.permission.FOREGROUND_SERVICE_MICROPHONE android.permission.SYSTEM_ALERT_WINDOW; do echo "$MF" | grep -q "$x" || { echo "::error::«مالی من»: $x missing from the manifest"; exit 1; }; done
           for f in encoder.int8.onnx decoder.onnx joiner.int8.onnx tokens.txt; do unzip -l "$APK" | grep -q "assets/tts-fa/kws/$f" || { echo "::error::«مالی من»: kws/$f missing from the APK"; exit 1; }; done

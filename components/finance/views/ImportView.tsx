@@ -46,7 +46,7 @@ interface FileReport {
 }
 
 function useAccounts(d: FinanceData) {
-  return useMemo(() => d.accounts.filter((a) => !a.archived), [d.accounts]);
+  return useMemo(() => d.accounts.filter((a) => !a.archived && a.kind !== 'person'), [d.accounts]);
 }
 
 function AccountSelect({ d, value, onChange, label, allowNone }: { d: FinanceData; value: string; onChange: (v: string) => void; label: string; allowNone?: string }) {

@@ -38,7 +38,9 @@
     "test:timing": "tsx scripts/timing-test.ts",
     "test:learn": "tsx scripts/learn-test.ts",
     "test:voice": "tsx scripts/voice-test.ts",
-    "test:ask": "tsx scripts/ask-test.ts"
+    "test:ask": "tsx scripts/ask-test.ts && tsx scripts/ask-more-test.ts",
+    "test:lending": "tsx scripts/lending-test.ts",
+    "test:assetperf": "tsx scripts/asset-perf-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

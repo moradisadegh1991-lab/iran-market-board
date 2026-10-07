@@ -87,10 +87,10 @@ export function TomanInput({ value, onChange, placeholder, label = 'مبلغ (ت
   );
 }
 
-export function TextInput({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+export function TextInput({ label, value, onChange, placeholder, list }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; list?: string }) {
   return (
     <Field label={label}>
-      <input className="fin-input" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <input className="fin-input" value={value} placeholder={placeholder} list={list} onChange={(e) => onChange(e.target.value)} />
     </Field>
   );
 }

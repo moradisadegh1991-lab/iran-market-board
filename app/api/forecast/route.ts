@@ -13,9 +13,8 @@ import { buildScenario, type ScenarioInput } from '@/lib/engine/scenario';
 import { errMsg } from '@/lib/http';
 import { isNum } from '@/lib/num';
 import { buildSeries, loadSeriesInputs } from '@/lib/series';
-import { cachedSource } from '@/lib/sources/cache';
-import { fetchTgjuHistory, TGJU_SLUGS, type DatedPairs } from '@/lib/sources/history';
-import { fetchDailyCandles } from '@/lib/sources/klines';
+import type { DatedPairs } from '@/lib/sources/history';
+import { longHistory } from '@/lib/long-history';
 import { getSnapshot } from '@/lib/snapshot';
 import type { AssetScenario, ScenarioRow, Snapshot } from '@/lib/types';
 
@@ -35,30 +34,8 @@ const LONG_BUDGET_MS = 6_000;
 
 // The board keeps ~15 months of history — enough for a forecast, too little to score one: a year
 // of 1-year forecasts is a single outcome. So the track record replays the engine over the longest
-// history the source has (TGJU since 2011; Binance ~1000 days), each forecast still seeing only as
-// many rows as the live engine does (`window`). Tether's series is the dollar's (lib/series.ts).
-const TGJU_LONG: Record<string, string> = {
-  usd: TGJU_SLUGS.usd,
-  usdt: TGJU_SLUGS.usd,
-  coin: TGJU_SLUGS.coin,
-  nim: TGJU_SLUGS.nim,
-  rob: TGJU_SLUGS.rob,
-  g18: TGJU_SLUGS.g18,
-  ons: TGJU_SLUGS.ons,
-  silver: TGJU_SLUGS.silver,
-};
-const BINANCE_LONG: Record<string, string> = { btc: 'BTC', eth: 'ETH' };
-
-async function longHistory(key: string): Promise<DatedPairs | null> {
-  const slug = TGJU_LONG[key];
-  if (slug) return (await cachedSource<DatedPairs>(`tgjuFull:${slug}`, 12 * 3600, () => fetchTgjuHistory(slug, true), 7 * 86_400)).data;
-  const sym = BINANCE_LONG[key];
-  if (sym)
-    return (
-      await cachedSource<DatedPairs>(`dailyFull:${sym}`, 12 * 3600, async () => (await fetchDailyCandles(sym, 999)).map((c) => [new Date(c.t).toISOString().slice(0, 10), c.c] as [string, number]), 7 * 86_400)
-    ).data;
-  return null;
-}
+// history the source has (lib/long-history.ts), each forecast still seeing only as many rows as the
+// live engine does (`window`).
 
 // featureMatrix of each long series, rebuilt when the series changes (once a day at most)
 const featCache = new Map<string, { last: string; len: number; s: EnsembleSeries }>();

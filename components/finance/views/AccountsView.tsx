@@ -1,7 +1,8 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { accountBalances, netWorth, unitPrice } from '@/lib/finance/calc';
-import { priceOnDay } from '@/lib/finance/prices';
+import { assetPerformance, portfolioPerformance, type AssetPerf } from '@/lib/finance/performance';
+import { CPI_SOURCE } from '@/lib/finance/inflation';
 import { api } from '@/lib/api';
 import { deleteAccount, editAccount } from '@/lib/finance/actions';
 import { ACCOUNT_KIND_LABEL, USER_ACCOUNT_KINDS, emptyData, MARKET_ASSETS, newId, normalizeData, tomanToRial, type AccountKind, type FinanceData, type MarketKey } from '@/lib/finance/model';
@@ -19,7 +20,7 @@ function SmsSources({ d }: { d: FinanceData }) {
   const [showIgnored, setShowIgnored] = useState(false);
   const list = (d.smsSources ?? []).filter((s) => showIgnored || !s.ignored).sort((a, b) => b.lastAt - a.lastAt);
   if (!(d.smsSources ?? []).length) return null;
-  const accounts = d.accounts.filter((a) => !a.archived);
+  const accounts = d.accounts.filter((a) => !a.archived && a.kind !== 'person');
   return (
     <Card title="کارت‌ها و حساب‌های شناخته‌شده از پیامک">
       <p className="muted small">
@@ -131,7 +132,7 @@ function Accounts({ d }: { d: FinanceData }) {
     <Card title="حساب‌ها">
       {d.accounts.length ? (
         <ul className="fin-list">
-          {d.accounts.map((a) => (
+          {d.accounts.filter((a) => a.kind !== 'person').map((a) => (
             <li key={a.id} className={`fin-list-block${a.archived ? ' muted' : ''}`}>
               <div className="fin-list-row">
               <span className="fin-list-main">
@@ -205,26 +206,40 @@ function Accounts({ d }: { d: FinanceData }) {
 
 const USD_QUOTED: MarketKey[] = ['btc', 'eth'];
 
-async function chartPoints(asset: string): Promise<[number, number][]> {
-  const r = await fetch(api(`/api/chart?asset=${encodeURIComponent(asset)}&tf=1y`));
+type Close = { date: string; value: number } | null;
+/** closes of one asset on given days (or the last trading day before each), back to 2011 — /api/price-on */
+export async function priceOn(asset: string, dates: string[]): Promise<{ unit: 'rial' | 'usd'; prices: Record<string, Close> }> {
+  const r = await fetch(api(`/api/price-on?asset=${encodeURIComponent(asset)}&dates=${dates.join(',')}`));
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || j.error || !Array.isArray(j.points)) throw new Error(j.error || `HTTP ${r.status}`);
-  return j.points;
+  if (!r.ok || j.error || !j.prices) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+
+/** the rial price of one unit on a day, and the dollar that day (dollar-quoted coins are priced through it, rule 9) */
+async function unitOnDay(key: MarketKey, date: string): Promise<{ rial: number; date: string; usdRial: number | null } | null> {
+  const [own, usd] = await Promise.all([priceOn(key, [date]), key === 'usd' ? null : priceOn('usd', [date])]);
+  const p = own.prices[date];
+  const u = key === 'usd' ? p : usd!.prices[date];
+  if (!p) return null;
+  if (own.unit === 'rial') return { rial: p.value, date: p.date, usdRial: u?.value ?? null };
+  if (!u) return null;
+  return { rial: p.value * u.value, date: p.date < u.date ? p.date : u.date, usdRial: u.value };
 }
 
 /**
- * Purchase date and what was paid. «قیمت روز خرید» fills the total from the close of that day —
- * or, when the market was shut (Friday, a holiday), of the last trading day before it, and says so.
+ * Purchase date and what was paid. «قیمت روز خرید» fills the total from the close of that day — or, when the market
+ * was shut (Friday, a holiday), of the last trading day before it, and says so. History reaches back to 2011.
  */
-function PurchaseFields({ assetKey, qty, boughtOn, setBoughtOn, cost, setCost }: { assetKey: MarketKey; qty: number; boughtOn: string; setBoughtOn: (v: string) => void; cost: string; setCost: (v: string) => void }) {
+function PurchaseFields({ assetKey, qty, boughtOn, setBoughtOn, cost, setCost }: { assetKey: MarketKey | null; qty: number; boughtOn: string; setBoughtOn: (v: string) => void; cost: string; setCost: (v: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   async function fill() {
+    if (!assetKey) return;
     setBusy(true);
     setNote(null);
     try {
-      const p = await priceOnDay(assetKey, USD_QUOTED.includes(assetKey) ? 'usd' : 'toman', boughtOn, chartPoints);
-      if (!p) return setNote('قیمت آن روز در دسترس نیست (تاریخچه فقط یک سال گذشته را دارد). مبلغ را دستی بنویسید.');
+      const p = await unitOnDay(assetKey, boughtOn);
+      if (!p) return setNote('برای آن روز قیمتی ثبت نشده (تاریخچه از ۱۳۹۰ است). مبلغ را دستی بنویسید.');
       setCost(String(Math.round((p.rial * qty) / 10)));
       setNote(
         p.date === boughtOn
@@ -239,19 +254,52 @@ function PurchaseFields({ assetKey, qty, boughtOn, setBoughtOn, cost, setCost }:
   }
   return (
     <>
-      <JalaliDate label="تاریخ خرید (اختیاری)" value={boughtOn} onChange={setBoughtOn} yearsBack={10} yearsAhead={0} />
-      <TomanInput label="کل مبلغ خرید (تومان، اختیاری)" value={cost} onChange={setCost} placeholder="برای دیدن سود و زیان" />
-      <div className="fin-span fin-actions">
-        <button className="fin-mini" type="button" onClick={fill} disabled={busy || !(qty > 0)}>
-          {busy ? 'در حال گرفتن قیمت…' : 'قیمت روز خرید را بگذار'}
-        </button>
-        {note ? (
-          <span className="muted small" role="status">
-            {note}
-          </span>
-        ) : null}
-      </div>
+      <JalaliDate label="تاریخ خرید" value={boughtOn} onChange={setBoughtOn} yearsBack={15} yearsAhead={0} />
+      <TomanInput label="کل مبلغ خرید (تومان)" value={cost} onChange={setCost} placeholder="برای سود و زیان، و مقایسه با دلار و تورم" />
+      {assetKey ? (
+        <div className="fin-span fin-actions">
+          <button className="fin-mini" type="button" onClick={fill} disabled={busy || !(qty > 0)}>
+            {busy ? 'در حال گرفتن قیمت…' : 'قیمت روز خرید را بگذار'}
+          </button>
+          {note ? (
+            <span className="muted small" role="status">
+              {note}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </>
+  );
+}
+
+const VERDICT: Record<'beat' | 'kept' | 'lost', string> = { beat: 'جلو زد', kept: 'هم‌پا ماند', lost: 'عقب ماند' };
+const usdFa = (v: number) => `${Math.round(v).toLocaleString('fa-IR')} دلار`;
+
+/** one asset since it was bought: toman, dollars of each day, inflation */
+function PerfLine({ p }: { p: AssetPerf }) {
+  return (
+    <div className="asset-perf" data-testid="asset-perf">
+      <span>
+        رشد تومانی <b className={p.growthPct >= 0 ? 'up' : 'down'}>{fmtPctFa(p.growthPct, 1)}</b>
+        {p.annualPct != null ? ` (سالانه ${fmtPctFa(p.annualPct, 1)})` : ''}
+      </span>
+      {p.costUsd != null && p.valueUsd != null ? (
+        <span>
+          به دلار: آن روز {usdFa(p.costUsd)} (دلار {Math.round(p.usdThenRial! / 10).toLocaleString('fa-IR')} تومان)، امروز {usdFa(p.valueUsd)} (دلار{' '}
+          {Math.round(p.usdNowRial! / 10).toLocaleString('fa-IR')} تومان) — <b className={p.usdGrowthPct! >= 0 ? 'up' : 'down'}>{fmtPctFa(p.usdGrowthPct!, 1)}</b>؛ از دلار {VERDICT[p.vsDollar!]}
+        </span>
+      ) : (
+        <span className="muted">قیمت دلار روز خرید هنوز نرسیده.</span>
+      )}
+      {p.inflation && p.realPct != null ? (
+        <span>
+          تورم همین مدت {fmtPctFa(p.inflation.pct, 0)}{p.inflation.basis !== 'official' ? '*' : ''} ← بعد از تورم{' '}
+          <b className={p.realPct >= 0 ? 'up' : 'down'}>{fmtPctFa(p.realPct, 1)}</b>؛ از تورم {VERDICT[p.vsInflation!]}
+        </span>
+      ) : (
+        <span className="muted">تورم پیش از ۱۳۸۴ در دسترس نیست.</span>
+      )}
+    </div>
   );
 }
 
@@ -276,6 +324,7 @@ function AssetEdit({ d, id, onDone }: { d: FinanceData; id: string; onDone: () =
         <>
           <TextInput label="عنوان" value={name} onChange={setName} />
           <TomanInput label="ارزش تقریبی امروز (تومان)" value={value} onChange={setValue} />
+          <PurchaseFields assetKey={null} qty={0} boughtOn={boughtOn} setBoughtOn={setBoughtOn} cost={cost} setCost={setCost} />
           <div className="fin-span">
             <Toggle checked={liquid} onChange={setLiquid}>
               ظرف یک هفته قابل فروش است
@@ -293,15 +342,15 @@ function AssetEdit({ d, id, onDone }: { d: FinanceData; id: string; onDone: () =
               if (x.kind === 'market') {
                 const q = parseAmount(qty);
                 if (q > 0) x.qty = q;
-                const c = parseAmount(cost);
-                x.costRial = c > 0 ? tomanToRial(c) : null;
-                x.boughtOn = c > 0 ? boughtOn : null;
               } else {
                 if (name.trim()) x.name = name.trim();
                 const v = parseAmount(value);
                 if (v > 0) x.valueRial = tomanToRial(v);
                 x.liquid = liquid;
               }
+              const c = parseAmount(cost);
+              x.costRial = c > 0 ? tomanToRial(c) : null;
+              x.boughtOn = c > 0 ? boughtOn : null;
             });
             onDone();
           }}
@@ -331,6 +380,39 @@ function Assets({ d }: { d: FinanceData }) {
   const meta = MARKET_ASSETS.find((x) => x.key === key)!;
   const unitP = unitPrice(key, items);
   const unit = unitP?.rial ?? null;
+  const usdNow = unitPrice('usd', items)?.rial ?? null;
+  const perf = new Map<string, AssetPerf>();
+  for (const a of d.assets) {
+    const p = assetPerformance(a, nw.byAsset.find((x) => x.id === a.id)?.rial ?? null, usdNow, today, d.settings.inflationPct);
+    if (p) perf.set(a.id, p);
+  }
+  const total = portfolioPerformance([...perf.values()]);
+  // the dollar on each purchase day: looked up once and kept on the asset (it never changes)
+  const missing = d.assets.filter((a) => a.boughtOn && a.costRial && a.usdAtBuyFor !== a.boughtOn);
+  const want = [...new Set(missing.map((a) => a.boughtOn!))].sort().join(',');
+  useEffect(() => {
+    if (!want) return;
+    let live = true;
+    void priceOn('usd', want.split(','))
+      .then((r) => {
+        if (!live) return;
+        update((dr) => {
+          for (const a of dr.assets) {
+            if (!a.boughtOn || !a.costRial || a.usdAtBuyFor === a.boughtOn) continue;
+            const c = r.prices[a.boughtOn];
+            if (c === undefined) continue;
+            a.usdRialAtBuy = c ? c.value : null;
+            a.usdAtBuyFor = a.boughtOn;
+          }
+        });
+      })
+      .catch(() => {
+        // offline: next time
+      });
+    return () => {
+      live = false;
+    };
+  }, [want, update]);
   return (
     <Card title="دارایی‌ها">
       <dl className="fin-kpis tight">
@@ -372,6 +454,28 @@ function Assets({ d }: { d: FinanceData }) {
           {nw.lastPriced.map((x) => `${x.name} (${fmtDateFa(x.asOf)})`).join('، ')}
         </p>
       ) : null}
+      {total ? (
+        <div className="asset-perf-total" data-testid="asset-perf-total">
+          <b>از روز خرید تا امروز ({total.count.toLocaleString('fa-IR')} دارایی با تاریخ و مبلغ خرید)</b>
+          <span>
+            خرید <Money rial={total.costRial} short />، امروز <Money rial={total.valueRial} short /> ← <b className={total.growthPct >= 0 ? 'up' : 'down'}>{fmtPctFa(total.growthPct, 1)}</b>
+          </span>
+          {total.usdGrowthPct != null ? (
+            <span>
+              به دلار هر روز: {usdFa(total.costUsd!)} ← {usdFa(total.valueUsd!)} (<b className={total.usdGrowthPct >= 0 ? 'up' : 'down'}>{fmtPctFa(total.usdGrowthPct, 1)}</b>)
+            </span>
+          ) : null}
+          {total.realPct != null ? (
+            <span>
+              بعد از تورم: <b className={total.realPct >= 0 ? 'up' : 'down'}>{fmtPctFa(total.realPct, 1)}</b> — یعنی قدرت خریدش {total.realPct >= 0 ? 'بیشتر' : 'کمتر'} شده.
+            </span>
+          ) : null}
+          <small className="muted">
+            تورم از {CPI_SOURCE}؛ * بعد از آن با تورم سالانه {d.settings.inflationPct.toLocaleString('fa-IR')}٪ تنظیمات. دلار: نرخ بازار آزاد روز خرید (یا آخرین روز کاری قبلش). گذشته وعده آینده
+            نیست.
+          </small>
+        </div>
+      ) : null}
       {d.assets.length ? (
         <ul className="fin-list">
           {d.assets.map((a) => {
@@ -393,9 +497,11 @@ function Assets({ d }: { d: FinanceData }) {
                   {a.costRial && v !== null ? (
                     <small>
                       خرید <Money rial={a.costRial} short />
-                      {a.boughtOn ? ` در ${fmtDateFa(a.boughtOn)}` : ''} · سود/زیان{' '}
-                      <Money rial={v - a.costRial} short signed className={v >= a.costRial ? 'up' : 'down'} /> ({fmtPctFa((v / a.costRial - 1) * 100, 1)})
+                      {a.boughtOn ? ` در ${fmtDateFa(a.boughtOn)}` : ''}، سود/زیان{' '}
+                      <Money rial={v - a.costRial} short signed className={v >= a.costRial ? 'up' : 'down'} />
                     </small>
+                  ) : a.kind === 'manual' || !a.boughtOn ? (
+                    <small className="muted">با «ویرایش» تاریخ و مبلغ خرید را بنویسید تا با دلار و تورم مقایسه شود.</small>
                   ) : null}
                 </span>
                 <Money rial={v} />
@@ -406,6 +512,7 @@ function Assets({ d }: { d: FinanceData }) {
                   حذف
                 </button>
                 </div>
+                {perf.get(a.id) ? <PerfLine p={perf.get(a.id)!} /> : null}
                 {editing === a.id ? <AssetEdit d={d} id={a.id} onDone={() => setEditing(null)} /> : null}
               </li>
             );
@@ -434,6 +541,7 @@ function Assets({ d }: { d: FinanceData }) {
               <>
                 <TextInput label="عنوان" value={name} onChange={setName} placeholder="مثلاً پژو ۲۰۷ مدل ۱۴۰۲" />
                 <TomanInput label="ارزش تقریبی امروز (تومان)" value={value} onChange={setValue} />
+                <PurchaseFields assetKey={null} qty={0} boughtOn={boughtOn} setBoughtOn={setBoughtOn} cost={cost} setCost={setCost} />
                 <div className="fin-span">
                   <Toggle checked={liquid} onChange={setLiquid}>
                     ظرف یک هفته قابل فروش است (برای محاسبه صندوق اضطراری)
@@ -455,9 +563,11 @@ function Assets({ d }: { d: FinanceData }) {
                   } else {
                     const v = parseAmount(value);
                     if (!name.trim() || !(v > 0)) return;
-                    update((dr) => void dr.assets.push({ id: newId('s'), name: name.trim(), kind: 'manual', valueRial: tomanToRial(v), liquid }));
+                    const c = parseAmount(cost);
+                    update((dr) => void dr.assets.push({ id: newId('s'), name: name.trim(), kind: 'manual', valueRial: tomanToRial(v), liquid, costRial: c > 0 ? tomanToRial(c) : null, boughtOn: c > 0 ? boughtOn : null }));
                     setName('');
                     setValue('');
+                    setCost('');
                   }
                   close();
                 }}

@@ -1,22 +1,29 @@
 'use client';
 import { useState } from 'react';
+import { bookLend, isPerson, LEND_LABEL, people, type LendKind } from '@/lib/finance/lending';
 import { newId, tomanToRial, type FinanceData, type TxnKind } from '@/lib/finance/model';
 import { Chips } from '../ui';
 import { useFinance } from './FinanceProvider';
 import { JalaliDate, parseAmount, SelectBox, TextInput, TomanInput } from './kit';
 import Assistant from '../assistant/Assistant';
 
-const KINDS: { key: TxnKind; label: string }[] = [
+type FormKind = TxnKind | 'loan';
+const KINDS: { key: FormKind; label: string }[] = [
   { key: 'expense', label: 'هزینه' },
   { key: 'income', label: 'درآمد' },
   { key: 'transfer', label: 'انتقال بین حساب‌ها' },
+  { key: 'loan', label: 'قرض' },
 ];
+const LEND_KINDS: { key: LendKind; label: string }[] = (['lend', 'borrow', 'repaid', 'repay'] as LendKind[]).map((k) => ({ key: k, label: LEND_LABEL[k] }));
 
 /** Add one transaction. Amount is typed in toman and stored in rial (×10, once, here). */
 export default function TxnForm({ data, onDone, compact }: { data: FinanceData; onDone?: () => void; compact?: boolean }) {
   const { update, today } = useFinance();
-  const accounts = data.accounts.filter((a) => !a.archived);
-  const [kind, setKind] = useState<TxnKind>('expense');
+  // people lent to or borrowed from have their own field (قرض), not the account lists
+  const accounts = data.accounts.filter((a) => !a.archived && !isPerson(a));
+  const [kind, setKind] = useState<FormKind>('expense');
+  const [lendKind, setLendKind] = useState<LendKind>('lend');
+  const [person, setPerson] = useState('');
   const [amount, setAmount] = useState('');
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
   const [toAccountId, setToAccountId] = useState(accounts[1]?.id ?? '');
@@ -36,6 +43,20 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
     if (!accounts.some((a) => a.id === accountId)) return setErr('اول یک حساب بسازید.');
     if (kind === 'transfer' && (!toAccountId || toAccountId === accountId)) return setErr('حساب مقصد باید با مبدأ فرق کند.');
     if (date > today) return setErr('تاریخ نمی‌تواند در آینده باشد؛ پرداخت‌های آینده را در «وام، چک و قبض» ثبت کنید.');
+    if (kind === 'loan') {
+      if (!person.trim()) return setErr('نام کسی را که قرض داده یا گرفته بنویسید.');
+      let r: unknown = null;
+      update((d) => {
+        r = bookLend(d, { kind: lendKind, person, accountId, amountRial: tomanToRial(t), date, note });
+      });
+      if (typeof r === 'string') return setErr(r);
+      setErr(null);
+      setSaved(`ثبت شد: ${LEND_LABEL[lendKind]} (${person.trim()}) ${amount}`);
+      setAmount('');
+      setNote('');
+      onDone?.();
+      return;
+    }
     update((d) => {
       d.txns.push({
         id: newId('t'),
@@ -67,9 +88,32 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
       <div className="fin-span">
         <Chips label="نوع تراکنش" options={KINDS} value={kind} onChange={setKind} />
       </div>
+      {kind === 'loan' ? (
+        <div className="fin-span">
+          <Chips label="کدام قرض" options={LEND_KINDS} value={lendKind} onChange={setLendKind} />
+        </div>
+      ) : null}
       <TomanInput value={amount} onChange={setAmount} />
-      <SelectBox label={kind === 'transfer' ? 'از حساب' : 'حساب'} value={accountId} onChange={setAccountId} options={accounts.map((a) => ({ key: a.id, label: a.name }))} />
-      {kind === 'transfer' ? (
+      <SelectBox
+        label={kind === 'transfer' ? 'از حساب' : kind === 'loan' ? (lendKind === 'lend' || lendKind === 'repay' ? 'از حساب' : 'به حساب') : 'حساب'}
+        value={accountId}
+        onChange={setAccountId}
+        options={accounts.map((a) => ({ key: a.id, label: a.bizId ? `${a.name} (کسب‌وکار)` : a.name }))}
+      />
+      {kind === 'loan' ? (
+        <>
+          <TextInput label={{ lend: 'به چه کسی قرض دادید؟', borrow: 'از چه کسی قرض گرفتید؟', repaid: 'چه کسی پس داد؟', repay: 'به چه کسی پس دادید؟' }[lendKind]} value={person} onChange={setPerson} placeholder="مثلاً علی" list="lend-people" />
+          <datalist id="lend-people">
+            {people(data, data.accounts.find((a) => a.id === accountId)?.bizId ?? null).map((a) => (
+              <option key={a.id} value={a.name} />
+            ))}
+          </datalist>
+          <p className="fin-span muted small">
+            قرض درآمد یا خرج نیست: در «بدهی، طلب و گروه» به‌عنوان طلب یا بدهی شما می‌ماند تا پس داده شود.
+            {data.accounts.find((a) => a.id === accountId)?.bizId ? ' از حساب کسب‌وکار است، پس جزو طلب و بدهی کسب‌وکار ثبت می‌شود، نه شخصی.' : ''}
+          </p>
+        </>
+      ) : kind === 'transfer' ? (
         <SelectBox label="به حساب" value={toAccountId} onChange={setToAccountId} options={accounts.map((a) => ({ key: a.id, label: a.name }))} />
       ) : (
         <SelectBox label="دسته" value={catValue} onChange={setCategoryId} options={cats.map((c) => ({ key: c.id, label: `${c.emoji} ${c.name}` }))} />

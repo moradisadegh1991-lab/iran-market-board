@@ -11,7 +11,7 @@ import { normalizeBusiness, type Business } from '@/lib/biz/model';
 
 export type Iso = string; // 'YYYY-MM-DD', Gregorian, Tehran calendar day
 
-export type AccountKind = 'bank' | 'cash' | 'wallet' | 'fund' | 'homefund' | 'split';
+export type AccountKind = 'bank' | 'cash' | 'wallet' | 'fund' | 'homefund' | 'split' | 'person';
 export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   bank: 'حساب بانکی',
   cash: 'نقد',
@@ -20,9 +20,11 @@ export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   // made by the app, one per home fund / split group: their balance is the user's own position there
   homefund: 'سهم من در صندوق خانگی',
   split: 'طلب/بدهی دنگ',
+  // one per person lent to or borrowed from (lib/finance/lending.ts): + they owe the user, − the user owes them
+  person: 'طلب/بدهی شخص',
 };
 /** money the user holds (not a position in a home fund or a دنگ group, which are owed to or by the user) */
-export const isMoneyAccount = (a: Pick<Account, 'kind' | 'archived'>) => !a.archived && a.kind !== 'homefund' && a.kind !== 'split';
+export const isMoneyAccount = (a: Pick<Account, 'kind' | 'archived'>) => !a.archived && a.kind !== 'homefund' && a.kind !== 'split' && a.kind !== 'person';
 /** kinds the user picks when adding an account by hand */
 export const USER_ACCOUNT_KINDS: AccountKind[] = ['bank', 'cash', 'wallet', 'fund'];
 
@@ -75,7 +77,7 @@ export interface Txn {
   categoryId?: string | null;
   note?: string;
   /** set when the transaction was created by paying a loan installment / bill / cheque */
-  link?: { type: 'loan' | 'bill' | 'cheque' | 'income' | 'fund' | 'split' | 'biz'; id: string; n?: number; mk?: string } | null;
+  link?: { type: 'loan' | 'bill' | 'cheque' | 'income' | 'fund' | 'split' | 'biz' | 'lend'; id: string; n?: number; mk?: string } | null;
   /** where it came from; absent = typed in by hand */
   src?: 'statement' | 'sms' | 'classic';
   /** bank tracking / document number, when the statement or SMS had one */
@@ -233,9 +235,13 @@ export interface Asset {
   valueRial?: number;
   /** manual only: does it count as liquid (sellable within a week)? */
   liquid?: boolean;
-  /** market only, optional: what was paid in total and when — shows the gain or loss */
+  /** what was paid in total and when (market or manual) — shows the gain or loss, against the dollar and inflation */
   costRial?: number | null;
   boughtOn?: Iso | null;
+  /** the free-market dollar (rial) on the purchase day (or the last trading day before it), from /api/price-on */
+  usdRialAtBuy?: number | null;
+  /** the purchase day usdRialAtBuy was looked up for (a changed date looks it up again) */
+  usdAtBuyFor?: Iso | null;
 }
 
 export interface Settings {

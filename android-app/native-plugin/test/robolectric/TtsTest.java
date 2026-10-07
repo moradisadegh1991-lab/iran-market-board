@@ -63,6 +63,21 @@ public class TtsTest {
     }
 
     @Test
+    public void aPickedVoiceIsFoundOrFallsBackToTheDefault() throws Exception {
+        // rule 86: the extra voices live in voices/<id>; a voice whose files are not there speaks with the default one
+        Application app = ApplicationProvider.getApplicationContext();
+        java.io.File root = new java.io.File(app.getFilesDir(), "voice-root");
+        java.io.File h = new java.io.File(root, "voices/haaniye");
+        assertTrue(h.mkdirs() || h.isDirectory());
+        assertEquals(root, TtsFiles.voiceDir(root, null));
+        assertEquals(root, TtsFiles.voiceDir(root, TtsFiles.DEFAULT_VOICE));
+        assertEquals(root, TtsFiles.voiceDir(root, "haaniye"));
+        assertTrue(new java.io.File(h, "model.onnx").createNewFile());
+        assertEquals(h, TtsFiles.voiceDir(root, "haaniye"));
+        assertEquals(root, TtsFiles.voiceDir(root, "nobody"));
+    }
+
+    @Test
     public void anApkWithoutTheVoiceFallsBackQuietly() {
         // EmbeddedTts is looked up by name; without the voice the plugin gets null and uses the phone's engine
         Application app = ApplicationProvider.getApplicationContext();
@@ -79,7 +94,9 @@ public class TtsTest {
         assertEquals(Arrays.asList("بدون نقطه پایانی"), TtsText.sentences("بدون نقطه پایانی"));
         assertEquals(Arrays.asList(), TtsText.sentences(" . ؟ "));
         // a long sentence is also cut at «،», so the first sound comes sooner
-        String longOne = "سی و پنج هزار تومان هزینه، دسته خوراک، از کیف پول نقد، دیروز، بابت نون و پنیر و سبزی و میوه برای خانه، ثبت کنم؟";
+        String longOne = "سی و پنج هزار تومان هزینه، دسته خوراک، از کیف پول نقد، دیروز، بابت نون و پنیر و سبزی و میوه و تخم مرغ و ماست و چای و قند برای خانه و مهمانی آخر هفته، ثبت کنم؟";
+        // a sentence of ordinary length stays whole: cutting it at «،» broke the intonation (rule 86)
+        assertEquals(1, TtsText.sentences("پنجاه هزار تومان هزینه، دسته خوراک، از کیف پول نقد، امروز. ").size());
         assertTrue(TtsText.sentences(longOne).size() >= 2);
         assertEquals(TtsText.prepare(longOne), String.join(" ", TtsText.sentences(longOne)));
     }

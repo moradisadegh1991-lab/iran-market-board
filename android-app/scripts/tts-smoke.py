@@ -16,17 +16,44 @@ cfg = sherpa_onnx.OfflineTtsConfig(
 )
 tts = sherpa_onnx.OfflineTts(cfg)
 ok = True
-for text, lo, hi in [
-    ('دلار آزاد الان دویست و شصت و هشت هزار و سیصد تومان؛ امروز دو دهم درصد بالا رفته.', 4.0, 9.0),
-    ('ثبت کنم؟', 0.3, 2.0),
-]:
-    t0 = time.time()
-    a = tts.generate(text, sid=0, speed=1.0)
-    s = np.array(a.samples, dtype='float32')
-    dur, rms = len(s) / a.sample_rate, float(np.sqrt((s ** 2).mean()))
-    good = a.sample_rate == 22050 and lo <= dur <= hi and rms > 0.02
-    ok &= good
-    print(f"{'✓' if good else '✗'} {dur:.2f}s rms {rms:.3f} in {time.time() - t0:.2f}s: {text[:40]}")
+
+def f0(x, sr):
+    # median pitch of the voiced frames: men ~85–155 Hz, women ~165–255 Hz
+    fr, hop, out = int(0.04 * sr), int(0.01 * sr), []
+    for i in range(0, len(x) - fr, hop):
+        w = x[i:i + fr] - x[i:i + fr].mean()
+        if np.sqrt((w ** 2).mean()) < 0.02:
+            continue
+        ac = np.correlate(w, w, 'full')[fr - 1:]
+        lo, hi = int(sr / 400), int(sr / 70)
+        k = lo + int(np.argmax(ac[lo:hi]))
+        if ac[k] > 0.4 * ac[0]:
+            out.append(sr / k)
+    return float(np.median(out)) if out else 0.0
+
+# every voice the APK carries (rule 86): it loads, speaks at a sane length and loudness, and is the voice it claims
+# (the female «haaniye» above 165 Hz, the men below 155), at the speeds the user can pick
+VOICES = [('ganji_adabi', V, (0.667, 0.8), 'male')] + [
+    (v, os.path.join(V, 'voices', v), (0.333, 0.333) if v == 'haaniye' else (0.667, 0.8), 'female' if v == 'haaniye' else 'male')
+    for v in sorted(os.listdir(os.path.join(V, 'voices'))) if os.path.isfile(os.path.join(V, 'voices', v, 'model.onnx'))
+] if os.path.isdir(os.path.join(V, 'voices')) else [('ganji_adabi', V, (0.667, 0.8), 'male')]
+for name, d, (ns, nw), sex in VOICES:
+    t = tts if d == V else sherpa_onnx.OfflineTts(sherpa_onnx.OfflineTtsConfig(model=sherpa_onnx.OfflineTtsModelConfig(
+        vits=sherpa_onnx.OfflineTtsVitsModelConfig(model=f'{d}/model.onnx', tokens=f'{d}/tokens.txt', data_dir=f'{V}/espeak-ng-data', noise_scale=ns, noise_scale_w=nw), num_threads=2)))
+    for text, lo, hi, speed in [
+        ('دلار آزاد الان دویستُ شصتُ هشت هزارُ سیصد تومنه؛ امروز دو دهم درصد رفته بالا.', 3.5, 9.0, 1.0),
+        ('ثبتش کنم؟', 0.3, 2.0, 1.0),
+        ('دلار آزاد الان دویستُ شصتُ هشت هزارُ سیصد تومنه.', 1.5, 7.0, 1.15),
+        ('دلار آزاد الان دویستُ شصتُ هشت هزارُ سیصد تومنه.', 2.0, 8.0, 0.85),
+    ]:
+        t0 = time.time()
+        a = t.generate(text, sid=0, speed=speed)
+        s = np.array(a.samples, dtype='float32')
+        dur, rms, p = len(s) / a.sample_rate, float(np.sqrt((s ** 2).mean())), f0(s, a.sample_rate)
+        voiced = (p > 165) if sex == 'female' else (0 < p < 155)
+        good = a.sample_rate == 22050 and lo <= dur <= hi and rms > 0.02 and (voiced or dur < 1.0)
+        ok &= good
+        print(f"{'✓' if good else '✗'} {name} ×{speed}: {dur:.2f}s rms {rms:.3f} f0 {p:.0f} Hz in {time.time() - t0:.2f}s: {text[:30]}")
 
 # «مالی من» (CLAUDE.md rule 75): the shipped spotter model with exactly the keywords and thresholds Wake.java uses
 # hears the name said by this voice (its randomness off, so the check is the same every run), and does not wake on

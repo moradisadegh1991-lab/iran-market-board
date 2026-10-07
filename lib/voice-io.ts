@@ -40,9 +40,14 @@ export function speakable(text: string): string {
 
 // Written Persian → how it is said. The screen keeps the written form; only the voice gets this.
 const SPOKEN: [RegExp, string][] = [
+  // the assistant's shortest lines, said as a person says them: the clipped «ثبت شد» was the line every voice lost most
+  // often to Whisper (rule 86), «ثبتش کردم» carries the same news with a word to spare
+  // only as a clause of its own («… کارت. ثبت کنم؟»): «چه تراکنشی ثبت کنم؟» or «قسط ثبت شد» keep their object
+  [/(^\s*|[.!؟?؛]\s*)ثبت شد(?=[\s.،؛!؟?]|$)/g, '$1ثبتش کردم'],
+  [/(^\s*|[.!؟?؛]\s*)ثبت کنم(?=[\s.،؛!؟?]|$)/g, '$1ثبتش کنم'],
   [/تومان/g, 'تومن'],
   [/پانصد/g, 'پونصد'],
-  [/(^|\s)نان(?=\s|$)/g, '$1نون'],
+  [/(^|\s)نان(?=[\s.،؛!؟?]|$)/g, '$1نون'],
   [/(^|\s)خانه/g, '$1خونه'],
   [/(^|\s)را(?=\s|$)/g, '$1رو'],
   [/(^|\s)آن(?=\s|$)/g, '$1اون'],
@@ -109,6 +114,43 @@ export interface VoiceIO {
   hush(): void;
   /** the phone's text-to-speech settings (APK only) — to install or pick a Persian voice */
   openVoiceSettings?: () => void;
+  /** the app's own voices in this APK (rule 86): empty on the web and on an APK built before them */
+  voices?: string[];
+}
+
+// ── the speaker's voice and pace (rule 86): kept on the device, sent with each answer ──
+export const VOICE_PREF_KEY = 'imf.voice.pref.v1';
+export interface VoicePref {
+  /** one of VoiceIO.voices; null = the APK's default */
+  voice: string | null;
+  /** 0.85 slow, 1 normal, 1.15 brisk */
+  speed: number;
+}
+export const VOICE_INFO: Record<string, { label: string; who: string }> = {
+  ganji_adabi: { label: 'گنجی ادبی', who: 'مرد، رسمی‌تر' },
+  ganji: { label: 'گنجی', who: 'مرد، گرم‌تر' },
+  haaniye: { label: 'هانیه', who: 'زن' },
+};
+export const SPEEDS: { v: number; label: string }[] = [
+  { v: 0.85, label: 'آرام' },
+  { v: 1, label: 'معمولی' },
+  { v: 1.15, label: 'تند' },
+];
+export function voicePref(): VoicePref {
+  try {
+    const j = JSON.parse(localStorage.getItem(VOICE_PREF_KEY) ?? 'null');
+    const speed = typeof j?.speed === 'number' && j.speed >= 0.7 && j.speed <= 1.4 ? j.speed : 1;
+    return { voice: typeof j?.voice === 'string' ? j.voice : null, speed };
+  } catch {
+    return { voice: null, speed: 1 };
+  }
+}
+export function setVoicePref(p: VoicePref): void {
+  try {
+    localStorage.setItem(VOICE_PREF_KEY, JSON.stringify(p));
+  } catch {
+    // this session only
+  }
 }
 
 interface Handle {
@@ -133,13 +175,14 @@ interface VoicePlugin {
     ttsEngines?: string[];
     ttsEngine?: string | null;
     builtInError?: string | null;
+    voices?: string[];
   }>;
   requestMic(): Promise<{ mic?: boolean }>;
   listen(o: { prompt?: string }): Promise<{ matches?: string[] }>;
   listenDialog(o: { prompt?: string }): Promise<{ matches?: string[] }>;
   stop(): Promise<void>;
   cancel(): Promise<void>;
-  speak(o: { text: string }): Promise<void>;
+  speak(o: { text: string; voice?: string | null; speed?: number }): Promise<void>;
   // absent on an APK built before them
   lastCrash?(): Promise<{ crash?: AppCrash | null }>;
   retryBuiltIn?(): Promise<Awaited<ReturnType<VoicePlugin['available']>>>;
@@ -180,6 +223,9 @@ function appIO(p: VoicePlugin, av: Awaited<ReturnType<VoicePlugin['available']>>
     get voice() {
       return av.tts ? (av.ttsEngine === 'built-in' ? 'built-in' : 'phone') : null;
     },
+    get voices() {
+      return av.ttsEngine === 'built-in' ? (av.voices ?? []) : [];
+    },
     async listen(onPartial, prompt) {
       const mic = av.mic || (await p.requestMic().catch(() => ({ mic: false }))).mic;
       if (!mic) throw new VoiceError('permission');
@@ -218,7 +264,8 @@ function appIO(p: VoicePlugin, av: Awaited<ReturnType<VoicePlugin['available']>>
     },
     async speak(text) {
       if (!av.tts) return;
-      await p.speak({ text: colloquial(speakable(text)) }).catch(async () => {
+      const pref = voicePref();
+      await p.speak({ text: colloquial(speakable(text)), voice: pref.voice, speed: pref.speed }).catch(async () => {
         // the built-in voice failed to start (only known once it tried): ask again what can speak, and why not
         const a = await p.available().catch(() => null);
         if (a) Object.assign(av, { tts: a.tts, ttsEngine: a.ttsEngine, builtInError: a.builtInError ?? null });
@@ -338,6 +385,7 @@ function webIO(Rec: (new () => SR) | null, voice: SpeechSynthesisVoice | null): 
         const u = new SpeechSynthesisUtterance(colloquial(speakable(text)));
         u.voice = voice;
         u.lang = voice.lang;
+        u.rate = voicePref().speed;
         u.onend = () => res();
         u.onerror = () => res();
         window.speechSynthesis.cancel();
