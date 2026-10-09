@@ -11,6 +11,8 @@ import TxnForm from '../TxnForm';
 import ClassicMigrate from '../ClassicMigrate';
 import { BalanceChecks } from '../BalanceChecks';
 import { unlinkedSources } from '@/lib/finance/sources';
+import { CatIcon } from '../../icons';
+import { Art } from '../../icons';
 
 export const QUICK_QUESTIONS = [
   'وضعیت مالی این ماهم را خلاصه کن؛ کجا باید خرجم را کم کنم؟',
@@ -52,6 +54,7 @@ function alerts(d: FinanceData, items: ReturnType<typeof useFinance>['items'], t
 function Onboarding() {
   return (
     <Card title="شروع در چهار قدم">
+      <Art k="start" className="art-hero" />
       <ol className="fin-steps">
         <li>
           <Link href="/accounts">حساب‌ها</Link> را با موجودی امروزشان بسازید (بانک، نقد، صندوق) و طلا/ارز/خودرو را به‌عنوان دارایی اضافه کنید.
@@ -140,7 +143,7 @@ function Home({ d }: { d: FinanceData }) {
                 return (
                   <li key={b.categoryId}>
                     <span>
-                      {c?.emoji} {c?.name}
+                      <CatIcon c={c} /> {c?.name}
                     </span>
                     <Bar pct={b.usedPct} tone={b.status === 'over' ? 'bad' : b.status === 'hot' ? 'warn' : 'ok'} marker={b.pacePct} />
                     <small>

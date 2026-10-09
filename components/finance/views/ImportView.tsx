@@ -517,7 +517,7 @@ function Queue({ d }: { d: FinanceData }) {
             {note}
           </p>
         ) : null}
-        <Empty>صف خالی است. یک فایل گردش حساب بدهید یا پیامک بچسبانید.</Empty>
+        <Empty art="inbox">صف خالی است. یک فایل گردش حساب بدهید یا پیامک بچسبانید.</Empty>
       </Card>
     );
 

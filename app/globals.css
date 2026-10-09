@@ -103,6 +103,21 @@ a.icon-btn { text-decoration: none; }
 .tone-rose .tile-ic { background: #f8e3e1; }
 .tone-copper .tile-ic { background: #f6e7d8; }
 .tone-slate .tile-ic { background: #e7eaee; }
+/* Lucide icons (components/icons.tsx, rule 89): the tile's tone, a shade deeper */
+.tone-teal .tile-ic { color: #0b5d61; }
+.tone-saffron .tile-ic { color: #9a6a0c; }
+.tone-lapis .tile-ic { color: #2b3f73; }
+.tone-plum .tile-ic { color: #6c3d82; }
+.tone-rose .tile-ic { color: #a2423a; }
+.tone-copper .tile-ic { color: #8f5525; }
+.tone-slate .tile-ic { color: #46505e; }
+.cat-ic { display: inline-block; vertical-align: -3px; color: var(--teal); flex: none; }
+span.cat-ic { vertical-align: baseline; }
+.biz-tabs a svg { vertical-align: -3px; }
+.biz-tabs a[aria-current='page'] svg { color: #fff; }
+.empty.with-art { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 18px 12px 22px; }
+.empty.with-art p { margin: 0; max-width: 34em; }
+.art { width: min(190px, 56%); height: auto; aspect-ratio: 4 / 3; object-fit: contain; }
 .tile[aria-current='page'] { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal) inset; }
 
 .bottombar {
@@ -769,3 +784,4 @@ ol.list { counter-reset: n; }
 .toast span { font-size: 13px; color: #c9d2e4; }
 .icon-btn.bell { position: relative; }
 .icon-btn .badge { position: absolute; top: -4px; inset-inline-start: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: #e5484d; color: #fff; font-size: 11px; font-weight: 800; display: grid; place-items: center; line-height: 1; box-shadow: 0 0 0 2px var(--lapis); }
+.art.art-hero { display: block; margin: 2px auto 12px; width: min(220px, 62%); }

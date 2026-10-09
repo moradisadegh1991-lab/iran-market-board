@@ -431,7 +431,7 @@ function Funds({ d }: { d: FinanceData }) {
       {f ? (
         <FundDetail d={d} f={f} />
       ) : (
-        <Empty>هنوز صندوقی نساخته‌اید.</Empty>
+        <Empty art="fund">هنوز صندوقی نساخته‌اید.</Empty>
       )}
       <Card>
         <Disclosure label="+ صندوق تازه" defaultOpen={!d.funds.length}>

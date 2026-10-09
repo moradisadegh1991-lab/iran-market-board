@@ -73,7 +73,7 @@ export default function AlertsView() {
               })}
             </ul>
           ) : (
-            <Empty>هنوز هشداری تعریف نشده است.</Empty>
+            <Empty art="alerts">هنوز هشداری تعریف نشده است.</Empty>
           )}
           <div className="fin-grid alert-form">
             <Field label="دارایی">

@@ -519,7 +519,7 @@ function Assets({ d }: { d: FinanceData }) {
           })}
         </ul>
       ) : (
-        <Empty>طلا، سکه، ارز، کریپتو، خودرو، ودیعه رهن یا سهام را اضافه کنید.</Empty>
+        <Empty art="wallet">طلا، سکه، ارز، کریپتو، خودرو، ودیعه رهن یا سهام را اضافه کنید.</Empty>
       )}
       <Disclosure label="+ دارایی تازه">
         {(close) => (

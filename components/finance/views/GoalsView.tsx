@@ -113,7 +113,7 @@ function Goals({ d }: { d: FinanceData }) {
         })
       ) : (
         <Card>
-          <Empty>هنوز هدفی ندارید.</Empty>
+          <Empty art="goals">هنوز هدفی ندارید.</Empty>
         </Card>
       )}
 

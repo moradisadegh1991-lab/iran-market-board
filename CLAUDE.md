@@ -69,7 +69,7 @@ lib/                 api (آدرس API در اپ) · alerts (هشدار قیمت
                      · long-history (تاریخچه کامل TGJU از ۲۰۱۱ / بایننس ~۱۰۰۰ روز، برای پیش‌بینی و price-on)
                      · advisor (اعتبارسنجی و پرامپت مشاور) · snapshot · series · history · simulate · paper · learning · intraday
                      · holdings · jalali · swing-history · swing-live · store · auth · num · http
-components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · NotifyProvider · AppStartup
+components/          Shell (نوار پایین + برگه «بیشتر»، سایدبار در صفحه پهن) · nav · icons (Lucide + تصاویر unDraw، قاعده ۸۹) · NotifyProvider · AppStartup
                      · SnapshotProvider · ui · TradeEntry · EquityChart · PriceChart
                      · Sparkline · RollingNumber · HoldingsPanel · PositionSizer · ForecastPanel/ForecastChart (پیش‌بینی صفحه نمودار)
                      · IndicatorChips · learn/ (LearnView، Widgets) · assistant/ (Assistant: دستیار صوتی، دکمه 🎙 سربرگ؛ AskChart؛ flows: گفت‌وگوی فروش/نوبت/قرض)
@@ -83,6 +83,7 @@ scripts/             تست‌های آفلاین همه با tsx اجرا می�
 scripts/eval/        ارزیابی روی داده واقعی (نیاز به یک بار دانلود) — بخش ۴-ج
 .github/workflows/   paper-tick.yml (ضربان‌ساز معامله برخط) · build-android.yml (ساخت APK)
 middleware.ts        CORS فقط روی مسیرهای فقط-خواندنی، برای اپ اندرویدی
+public/art/          تصاویر unDraw پاک‌سازی‌شده برای صفحه‌های خالی (قاعده ۸۹)
 
 android-app/dist/    (git-ignored) خروجی scripts/build-app-web.mjs = webDir: کل اپ
 android-app/ci/      ci-release.jks — کلید ثابت امضای بیلد CI (بخش ۴-ه)
@@ -697,6 +698,17 @@ API را به یک `next start` محلی بده (`build-app-web.mjs http://local
     کسب‌وکار؟» **پیش از مبلغ** پرسیده می‌شود، چون جوابش تعیین می‌کند کدام پیامک است — پیامک کارت مغازه هرگز قرض شخصی نمی‌شود و برعکس.
     «برگرداندن» دقیقاً برمی‌گرداند: پیامک به صف، یا تراکنش قبلی به همان هزینه/درآمد.
 
+89. **‏یک مجموعه آیکون: Lucide؛ تصویر صفحه‌های خالی: unDraw** (به درخواست کاربر، «UI حرفه‌ای‌تر با آیکون و تصویر مرتبط»؛ تست `npm run test:ui` (۳) + e2e
+    `e2e-ui` با دفتر خالی، وب و APK در ۳۴۴/۴۱۲). `components/icons.tsx` تنها جای انتخاب آیکون است: `PAGE_ICON` (هر صفحه منو با آدرسش — کاشی‌های «بیشتر»، سایدبار،
+    نوار پایین، نوار بخش‌های کسب‌وکار) و `CATEGORY_ICON` (دسته‌های پیش‌فرض و کسب‌وکار؛ `CatIcon` برای دسته‌ای که کاربر ساخته همان ایموجی خودش را نشان
+    می‌دهد). سربرگ (میکروفون، زنگ، به‌روزرسانی) هم Lucide است. **داخل `<option>` ایموجی می‌ماند** — select فقط متن نشان می‌دهد. صفحه تازه = یک خط در
+    `PAGE_ICON` (تست اگر نباشد می‌شکند). lucide-react (ISC) داخل bundle است و آفلاین کار می‌کند. تصاویر: ۱۱ فایل unDraw (مجوز: رایگان و تجاری بی‌ذکر منبع؛
+    خود تصاویر را نفروش و مجموعه‌شان را پخش نکن) در `public/art/`، که با `scripts/tools/clean_svg.py` **پاک‌سازی** شده‌اند (فقط عناصر و ویژگی‌های
+    رسم؛ بی script، رویداد، لینک بیرونی) و رنگ بنفش unDraw (`#6c63ff`) به teal اپ (`#0d7377`) عوض شده؛ با `<img>` نشان داده می‌شوند (SVG در img اجرا نمی‌شود).
+    `Empty` با `art` (تراکنش، حساب‌ها، دارایی، صف ورود، قرض با اشخاص، صندوق، دنگ، اهداف، درآمد پیش‌رو، هشدار) و `Art` در «شروع در چهار قدم» خانه و راه‌اندازی
+    کسب‌وکار. **هر صفحه حداکثر یکی دو تصویر** — فهرست‌های کوچک (چک، سررسیدها) عمداً تصویر ندارند. تصویر تازه: از unDraw بگیر، همان پاک‌سازی و رنگ،
+    `ArtKey` را اضافه کن؛ `test:ui` فایل استفاده‌نشده، اسکریپت، لینک بیرونی و رنگ بنفش را رد می‌کند.
+
 ## ۴-ج) موتور نوسان‌گیری نسخه ۲ و ارزیابی روی داده واقعی (مهر ۱۴۰۵)
 
 21. **‏هر تغییر در منطق معامله باید روی داده واقعی سنجیده شود، نه روی داده ساختگی.** ابزارش در
@@ -766,6 +778,7 @@ npm run test:parties && npm run test:indicators
 npm run test:timing && npm run test:learn
 npm run test:voice && npm run test:ask       # ask = ask-test + ask-more-test
 npm run test:lending && npm run test:assetperf   # lending = lending-test + lend-sms-test
+npm run test:ui                          # هر صفحه آیکون Lucide دارد، تصاویر unDraw پاک و هم‌رنگ اپ
 npm run test:integration                 # همه ویژگی‌ها در یک دفتر: پایستگی پول، دارایی خالص = اجزا، پیامک قرض، حذف کسب‌وکار، مشاور
 npm run test:balance && npm run test:shared
 npm run test:biz                         # کسب‌وکار من + فروشگاه آنلاین + ربات (حافظه موقت، Telegram ساختگی)

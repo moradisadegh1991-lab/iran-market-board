@@ -10,6 +10,7 @@ import { useFinance, WithBook } from '../finance/FinanceProvider';
 import { Card, JalaliDate, Money, parseAmount, TextInput, TomanInput } from '../finance/kit';
 import { PageHead } from '../ui';
 import { BizTabs, fa } from './kit';
+import { Art } from '../icons';
 
 function Setup({ d }: { d: FinanceData }) {
   const { update, today } = useFinance();
@@ -21,6 +22,7 @@ function Setup({ d }: { d: FinanceData }) {
   const banks = d.accounts.filter((a) => isMoneyAccount(a) && a.kind === 'bank' && !a.bizId);
   return (
     <Card title="راه‌اندازی کسب‌وکار">
+      <Art k="shop" className="art-hero" />
       <p className="small">
         مغازه، کافه، آرایشگاه یا هر کاری که دارید را این‌جا مدیریت کنید: صندوق فروش، سفارش از همه کانال‌ها، محصول با فرمول ساخت و بهای تمام‌شده، انبار، مشتری و نسیه، نوبت‌دهی،
         هزینه و سود، تحلیل فروش، برآورد مالیات و فروشگاه آنلاین با ربات تلگرام. پول کسب‌وکار در دو حساب همین دفتر می‌ماند — صندوق (نقد) و کارت مغازه — پس دارایی خالص شما

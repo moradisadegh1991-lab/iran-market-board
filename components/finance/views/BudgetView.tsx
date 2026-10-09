@@ -7,6 +7,7 @@ import { useFinance, WithBook } from '../FinanceProvider';
 import { Bar, Card, confirmDelete, fmtPctFa, fmtToman, Money, parseAmount, SelectBox, TextInput } from '../kit';
 import { MonthNav } from './TransactionsView';
 import { Incomes, MonthForecastCard } from '../Incomes';
+import { CatIcon } from '../../icons';
 
 /** Average of the last three complete months per category, rounded up to a 100-thousand-toman step. */
 function suggestion(d: FinanceData, today: string): Map<string, number> {
@@ -91,7 +92,7 @@ function Budget({ d }: { d: FinanceData }) {
                 return (
                   <tr key={c.id}>
                     <th>
-                      {c.emoji} {c.name}
+                      <CatIcon c={c} /> {c.name}
                     </th>
                     <td>
                       <input
@@ -142,7 +143,7 @@ function Budget({ d }: { d: FinanceData }) {
         <div className="fin-tags">
           {d.categories.map((c) => (
             <span key={c.id} className={`fin-tag ${c.kind}`}>
-              {c.emoji} {c.name}
+              <CatIcon c={c} size={14} /> {c.name}
               {c.id.startsWith('u-') ? (
                 <button
                   className="linkish"
