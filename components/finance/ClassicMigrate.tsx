@@ -16,7 +16,7 @@ export default function ClassicMigrate({ d, always = false }: { d: FinanceData; 
   const { update } = useFinance();
   const [c, setC] = useState<ClassicData | null>(null);
   const [state, setState] = useState<string | null>(null);
-  const [accountId, setAccountId] = useState(() => d.accounts.find((a) => a.kind === 'bank')?.id ?? '');
+  const [accountId, setAccountId] = useState(() => (d.accounts.find((a) => a.kind === 'bank' && !a.bizId) ?? d.accounts.find((a) => a.kind === 'bank'))?.id ?? '');
   const [done, setDone] = useState<MigrateResult | null>(null);
 
   useEffect(() => {

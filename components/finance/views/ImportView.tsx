@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { accountBalances } from '@/lib/finance/calc';
 import {
   CHOICE_LABEL,
+  LEND_KINDS_OF,
   choicesFor,
   defaultChoice,
   commitStaged,
@@ -19,6 +20,7 @@ import {
 } from '@/lib/finance/importers';
 import { readStatement, ReadError } from '@/lib/finance/readers';
 import { smsParser } from '@/lib/finance/sms';
+import { LEND_LABEL, people, type LendKind } from '@/lib/finance/lending';
 import { learnFromCommit, queueSms, reportBalance, stagedAt, unlinkedSources } from '@/lib/finance/sources';
 import { partiesNote, suggestParties, type PartySuggestion } from '@/lib/finance/sms-parties';
 import { askOn, autoReadOn, FIRST_READ_DAYS, lastPhoneRead, readInbox, setAskOn, setAutoRead, useSmsPlugin } from '@/lib/finance/phone-sms';
@@ -66,7 +68,7 @@ function AccountSelect({ d, value, onChange, label, allowNone }: { d: FinanceDat
 function StatementCard({ d }: { d: FinanceData }) {
   const { update } = useFinance();
   const accounts = useAccounts(d);
-  const [accountId, setAccountId] = useState(() => accounts.find((a) => a.kind === 'bank')?.id ?? '');
+  const [accountId, setAccountId] = useState(() => (accounts.find((a) => a.kind === 'bank' && !a.bizId) ?? accounts.find((a) => a.kind === 'bank'))?.id ?? '');
   const [unit, setUnit] = useState<'auto' | 'rial' | 'toman'>('auto');
   const [password, setPassword] = useState('');
   const [needPassword, setNeedPassword] = useState(false);
@@ -215,7 +217,7 @@ function StatementCard({ d }: { d: FinanceData }) {
 function SmsCard({ d }: { d: FinanceData }) {
   const { update, today } = useFinance();
   const accounts = useAccounts(d);
-  const [accountId, setAccountId] = useState(() => accounts.find((a) => a.kind === 'bank')?.id ?? '');
+  const [accountId, setAccountId] = useState(() => (accounts.find((a) => a.kind === 'bank' && !a.bizId) ?? accounts.find((a) => a.kind === 'bank'))?.id ?? '');
   const [text, setText] = useState('');
   const [result, setResult] = useState<{ added: number; read: number; ignored: { text: string; reason: string }[]; ignoredCount: number; newSources: number } | null>(null);
 
@@ -357,6 +359,8 @@ function SmsCard({ d }: { d: FinanceData }) {
 
 interface Draft {
   choice?: StagedChoice;
+  lendKind?: LendKind;
+  person?: string;
   categoryId?: string;
   accountId?: string;
   otherAccountId?: string;
@@ -370,7 +374,7 @@ type QueueFilter = 'all' | 'decide' | 'dup';
 /** The SMS's «مبدا و مقصد»; for a row whose direction the bank left unstated, read with the side the user chose. */
 function partiesFor(d: FinanceData, s: Staged, choice?: StagedChoice): PartySuggestion | null {
   if (s.source !== 'sms') return null;
-  const dir = s.direction ?? (choice === 'expense' || choice === 'transfer-out' ? 'out' : choice === 'income' || choice === 'transfer-in' ? 'in' : null);
+  const dir = s.direction ?? (choice === 'expense' || choice === 'transfer-out' || choice === 'lend-out' ? 'out' : choice === 'income' || choice === 'transfer-in' || choice === 'lend-in' ? 'in' : null);
   return suggestParties(d, dir === s.direction ? s : { ...s, direction: dir });
 }
 
@@ -448,12 +452,14 @@ function Queue({ d }: { d: FinanceData }) {
       // an undated row shows today in the picker, so today is what the user sees and confirms
       date: dr.date ?? s.date ?? today,
       amountRial: dr.amount !== undefined ? tomanToRial(parseAmount(dr.amount)) : null,
+      lendKind: dr.lendKind ?? (choice === 'lend-out' || choice === 'lend-in' ? LEND_KINDS_OF[choice][0] : undefined),
+      person: dr.person ?? '',
     };
   };
   const ready = (r: (typeof rows)[number]) => {
     const v = resolve(r.s, r.suggested);
     // bulk confirmation never picks a date or an amount for the user
-    return !r.dup && !!v.choice && !v.choice.startsWith('transfer') && !!v.accountId && !!(r.s.date || drafts[r.s.id]?.date) && !r.s.uncertainAmount;
+    return !r.dup && !!v.choice && !v.choice.startsWith('transfer') && !v.choice.startsWith('lend') && !!v.accountId && !!(r.s.date || drafts[r.s.id]?.date) && !r.s.uncertainAmount;
   };
 
   const shown = rows.filter((r) => (filter === 'decide' ? !resolve(r.s, r.suggested).choice || !r.s.date : filter === 'dup' ? r.dup : true));
@@ -483,6 +489,8 @@ function Queue({ d }: { d: FinanceData }) {
           amountRial: v.amountRial,
           partiesNote: p ? partiesNote(p) || null : null,
           partyKey: p?.memoryKey ?? null,
+          lendKind: v.lendKind ?? null,
+          person: v.person || null,
         });
         if (e) errs[id] = e;
         else {
@@ -604,6 +612,27 @@ function Queue({ d }: { d: FinanceData }) {
                         ))}
                     </select>
                   </Field>
+                ) : null}
+                {v.choice === 'lend-out' || v.choice === 'lend-in' ? (
+                  <>
+                    <Field label="کدام قرض">
+                      <select className="fin-input" aria-label="کدام قرض" value={v.lendKind} onChange={(e) => setDraft(s.id, { lendKind: e.target.value as LendKind })}>
+                        {LEND_KINDS_OF[v.choice].map((k) => (
+                          <option key={k} value={k}>
+                            {LEND_LABEL[k]}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="طرف قرض">
+                      <input className="fin-input" aria-label="طرف قرض" value={v.person} onChange={(e) => setDraft(s.id, { person: e.target.value })} placeholder="مثلاً علی" list={`lend-people-${s.id}`} />
+                      <datalist id={`lend-people-${s.id}`}>
+                        {people(d, d.accounts.find((a) => a.id === v.accountId)?.bizId ?? null).map((a) => (
+                          <option key={a.id} value={a.name} />
+                        ))}
+                      </datalist>
+                    </Field>
+                  </>
                 ) : null}
                 {transfer ? (
                   <Field label={v.choice === 'transfer-out' ? 'به کدام حساب' : 'از کدام حساب'}>

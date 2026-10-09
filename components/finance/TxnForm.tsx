@@ -116,7 +116,14 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
       ) : kind === 'transfer' ? (
         <SelectBox label="به حساب" value={toAccountId} onChange={setToAccountId} options={accounts.map((a) => ({ key: a.id, label: a.name }))} />
       ) : (
-        <SelectBox label="دسته" value={catValue} onChange={setCategoryId} options={cats.map((c) => ({ key: c.id, label: `${c.emoji} ${c.name}` }))} />
+        <>
+          <SelectBox label="دسته" value={catValue} onChange={setCategoryId} options={cats.map((c) => ({ key: c.id, label: `${c.emoji} ${c.name}` }))} />
+          {catValue === 'i-loanback' ? (
+            <p className="fin-span fin-hint" data-testid="loanback-hint">
+              اگر آن قرض را با «قرض» ثبت کرده‌اید، این‌جا نوع «قرض › قرضش را پس داد» را بزنید تا هم طلبتان کم شود و هم دوبار درآمد حساب نشود.
+            </p>
+          ) : null}
+        </>
       )}
       <JalaliDate label="تاریخ" value={date} onChange={setDate} yearsAhead={0} />
       {compact ? null : <TextInput label="توضیح (اختیاری)" value={note} onChange={setNote} placeholder="مثلاً خرید ماهانه" />}

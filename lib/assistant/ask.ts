@@ -287,7 +287,7 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
         .sort((x, y) => y.r - x.r)
         .slice(0, 4);
       return {
-        text: `جمع موجودی حساب‌ها: ${fa(total / 10)} تومان. ${rows.map(({ a, r }) => `${a.name}: ${fa(r / 10)}`).join('، ')}.`,
+        text: `جمع موجودی حساب‌ها: ${fa(total / 10)} تومان. ${rows.map(({ a, r }) => `${a.name}: ${fa(r / 10)}`).join('، ')}${live.length > rows.length ? ` و ${fa(live.length - rows.length)} حساب دیگر` : ''}.`,
         speech: `روی هم ${total < 0 ? 'منفی ' : ''}${amountWords(Math.abs(Math.round(total / 10) * 10))} توی حساب‌هات داری.`,
         link: { href: '/accounts', label: 'حساب‌ها' },
       };
@@ -296,7 +296,13 @@ export function answerQuestion(d: FinanceData, items: PriceItem[], today: Iso, q
       const nw = netWorth(d, items, today);
       const extra = nw.lastPriced.length ? ` (${nw.lastPriced.map((x) => x.name).join('، ')} با آخرین قیمت ثبت‌شده)` : '';
       return {
-        text: `دارایی خالص: ${fa(nw.netRial / 10)} تومان — حساب‌ها ${fa(nw.cashRial / 10)}، دارایی بازاری ${fa(nw.marketRial / 10)}، بدهی ${fa(nw.debtRial / 10)}${extra}.`,
+        // every part the total is made of, so the parts add up to it (طلب: قرض، صندوق، دنگ، وام داده‌شده)
+        text:
+          `دارایی خالص: ${fa(nw.netRial / 10)} تومان — حساب‌ها ${fa(nw.cashRial / 10)}، دارایی بازاری ${fa(nw.marketRial / 10)}` +
+          (nw.manualRial ? `، دارایی‌های دیگر ${fa(nw.manualRial / 10)}` : '') +
+          (nw.receivableRial ? `، طلب ${fa(nw.receivableRial / 10)}` : '') +
+          `، منهای بدهی ${fa(nw.debtRial / 10)}${extra}.` +
+          (nw.unpriced.length ? ` بی‌قیمت و حساب‌نشده: ${nw.unpriced.join('، ')}.` : ''),
         speech: `دارایی خالصت حدود ${nw.netRial < 0 ? 'منفی ' : ''}${amountWords(Math.abs(Math.round(nw.netRial / 1e4) * 1e4))} است.`,
         link: { href: '/', label: 'داشبورد' },
       };

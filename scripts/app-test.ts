@@ -128,7 +128,7 @@ ok('migration: direction and category kept, unknown stays unknown, transfers sug
   assert.equal(d.txns[0].src, 'classic');
   assert.deepEqual(migrateClassic(d, c, 'a-bank', NOW + 1), { queued: 0, assets: 0 });
   assert.equal(accountBalances(d)['a-bank'], -1_250_000);
-  assert.deepEqual(choicesFor(by('classic-x2')), ['income', 'transfer-in']);
+  assert.deepEqual(choicesFor(by('classic-x2')), ['income', 'transfer-in', 'lend-in']);
   // survives the backup round-trip
   const back = normalizeData(JSON.parse(JSON.stringify(d)), '2026-10-01');
   assert.equal(back.assets.find((a) => a.key === 'g18')!.costRial, 600_000_000);

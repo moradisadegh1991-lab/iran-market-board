@@ -434,7 +434,8 @@ const CAT_WORDS: Record<string, string[]> = {
   'i-freelance': ['پروژه', 'فریلنس', 'کار آزاد', 'سفارش', 'مشاوره', 'تدریس'],
   'i-invest': ['سود', 'بهره', 'سپرده'],
   'i-rent': ['اجاره', 'کرایه خونه', 'مستاجر'],
-  'i-loanback': ['طلب', 'قرض', 'پس داد'],
+  // «قرض» and «پس داد» go to the loan dialog (voice-lend.ts, rule 84) — a repaid loan is not income
+  'i-loanback': ['طلب'],
 };
 const OTHER = /(^| )(سایر|بقیه|متفرقه|نمیدونم|نمی دونم|نمیدانم|هیچی|فرقی نمیکنه|مهم نیست|بیخیال دسته)( |$)/;
 

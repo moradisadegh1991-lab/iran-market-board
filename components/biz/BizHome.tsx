@@ -102,7 +102,7 @@ function Checklist({ b }: { b: Business }) {
 
 function Draw({ d, b }: { d: FinanceData; b: Business }) {
   const { update, today } = useFinance();
-  const bizAccs = d.accounts.filter((a) => a.bizId === b.id && !a.archived);
+  const bizAccs = d.accounts.filter((a) => a.bizId === b.id && isMoneyAccount(a));
   const mine = d.accounts.filter((a) => isMoneyAccount(a) && !a.bizId);
   const [from, setFrom] = useState(bizAccs[0]?.id ?? '');
   const [to, setTo] = useState(mine[0]?.id ?? '');
@@ -162,7 +162,7 @@ function Home({ d, b }: { d: FinanceData; b: Business }) {
   const w = sumRows(week);
   const month = sumRows(dailyProfit(b, addDays(today, -29), today));
   const bal = accountBalances(d);
-  const accs = d.accounts.filter((a) => a.bizId === b.id && !a.archived);
+  const accs = d.accounts.filter((a) => a.bizId === b.id && isMoneyAccount(a));
   const info = typeInfo(b.type);
   const days = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
   const max = Math.max(1, ...week.map((r) => r.revenueRial));

@@ -318,7 +318,7 @@ const ab = (u8: Uint8Array) => u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8
     assert.equal(enqueue(d, st.rows), 4);
     assert.equal(enqueue(d, st.rows), 0, 'same file twice → nothing new');
     const [transfer, bill, salary, shop] = d.inbox;
-    assert.deepEqual(choicesFor(salary), ['income', 'transfer-in']);
+    assert.deepEqual(choicesFor(salary), ['income', 'transfer-in', 'lend-in']);
     assert.match(commitStaged(d, salary.id, { choice: 'expense', accountId: 'a-bank' })!, /جهت/);
     assert.match(commitStaged(d, transfer.id, { choice: 'transfer-out', accountId: 'a-bank' })!, /حساب دیگر/);
     assert.equal(d.txns.length, 0, 'a refused commit changes nothing');

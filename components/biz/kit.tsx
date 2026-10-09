@@ -4,7 +4,7 @@
 // app (useFinance), so a sale shows up in «حساب‌ها و کارت‌ها» the moment it is made.
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { FinanceData } from '@/lib/finance/model';
+import { isMoneyAccount, type FinanceData } from '@/lib/finance/model';
 import { PAY_LABEL, typeInfo, type Business, type PayMethod } from '@/lib/biz/model';
 import { NAV_GROUPS } from '../nav';
 import { WithBook } from '../finance/FinanceProvider';
@@ -94,7 +94,7 @@ export function PayPicker({ value, onChange, b, allowCredit = true }: { value: P
 
 /** The business's own accounts in the book (till, card), for paying an expense or receiving money. */
 export function BizAccountSelect({ d, b, value, onChange, label, allowNone }: { d: FinanceData; b: Business; value: string; onChange: (v: string) => void; label: string; allowNone?: boolean }) {
-  const accs = d.accounts.filter((a) => a.bizId === b.id && !a.archived);
+  const accs = d.accounts.filter((a) => a.bizId === b.id && isMoneyAccount(a));
   return (
     <label className="fin-field">
       <span className="fin-label">{label}</span>

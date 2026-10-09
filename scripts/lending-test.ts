@@ -121,8 +121,8 @@ ok('voice questions: who owes me, whom I owe, one person; «نسیه» stays the
     assert.ok(q && q.type === 'more', s);
     return answerQuestion(d, [], T, q);
   };
-  assert.match(ask('کی به من بدهکاره؟').text, /طلب شما: ۵٬۰۰۰٬۰۰۰ تومان — علی ۵٬۰۰۰٬۰۰۰ تومان/);
-  assert.match(ask('به کی بدهکارم؟').text, /بدهی شما: ۲٬۰۰۰٬۰۰۰ تومان — رضا/);
+  assert.match(ask('کی به من بدهکاره؟').text, /طلب شما از اشخاص: ۵٬۰۰۰٬۰۰۰ تومان — علی ۵٬۰۰۰٬۰۰۰ تومان/);
+  assert.match(ask('به کی بدهکارم؟').text, /بدهی شما به اشخاص: ۲٬۰۰۰٬۰۰۰ تومان — رضا/);
   assert.equal(ask('علی چقدر بهم بدهکاره؟').text, 'علی ۵٬۰۰۰٬۰۰۰ تومان به شما بدهکار است.');
   const db = book(true);
   const q = parseQuestion(db, 'نسیه چقدر طلب دارم؟', T);

@@ -29,6 +29,28 @@ export function personAccount(d: FinanceData, name: string, bizId: string | null
   return a;
 }
 
+/**
+ * The business is removed: its accounts become personal (SettingsView). A person the business lent to becomes the
+ * user's own — merged into the personal account of the same name when there is one, so one name is one position.
+ */
+export function detachBusinessAccounts(d: FinanceData, bizId: string): void {
+  for (const a of d.accounts) {
+    if (a.bizId !== bizId) continue;
+    a.bizId = null;
+    if (!isPerson(a)) continue;
+    const same = d.accounts.find((x) => x !== a && isPerson(x) && !x.bizId && !x.archived && norm(x.name) === norm(a.name));
+    if (!same) continue;
+    for (const t of d.txns) {
+      if (t.accountId === a.id) t.accountId = same.id;
+      if (t.toAccountId === a.id) t.toAccountId = same.id;
+      if (t.link?.type === 'lend' && t.link.id === a.id) t.link = { ...t.link, id: same.id };
+    }
+    same.openingRial += a.openingRial;
+    a.archived = true;
+  }
+  d.accounts = d.accounts.filter((a) => !(a.archived && isPerson(a) && !d.txns.some((t) => t.accountId === a.id || t.toAccountId === a.id)));
+}
+
 export interface LendInput {
   kind: LendKind;
   person: string;
