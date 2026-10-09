@@ -5,7 +5,7 @@
 // loan stays off the owner's personal side (personalSide in calc) and is listed apart — personal and business lending
 // are never mixed, and the voice assistant asks which one when it is not said (rule 3: nothing guessed).
 import { balances } from './balance';
-import { newId, type Account, type FinanceData, type Iso, type Txn } from './model';
+import { newId, type Account, type FinanceData, type Iso, type Staged, type Txn } from './model';
 
 export type LendKind = 'lend' | 'borrow' | 'repaid' | 'repay';
 /** lend: I gave a loan · borrow: I took a loan · repaid: they paid me back · repay: I paid them back */
@@ -115,4 +115,81 @@ export function lendingSummary(d: FinanceData, business = false) {
     owedToMeRial: ps.reduce((s, p) => s + Math.max(0, p.balanceRial), 0),
     iOweRial: ps.reduce((s, p) => s + Math.max(0, -p.balanceRial), 0),
   };
+}
+
+// ── the bank's SMS of a loan (rule 88) ─────────────────────────────────────────────────────────────────────────────
+// A loan told by voice and the bank's SMS of the same money are one event. The SMS may be waiting in the queue, already
+// booked as spending/income (the phone's «نوعش چیست؟» answer), or still on its way. Either way it is booked once.
+
+export interface LendSms {
+  /** queued: a row in «ورود از بانک»; booked: a transaction from an SMS that is not yet anything but spending/income */
+  kind: 'queued' | 'booked';
+  id: string;
+  amountRial: number;
+  accountId: string | null;
+  date: Iso;
+  time: string | null;
+  /** the bank or sender, for «همون پیامک ملت ساعت ۱۰:۱۲» */
+  bank: string | null;
+}
+const dirOf = (k: LendKind): 'out' | 'in' => (k === 'lend' || k === 'repay' ? 'out' : 'in');
+const daysApart = (a: Iso, b: Iso) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000);
+
+/**
+ * SMS that could be this loan's money: the same direction, within `days` before today, the amount when known, the account
+ * when known — a row whose card is not linked yet only when its bank fits the account's name — and never the other side
+ * (a personal loan never takes the shop card's SMS, nor the other way round). Newest first.
+ */
+export function lendSmsCandidates(
+  d: FinanceData,
+  p: { kind: LendKind; amountRial?: number | null; accountId?: string | null; side?: 'me' | 'biz' | null; today: Iso; days?: number },
+): LendSms[] {
+  const dir = dirOf(p.kind);
+  const days = p.days ?? 3;
+  const want = p.accountId ? d.accounts.find((a) => a.id === p.accountId) ?? null : null;
+  const fits = (accountId: string | null, bank: string | null, date: Iso | null, amountRial: number) => {
+    if (!date) return false;
+    const ago = daysApart(p.today, date);
+    if (ago < 0 || ago > days) return false;
+    if (p.amountRial && amountRial !== p.amountRial) return false;
+    const acc = accountId ? d.accounts.find((a) => a.id === accountId) : null;
+    if (acc) {
+      if (want && acc.id !== want.id) return false;
+      if (p.side && !!acc.bizId !== (p.side === 'biz')) return false;
+      return true;
+    }
+    // a card not linked to an account yet: only with an amount, and a bank that fits the account said
+    if (!p.amountRial) return false;
+    if (want && bank && !norm(want.name).includes(norm(bank).replace(/^بانک /, ''))) return false;
+    return true;
+  };
+  const out: LendSms[] = [];
+  for (const r of d.inbox) {
+    if (r.source === 'classic' || (r.direction && r.direction !== dir)) continue;
+    if (fits(r.accountId ?? null, r.bank ?? null, r.date, r.amountRial)) out.push({ kind: 'queued', id: r.id, amountRial: r.amountRial, accountId: r.accountId ?? null, date: r.date!, time: r.time ?? null, bank: r.bank ?? null });
+  }
+  for (const t of d.txns) {
+    if (!t.smsKey || t.link || t.kind !== (dir === 'out' ? 'expense' : 'income')) continue;
+    if (fits(t.accountId, null, t.date, t.amountRial)) out.push({ kind: 'booked', id: t.id, amountRial: t.amountRial, accountId: t.accountId, date: t.date, time: t.time ?? null, bank: null });
+  }
+  return out.sort((a, b) => (a.date === b.date ? (b.time ?? '').localeCompare(a.time ?? '') : b.date.localeCompare(a.date)));
+}
+
+/**
+ * A bank SMS that arrives after the loan was told (by voice or typed): it is that loan's SMS, not a new transaction.
+ * The loan takes the SMS's day and time, so the balance the bank reports in it already includes the loan (rule 76).
+ */
+export function attachSmsToLend(d: FinanceData, r: Pick<Staged, 'accountId' | 'date' | 'time' | 'direction' | 'amountRial' | 'smsKey' | 'at' | 'ref'>): Txn | null {
+  if (!r.accountId || !r.date || !r.direction || !r.smsKey) return null;
+  const t = d.txns.find(
+    (x) =>
+      x.link?.type === 'lend' &&
+      !x.smsKey &&
+      x.amountRial === r.amountRial &&
+      (r.direction === 'out' ? x.accountId === r.accountId : x.toAccountId === r.accountId) &&
+      Math.abs(daysApart(x.date, r.date!)) <= 2,
+  );
+  if (!t) return null;
+  Object.assign(t, { date: r.date, time: r.time ?? t.time ?? null, smsKey: r.smsKey, smsAt: r.at ?? null, src: 'sms' as const, ref: r.ref ?? t.ref ?? null });
+  return t;
 }
