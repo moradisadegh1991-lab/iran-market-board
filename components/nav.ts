@@ -3,7 +3,7 @@
 export interface NavItem {
   href: string;
   label: string;
-  /** shown on the tile; the colored square behind it is the group's tone */
+  /** an emoji for text-only places; the tiles, sidebar and bottom bar draw the Lucide icon of the page (components/icons.tsx) */
   icon: string;
   hint?: string;
 }

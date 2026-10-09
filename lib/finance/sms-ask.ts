@@ -59,7 +59,14 @@ export function applyAsked(d: FinanceData, items: AskedSms[], today: Iso, now: n
       out.done.push(it.key); // booked in the app before the button was tapped
       continue;
     }
-    if (!seen) queueSms(d, [row], now); // learns the card; a linked card brings its account
+    if (!seen) {
+      queueSms(d, [row], now); // learns the card; a linked card brings its account
+      // a loan told by voice before this SMS came took it (rule 88): nothing left to ask
+      if (seenSms(d, row)?.booked) {
+        out.done.push(it.key);
+        continue;
+      }
+    }
     const s = seen?.queued ?? d.inbox.find((x) => x.id === row.id);
     const choice = it.choice && VALID.includes(it.choice) ? it.choice : null;
     if (!s || !choice) continue; // not answered yet: the question stays on the phone

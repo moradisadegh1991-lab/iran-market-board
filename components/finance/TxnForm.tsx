@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
-import { bookLend, isPerson, LEND_LABEL, people, type LendKind } from '@/lib/finance/lending';
+import { bookLendWithSms } from '@/lib/finance/lend-sms';
+import { isPerson, LEND_LABEL, lendSmsCandidates, people, type LendKind } from '@/lib/finance/lending';
 import { newId, tomanToRial, type FinanceData, type TxnKind } from '@/lib/finance/model';
 import { Chips } from '../ui';
 import { useFinance } from './FinanceProvider';
@@ -46,12 +47,17 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
     if (kind === 'loan') {
       if (!person.trim()) return setErr('نام کسی را که قرض داده یا گرفته بنویسید.');
       let r: unknown = null;
+      let withSms = false;
       update((d) => {
-        r = bookLend(d, { kind: lendKind, person, accountId, amountRial: tomanToRial(t), date, note });
+        // the bank's SMS of the same money, if it is already here, is this loan — booked once (rule 88)
+        const acc = d.accounts.find((a) => a.id === accountId);
+        const sms = lendSmsCandidates(d, { kind: lendKind, amountRial: tomanToRial(t), accountId, side: acc?.bizId ? 'biz' : 'me', today: date })[0] ?? null;
+        withSms = !!sms;
+        r = bookLendWithSms(d, { kind: lendKind, person, accountId, amountRial: tomanToRial(t), date, note }, sms);
       });
       if (typeof r === 'string') return setErr(r);
       setErr(null);
-      setSaved(`ثبت شد: ${LEND_LABEL[lendKind]} (${person.trim()}) ${amount}`);
+      setSaved(`ثبت شد: ${LEND_LABEL[lendKind]} (${person.trim()}) ${amount}${withSms ? ' — با همان پیامک بانک، یک بار' : ''}`);
       setAmount('');
       setNote('');
       onDone?.();
@@ -116,7 +122,14 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
       ) : kind === 'transfer' ? (
         <SelectBox label="به حساب" value={toAccountId} onChange={setToAccountId} options={accounts.map((a) => ({ key: a.id, label: a.name }))} />
       ) : (
-        <SelectBox label="دسته" value={catValue} onChange={setCategoryId} options={cats.map((c) => ({ key: c.id, label: `${c.emoji} ${c.name}` }))} />
+        <>
+          <SelectBox label="دسته" value={catValue} onChange={setCategoryId} options={cats.map((c) => ({ key: c.id, label: `${c.emoji} ${c.name}` }))} />
+          {catValue === 'i-loanback' ? (
+            <p className="fin-span fin-hint" data-testid="loanback-hint">
+              اگر آن قرض را با «قرض» ثبت کرده‌اید، این‌جا نوع «قرض › قرضش را پس داد» را بزنید تا هم طلبتان کم شود و هم دوبار درآمد حساب نشود.
+            </p>
+          ) : null}
+        </>
       )}
       <JalaliDate label="تاریخ" value={date} onChange={setDate} yearsAhead={0} />
       {compact ? null : <TextInput label="توضیح (اختیاری)" value={note} onChange={setNote} placeholder="مثلاً خرید ماهانه" />}

@@ -7,6 +7,7 @@
 //    account for it) — the app never guesses which account an unknown card belongs to;
 //  • the bank-stated balance is what the account's balance is built on (balance.ts, rule 76); when the
 //    book disagrees with it, the user is asked why (monthCheck), the app does not pick a reason.
+import { attachSmsToLend } from './lending';
 import { addReported } from './balance';
 import { enqueue } from './importers';
 import { newId, type Account, type FinanceData, type Iso, type SmsSource, type Staged, type Txn } from './model';
@@ -108,7 +109,8 @@ export function seenSms(d: FinanceData, r: Pick<Staged, 'smsKey' | 'at' | 'date'
 export function queueSms(d: FinanceData, rows: Staged[], now: number): { added: number; newSources: number } {
   const fresh = rows.filter((r) => !seenSms(d, r));
   const newSources = learnSources(d, fresh, now);
-  return { added: enqueue(d, fresh), newSources };
+  // the SMS of a loan already told by voice or typed is that loan's, not a new row (rule 88)
+  return { added: enqueue(d, fresh.filter((r) => !attachSmsToLend(d, r))), newSources };
 }
 
 /** Links a card/account to one of the user's accounts (or unlinks with null) and applies it to the queue. */

@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { detachBusinessAccounts } from '@/lib/finance/lending';
 import { isMoneyAccount, newId, type FinanceData } from '@/lib/finance/model';
 import { BUSINESS_TYPES, type Business, type BusinessType } from '@/lib/biz/model';
 import { citiesFor, PROVINCE_NAMES } from '@/lib/biz/locations';
@@ -130,7 +131,7 @@ function Settings({ d, b }: { d: FinanceData; b: Business }) {
           onClick={() => {
             if (window.prompt(`برای حذف، نام کسب‌وکار («${b.name}») را بنویسید:`) !== b.name) return;
             update((dr) => {
-              for (const a of dr.accounts) if (a.bizId === dr.biz?.id) a.bizId = null;
+              if (dr.biz) detachBusinessAccounts(dr, dr.biz.id);
               dr.biz = null;
             });
           }}

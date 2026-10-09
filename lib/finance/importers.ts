@@ -11,6 +11,7 @@
 //    in the running balance, or an explicit verb in the SMS. When those disagree or are absent,
 //    `direction` is null and the user decides.
 import { isoToJalali, jalaliMonthLength, jalaliToIso } from '@/lib/jalali';
+import { bookLend, LEND_LABEL, type LendKind } from './lending';
 import { newId, type FinanceData, type Iso, type Staged } from './model';
 
 // ── text helpers ───────────────────────────────────────────────────────────
@@ -625,13 +626,18 @@ export function enqueue(d: FinanceData, rows: Staged[]): number {
 
 // ── confirming a staged row ────────────────────────────────────────────────
 
-export type StagedChoice = 'expense' | 'income' | 'transfer-out' | 'transfer-in';
+export type StagedChoice = 'expense' | 'income' | 'transfer-out' | 'transfer-in' | 'lend-out' | 'lend-in';
 export const CHOICE_LABEL: Record<StagedChoice, string> = {
   expense: 'هزینه',
   income: 'درآمد',
   'transfer-out': 'انتقال به حساب دیگرم',
   'transfer-in': 'انتقال از حساب دیگرم',
+  // a loan with a person (rule 84): the bank's SMS of it is the loan itself, not spending or income
+  'lend-out': 'قرض (دادم یا پس دادم)',
+  'lend-in': 'قرض (گرفتم یا پس گرفتم)',
 };
+/** which loans each side of the bank's direction can be */
+export const LEND_KINDS_OF: Record<'lend-out' | 'lend-in', LendKind[]> = { 'lend-out': ['lend', 'repay'], 'lend-in': ['borrow', 'repaid'] };
 
 /** What the queue pre-selects: the source's own direction, as a transfer when the source said so. */
 export function defaultChoice(s: Staged): StagedChoice | undefined {
@@ -642,9 +648,9 @@ export function defaultChoice(s: Staged): StagedChoice | undefined {
 
 /** The choices that agree with what the source said; all four when it said nothing. */
 export function choicesFor(s: Staged): StagedChoice[] {
-  if (s.direction === 'out') return ['expense', 'transfer-out'];
-  if (s.direction === 'in') return ['income', 'transfer-in'];
-  return ['expense', 'income', 'transfer-out', 'transfer-in'];
+  if (s.direction === 'out') return ['expense', 'transfer-out', 'lend-out'];
+  if (s.direction === 'in') return ['income', 'transfer-in', 'lend-in'];
+  return ['expense', 'income', 'transfer-out', 'transfer-in', 'lend-out', 'lend-in'];
 }
 
 export interface CommitInput {
@@ -661,6 +667,9 @@ export interface CommitInput {
   partiesNote?: string | null;
   /** the counterparty's category-memory key (sms-parties.ts): remembered with the chosen category */
   partyKey?: string | null;
+  /** lend-out / lend-in: which loan, and with whom */
+  lendKind?: LendKind | null;
+  person?: string | null;
 }
 
 /**
@@ -677,6 +686,15 @@ export function commitStaged(d: FinanceData, id: string, inp: CommitInput): stri
   if (!d.accounts.some((a) => a.id === inp.accountId)) return 'حساب را انتخاب کنید.';
   const amountRial = inp.amountRial ?? s.amountRial;
   if (!(Number.isFinite(amountRial) && amountRial > 0)) return 'مبلغ نامعتبر است.';
+  if (inp.choice === 'lend-out' || inp.choice === 'lend-in') {
+    if (!inp.lendKind || !LEND_KINDS_OF[inp.choice].includes(inp.lendKind)) return 'کدام قرض است؟ (دادم، گرفتم، پس داد، پس دادم)';
+    if (!inp.person?.trim()) return 'نام طرف قرض را بنویسید.';
+    const t = bookLend(d, { kind: inp.lendKind, person: inp.person, accountId: inp.accountId, amountRial, date, note: [LEND_LABEL[inp.lendKind], s.description].filter(Boolean).join(' — ').slice(0, 160) });
+    if (typeof t === 'string') return t;
+    Object.assign(t, { src: s.source, ref: s.ref ?? null, time: s.time ?? null, ...(s.smsKey ? { smsKey: s.smsKey, smsAt: s.at ?? null } : {}) });
+    d.inbox = d.inbox.filter((x) => x.id !== id);
+    return null;
+  }
   const transfer = inp.choice === 'transfer-out' || inp.choice === 'transfer-in';
   if (transfer && (!inp.otherAccountId || inp.otherAccountId === inp.accountId || !d.accounts.some((a) => a.id === inp.otherAccountId)))
     return 'برای انتقال، حساب دیگر را انتخاب کنید.';

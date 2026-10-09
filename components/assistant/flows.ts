@@ -40,7 +40,7 @@ export function flowUndo(d: FinanceData, s: FlowSaved, now: number): string {
     return BIZ_UNDONE[s.u.kind];
   }
   undoLend(d, s.u);
-  return 'برگردانده شد؛ آن قرض از دفتر حذف شد.';
+  return `برگردانده شد؛ آن قرض از دفتر حذف شد${s.u.row ? ' و پیامک بانکش دوباره در صف ورود است' : s.u.restore ? ' و پیامک بانکش همان تراکنش قبلی شد' : ''}.`;
 }
 /** what the bot says once it is recorded */
 export const flowSavedText = (s: FlowSaved) => (s.kind === 'biz' && s.u.kind === 'sale' ? `ثبت شد؛ فاکتور ${s.u.no.toLocaleString('fa-IR')}.` : 'ثبت شد.');

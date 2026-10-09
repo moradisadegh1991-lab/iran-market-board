@@ -8,6 +8,8 @@ import { Chips, Empty, PageHead, Search } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
 import { Bar, Card, confirmDelete, Disclosure, fmtDateFa, fmtPctFa, Money } from '../kit';
 import TxnForm from '../TxnForm';
+import { ArrowLeftRight, Handshake } from 'lucide-react';
+import { CatIcon } from '../../icons';
 
 type KindFilter = 'all' | TxnKind;
 
@@ -119,7 +121,14 @@ function Transactions({ d }: { d: FinanceData }) {
                 return (
                   <li key={c.categoryId ?? '_'}>
                     <span>
-                      {k ? `${k.emoji} ${k.name}` : 'بدون دسته'} <small className="muted">{fmtPctFa(pct)}</small>
+                      {k ? (
+                        <>
+                          <CatIcon c={k} /> {k.name}
+                        </>
+                      ) : (
+                        'بدون دسته'
+                      )}{' '}
+                      <small className="muted">{fmtPctFa(pct)}</small>
                     </span>
                     <Bar pct={pct} />
                     <small>
@@ -159,13 +168,21 @@ function Transactions({ d }: { d: FinanceData }) {
             {rows.map((t) => {
               const c = t.categoryId ? cat.get(t.categoryId) : null;
               const lend = t.link?.type === 'lend' ? (t.link.mk as LendKind | undefined) : undefined;
-              const title = lend
-                ? `🤝 ${LEND_LABEL[lend] ?? 'قرض'}: ${acc.get(t.link!.id) ?? '?'}`
-                : t.kind === 'transfer'
-                  ? `انتقال: ${acc.get(t.accountId) ?? '?'} ← ${acc.get(t.toAccountId ?? '') ?? '?'}`
-                  : c
-                    ? `${c.emoji} ${c.name}`
-                    : 'بدون دسته';
+              const title = lend ? (
+                <>
+                  <Handshake className="cat-ic" size={16} strokeWidth={2} aria-hidden="true" /> {LEND_LABEL[lend] ?? 'قرض'}: {acc.get(t.link!.id) ?? '?'}
+                </>
+              ) : t.kind === 'transfer' ? (
+                <>
+                  <ArrowLeftRight className="cat-ic" size={16} strokeWidth={2} aria-hidden="true" /> انتقال: {acc.get(t.accountId) ?? '?'} ← {acc.get(t.toAccountId ?? '') ?? '?'}
+                </>
+              ) : c ? (
+                <>
+                  <CatIcon c={c} /> {c.name}
+                </>
+              ) : (
+                'بدون دسته'
+              );
               return (
                 <li key={t.id}>
                   <span className="fin-list-main">
@@ -191,7 +208,7 @@ function Transactions({ d }: { d: FinanceData }) {
             })}
           </ul>
         ) : (
-          <Empty>{d.txns.length ? 'با این فیلتر چیزی پیدا نشد.' : 'هنوز تراکنشی ثبت نشده.'}</Empty>
+          <Empty art={d.txns.length ? undefined : 'transactions'}>{d.txns.length ? 'با این فیلتر چیزی پیدا نشد.' : 'هنوز تراکنشی ثبت نشده.'}</Empty>
         )}
       </div>
     </>

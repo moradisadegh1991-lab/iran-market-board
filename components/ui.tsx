@@ -1,6 +1,7 @@
 'use client';
 import { fmtPct, isNum } from '@/lib/num';
 import { IN_APP } from '@/lib/api';
+import { Art, type ArtKey } from './icons';
 
 export function PageHead({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
@@ -107,8 +108,15 @@ export function FilterBar({ children }: { children: React.ReactNode }) {
   return <div className="filterbar">{children}</div>;
 }
 
-export function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="empty">{children}</p>;
+/** Nothing here yet. With `art`, an unDraw illustration above the text (components/icons.tsx, rule 89). */
+export function Empty({ children, art }: { children: React.ReactNode; art?: ArtKey }) {
+  if (!art) return <p className="empty">{children}</p>;
+  return (
+    <div className="empty with-art">
+      <Art k={art} />
+      <p>{children}</p>
+    </div>
+  );
 }
 
 /**

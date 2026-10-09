@@ -343,7 +343,7 @@ export default function Assistant({
     // a loan («پنج میلیون به علی قرض دادم») — before the plain transaction, which would take «دادم» for spending
     if (!cur || cur.asking === 'open') {
       for (const a of alts) {
-        const s = lendStart(d, a);
+        const s = lendStart(d, a, today);
         if (s) {
           if (cur) setTxnState(null);
           return flowStep({ kind: 'lend', st: s }, a);

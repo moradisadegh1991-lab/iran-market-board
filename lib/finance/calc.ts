@@ -644,10 +644,11 @@ export function advisorSummary(d: FinanceData, items: PriceItem[], today: Iso) {
       assets: nw.byAsset.map((a) => ({ name: a.name, toman: a.rial === null ? null : T(a.rial), liquid: a.liquid })),
       unpricedAssets: nw.unpriced,
     },
-    loans: d.loans.map((l) => {
+    // the name the user gave a loan can be a person's («قرض به برادر») — numbered, not named (rule 7)
+    loans: d.loans.map((l, i) => {
       const st = loanState(l, today);
       return {
-        name: l.name,
+        name: `${l.direction === 'borrowed' ? 'وام' : 'طلب'} ${i + 1}`,
         direction: l.direction === 'borrowed' ? 'بدهی من' : 'طلب من',
         annualRatePct: l.annualRatePct,
         installmentToman: T(st.installmentRial),

@@ -30,7 +30,7 @@ function LoanForm({ initial, onSave }: { initial?: Loan; onSave: (l: Loan) => st
   return (
     <div className="fin-grid">
       <TextInput label="عنوان" value={name} onChange={setName} placeholder="مثلاً وام ازدواج بانک ملی" />
-      <SelectBox<Loan['direction']> label="نوع" value={direction} onChange={setDirection} options={[{ key: 'borrowed', label: 'بدهی من (وام گرفته‌ام / قسطی خریده‌ام)' }, { key: 'lent', label: 'طلب من (به کسی قرض داده‌ام)' }]} />
+      <SelectBox<Loan['direction']> label="نوع" value={direction} onChange={setDirection} options={[{ key: 'borrowed', label: 'بدهی من (وام گرفته‌ام / قسطی خریده‌ام)' }, { key: 'lent', label: 'طلب من (وام قسطی که داده‌ام)' }]} />
       <TomanInput label="اصل مبلغ (تومان)" value={amount} onChange={setAmount} />
       <NumInput label="نرخ سود سالانه (٪)" value={rate} onChange={setRate} hint="قرض‌الحسنه یا قرض دوستانه: ۰ (کارمزد ۴٪ را هم می‌شود به‌عنوان نرخ داد)" />
       <NumInput label="تعداد اقساط (ماه)" value={months} onChange={setMonths} hint="بدهی یک‌جا: ۱" />
@@ -69,7 +69,7 @@ function Loans({ d }: { d: FinanceData }) {
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   return (
-    <Card title="وام‌ها، اقساط و قرض‌ها">
+    <Card title="وام‌ها و اقساط">
       {d.loans.length ? (
         <ul className="fin-list">
           {d.loans.map((l) => {

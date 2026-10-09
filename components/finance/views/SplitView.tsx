@@ -351,7 +351,7 @@ function Groups({ d }: { d: FinanceData }) {
           ))}
         </div>
       ) : null}
-      {g ? <GroupDetail d={d} g={g} /> : <Empty>هنوز گروهی نساخته‌اید.</Empty>}
+      {g ? <GroupDetail d={d} g={g} /> : <Empty art="split">هنوز گروهی نساخته‌اید.</Empty>}
       <Card>
         <Disclosure label="+ گروه تازه" defaultOpen={!d.splitGroups.length}>
           {(close) => (

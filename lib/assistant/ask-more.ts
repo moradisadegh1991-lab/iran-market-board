@@ -4,9 +4,10 @@
 // («بودجه رو باز کن»). Pure and on the device (rule 7); an action (the alert, the page) is only offered — the screen asks
 // «بله» before it does it.
 import { NAV_GROUPS } from '@/components/nav';
-import { budgetStatus, daysBetween, goalPlan, monthOf, netWorth, unitPrice, upcoming, type PriceItem } from '../finance/calc';
+import { creditBalance } from '../biz/ops';
+import { accountBalances, budgetStatus, daysBetween, goalPlan, loanState, monthOf, netWorth, unitPrice, upcoming, type PriceItem } from '../finance/calc';
 import { lendingSummary } from '../finance/lending';
-import type { FinanceData, Iso } from '../finance/model';
+import { isMoneyAccount, type FinanceData, type Iso } from '../finance/model';
 import { assetPerformance, portfolioPerformance } from '../finance/performance';
 import { amountIn, amountWords, clean, dateWords, numToWords, tokens } from '../finance/voice';
 import { assetIn, type AssetInfo } from './ask';
@@ -127,6 +128,33 @@ export function parseMore(d: FinanceData, raw: string, today: Iso): MoreQ | null
   return null;
 }
 
+/**
+ * What else is owed besides loans with people — the same parts net worth counts (calc.netWorth), so «کی بهم بدهکاره؟»
+ * and «دارایی خالصم چقدره؟» never disagree: the home fund and دنگ positions, installment loans given or taken, and for
+ * the business its credit book (نسیه).
+ */
+function otherClaims(d: FinanceData, today: Iso, business: boolean): { owed: { label: string; rial: number }[]; owe: { label: string; rial: number }[] } {
+  const owed: { label: string; rial: number }[] = [];
+  const owe: { label: string; rial: number }[] = [];
+  if (business) {
+    const r = (d.biz?.credit ?? []).reduce((s, c) => s + Math.max(0, creditBalance(c)), 0);
+    if (r > 0) owed.push({ label: 'نسیه مشتری‌ها', rial: r });
+    return { owed, owe };
+  }
+  const bal = accountBalances(d);
+  for (const a of d.accounts) {
+    if (a.archived || isMoneyAccount(a) || a.kind === 'person') continue;
+    const b = bal[a.id] ?? 0;
+    if (b > 0) owed.push({ label: a.name, rial: b });
+    else if (b < 0) owe.push({ label: a.name, rial: -b });
+  }
+  for (const l of d.loans) {
+    const r = loanState(l, today).remainingPrincipalRial;
+    if (r > 0) (l.direction === 'lent' ? owed : owe).push({ label: `وام «${l.name}»`, rial: r });
+  }
+  return { owed, owe };
+}
+
 export function answerMore(d: FinanceData, items: PriceItem[], today: Iso, q: MoreQ, now: number): MoreReply {
   switch (q.type) {
     case 'nav':
@@ -155,15 +183,24 @@ export function answerMore(d: FinanceData, items: PriceItem[], today: Iso, q: Mo
           : { text: `${who || 'شما'} ${toman(-b)} به ${q.who} بدهکار${who ? ' است' : 'ید'}.`, speech: `${who ? 'کسب‌وکار' : ''} ${words(-b)} به ${q.who} بدهکاری.`.trim(), link };
       }
       const list = (rows: typeof s.owedToMe) => rows.slice(0, 5).map((p) => `${p.account.name} ${toman(Math.abs(p.balanceRial))}`).join('، ');
+      const other = otherClaims(d, today, q.business);
+      const more = (rows: { label: string; rial: number }[]) => (rows.length ? ` به‌علاوه ${rows.map((x) => `${x.label} ${toman(x.rial)}`).join('، ')}.` : '');
+      const sum = (rows: { rial: number }[]) => rows.reduce((t, x) => t + x.rial, 0);
       const parts: string[] = [];
       const spoken: string[] = [];
       if (q.dir !== 'owe') {
-        parts.push(s.owedToMe.length ? `طلب ${who || 'شما'}: ${toman(s.owedToMeRial)} — ${list(s.owedToMe)}.` : 'کسی بدهکار نیست.');
-        spoken.push(s.owedToMe.length ? `${numToWords(s.owedToMe.length)} نفر روی هم ${words(s.owedToMeRial)} ${who ? 'به کسب‌وکار' : 'بهت'} بدهکارن${s.owedToMe[0] ? `؛ بیشترش ${s.owedToMe[0].account.name}` : ''}.` : 'کسی بهت بدهکار نیست.');
+        parts.push((s.owedToMe.length ? `طلب ${who || 'شما'} از اشخاص: ${toman(s.owedToMeRial)} — ${list(s.owedToMe)}.` : 'کسی قرض بدهکار نیست.') + more(other.owed));
+        spoken.push(
+          (s.owedToMe.length ? `${numToWords(s.owedToMe.length)} نفر روی هم ${words(s.owedToMeRial)} ${who ? 'به کسب‌وکار' : 'بهت'} بدهکارن${s.owedToMe[0] ? `؛ بیشترش ${s.owedToMe[0].account.name}` : ''}.` : 'کسی قرض بهت بدهکار نیست.') +
+            (other.owed.length ? ` به‌علاوه ${words(sum(other.owed))} از ${other.owed.map((x) => x.label).slice(0, 3).join(' و ')}.` : ''),
+        );
       }
       if (q.dir !== 'owed') {
-        parts.push(s.iOwe.length ? `بدهی ${who || 'شما'}: ${toman(s.iOweRial)} — ${list(s.iOwe)}.` : `${who || 'شما'} به کسی بدهکار نیست${who ? '' : 'ید'}.`);
-        spoken.push(s.iOwe.length ? `روی هم ${words(s.iOweRial)} به ${numToWords(s.iOwe.length)} نفر بدهکاری.` : 'به کسی بدهکار نیستی.');
+        parts.push((s.iOwe.length ? `بدهی ${who || 'شما'} به اشخاص: ${toman(s.iOweRial)} — ${list(s.iOwe)}.` : `${who || 'شما'} قرض به کسی بدهکار نیست${who ? '' : 'ید'}.`) + more(other.owe));
+        spoken.push(
+          (s.iOwe.length ? `روی هم ${words(s.iOweRial)} به ${numToWords(s.iOwe.length)} نفر بدهکاری.` : 'قرض به کسی بدهکار نیستی.') +
+            (other.owe.length ? ` به‌علاوه ${words(sum(other.owe))} برای ${other.owe.map((x) => x.label).slice(0, 3).join(' و ')}.` : ''),
+        );
       }
       return { text: parts.join(' '), speech: spoken.join(' '), link };
     }
