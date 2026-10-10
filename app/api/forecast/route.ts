@@ -8,6 +8,7 @@
 import { NextResponse } from 'next/server';
 import { calibrate, calibrateEnsemble, coneFromRows, ENSEMBLE_ASSETS, ensembleRows, FORECAST_ASSETS, FORECAST_HORIZONS, type Calibration, type ConeRow, type EnsembleSeries } from '@/lib/engine/forecast';
 import { featureMatrix, forwardIndex, pUpFromQuantiles, type LogQuantiles } from '@/lib/engine/forecast-model';
+import { analogPaths, trendFacts } from '@/lib/engine/forecast-why';
 import { pathOutcomes, planRecord, PLAN_FILL, timingDist, timingFrom, type PlanRecord } from '@/lib/engine/forecast-timing';
 import { buildScenario, type ScenarioInput } from '@/lib/engine/scenario';
 import { errMsg } from '@/lib/http';
@@ -133,7 +134,12 @@ export async function GET(req: Request) {
         const a = at.parts.analog;
         ensemble = {
           parts: { engine: summary(at.parts.engine), empirical: summary(at.parts.empirical), analog: summary(a) },
-          analog: { n: a.n, matches: a.matches.slice(0, 6).map((m) => ({ date: m.date, movePct: pctOf(m.move) })) },
+          analog: {
+            n: a.n,
+            matches: a.matches.slice(0, 6).map((m) => ({ date: m.date, movePct: pctOf(m.move) })),
+            // what the price did after each of those days, day by day — for the «چرا این پیش‌بینی؟» chart (lib/engine/forecast-why.ts)
+            paths: analogPaths(es.dates, es.prices, a.matches.slice(0, 6).map((m) => ({ date: m.date, movePct: pctOf(m.move) })), hz.days),
+          },
           empiricalN: at.parts.empirical.n,
           since: es.dates[0],
         };
@@ -216,6 +222,7 @@ export async function GET(req: Request) {
         ensemble,
         calibration: cal.v,
         annualVolPct: scenario.annualVolPct,
+        trend: trendFacts(s.dates, prices, anchor),
         drivers: scenario.drivers.slice(0, 4),
         basis: s.basis,
         reconstructed: s.reconstructed,

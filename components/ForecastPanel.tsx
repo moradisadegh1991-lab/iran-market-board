@@ -10,6 +10,8 @@ import { fmtPct, fmtPrice } from '@/lib/num';
 import type { HorizonKey, ScenarioRow } from '@/lib/types';
 import type { ConeT, DrawTool } from './ForecastChart';
 import IndicatorChips from './IndicatorChips';
+import ForecastWhy from './ForecastWhy';
+import type { AnalogPath, TrendFacts } from '@/lib/engine/forecast-why';
 import { fmtDateFa } from './finance/kit';
 import { Chips, FilterBar } from './ui';
 
@@ -29,6 +31,8 @@ export interface ForecastData {
   row: ScenarioRow | null;
   calibration: Calibration | null;
   annualVolPct: number | null;
+  /** the trend the cone rests on, for «چرا این پیش‌بینی؟» */
+  trend?: TrendFacts | null;
   drivers: string[];
   reconstructed?: boolean;
   /** 'ensemble' for rial assets (engine + past moves + similar patterns), else the scenario engine */
@@ -41,7 +45,7 @@ export interface ForecastData {
   timing?: Timing | null;
   ensemble?: {
     parts: Record<'engine' | 'empirical' | 'analog', { lowPct: number; midPct: number; highPct: number; pUp: number }>;
-    analog: { n: number; matches: { date: string; movePct: number }[] };
+    analog: { n: number; matches: { date: string; movePct: number }[]; paths?: AnalogPath[] };
     empiricalN: number;
     since: string;
   } | null;
@@ -343,6 +347,7 @@ export default function ForecastPanel({
             ) : (
               <p className="fc-cal muted">تاریخچه این دارایی برای سنجیدن کارنامه این افق کافی نیست.</p>
             )}
+            <ForecastWhy data={shown} hLabel={hLabel} />
             {shown.ensemble ? (
               <div className="fc-ens">
                 <h3>سه نگاه به {hLabel === 'هفتگی' ? 'هفته' : hLabel === 'ماهانه' ? 'ماه' : hLabel === '۳ ماهه' ? 'سه ماه' : 'سال'} آینده</h3>

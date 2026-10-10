@@ -129,8 +129,9 @@ export interface NewsLoad {
   errors: string[];
 }
 
-export async function loadNews(start: string, end: string, assets: SimAsset[], deadlineMs: number): Promise<NewsLoad> {
-  const topics = NEWS_TOPICS.filter((t) => t.assets.some((a) => assets.includes(a)));
+export async function loadNews(start: string, end: string, assets: SimAsset[], deadlineMs: number, opts: { langs?: ('fa' | 'en')[] } = {}): Promise<NewsLoad> {
+  // `langs` lets the forecast page skip the Persian feeds, which Google refuses to US hosts (Vercel included), instead of waiting for them
+  const topics = NEWS_TOPICS.filter((t) => t.assets.some((a) => assets.includes(a)) && (!opts.langs || opts.langs.includes(t.lang)));
   const chunks = monthChunks(addDays(start, -12), end, topics);
   const today = tehranDate();
   const errors: string[] = [];
