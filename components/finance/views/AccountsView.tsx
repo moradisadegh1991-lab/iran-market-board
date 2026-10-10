@@ -1,18 +1,19 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { accountBalances, netWorth, unitPrice } from '@/lib/finance/calc';
 import { assetPerformance, portfolioPerformance, type AssetPerf } from '@/lib/finance/performance';
 import { CPI_SOURCE } from '@/lib/finance/inflation';
 import { api } from '@/lib/api';
 import { deleteAccount, editAccount } from '@/lib/finance/actions';
-import { ACCOUNT_KIND_LABEL, USER_ACCOUNT_KINDS, emptyData, MARKET_ASSETS, newId, normalizeData, tomanToRial, type AccountKind, type FinanceData, type MarketKey } from '@/lib/finance/model';
+import { ACCOUNT_KIND_LABEL, USER_ACCOUNT_KINDS, MARKET_ASSETS, newId, tomanToRial, type AccountKind, type FinanceData, type MarketKey } from '@/lib/finance/model';
 import { Empty, PageHead, Toggle } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
 import ClassicMigrate from '../ClassicMigrate';
+import PayeeBook from '../PayeeBook';
 import { createAccountForSource, linkSource, sourceLabel } from '@/lib/finance/sources';
 import { BalanceSource } from '../BalanceChecks';
 import { Card, confirmDelete, Disclosure, fmtDateFa, fmtPctFa, JalaliDate, Money, NumInput, parseAmount, SelectBox, TextInput, TomanInput } from '../kit';
-import { download } from './TransactionsView';
 
 /** Cards and bank accounts the app found in SMS: link each to an account, or make one for it. */
 function SmsSources({ d }: { d: FinanceData }) {
@@ -582,102 +583,19 @@ function Assets({ d }: { d: FinanceData }) {
   );
 }
 
-function SettingField({ d, k, label, hint }: { d: FinanceData; k: keyof FinanceData['settings']; label: string; hint: string }) {
-  const { update } = useFinance();
-  const [v, setV] = useState(String(d.settings[k]));
-  const n = parseAmount(v);
-  const valid = Number.isFinite(n) && n >= 0 && n <= 1000;
-  return (
-    <NumInput
-      label={label}
-      hint={valid ? hint : 'عدد نامعتبر — ذخیره نشد'}
-      value={v}
-      onChange={(x) => {
-        setV(x);
-        const m = parseAmount(x);
-        if (Number.isFinite(m) && m >= 0 && m <= 1000) update((dr) => void (dr.settings[k] = m));
-      }}
-    />
-  );
-}
-
-function SettingsCard({ d }: { d: FinanceData }) {
-  return (
-    <Card title="تنظیمات">
-      <div className="fin-grid">
-        <SettingField d={d} k="inflationPct" label="تورم سالانه مورد انتظار (٪)" hint="برای قیمت آینده اهداف و بازده واقعی" />
-        <SettingField d={d} k="safeYieldPct" label="سود صندوق درآمد ثابت (٪ سالانه)" hint="حداقل بازدهی که هر انتخاب دیگری باید از آن بیشتر باشد" />
-        <SettingField d={d} k="emergencyMonths" label="صندوق اضطراری (ماه خرج)" hint="معمولاً ۳ تا ۶ ماه؛ برای درآمد ناپایدار بیشتر" />
-      </div>
-    </Card>
-  );
-}
-
-function Backup({ d }: { d: FinanceData }) {
-  const { replace, today } = useFinance();
-  const file = useRef<HTMLInputElement>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  return (
-    <Card title="پشتیبان و انتقال">
-      <p className="muted small">
-        دفتر فقط در همین مرورگر است؛ پاک کردن داده‌های مرورگر یا عوض کردن گوشی آن را از بین می‌برد. هر چند وقت یک بار فایل پشتیبان بگیرید. فایل پشتیبان رمزگذاری نشده؛ جای امنی نگهش دارید.
-      </p>
-      <div className="fin-actions">
-        <button className="btn" onClick={() => void download(`mali-man-backup-${today}.json`, JSON.stringify(d, null, 1), 'application/json')}>
-          دریافت فایل پشتیبان
-        </button>
-        <button className="fin-mini" onClick={() => file.current?.click()}>
-          بازگردانی از فایل
-        </button>
-        <input
-          ref={file}
-          type="file"
-          accept="application/json,.json"
-          hidden
-          onChange={async (e) => {
-            const f = e.target.files?.[0];
-            e.target.value = '';
-            if (!f) return;
-            try {
-              const next = normalizeData(JSON.parse(await f.text()), today);
-              if (!window.confirm(`دفتر فعلی با این فایل جایگزین شود؟ (${next.txns.length.toLocaleString('fa-IR')} تراکنش، ${next.accounts.length.toLocaleString('fa-IR')} حساب)`)) return;
-              replace(next);
-              setMsg('بازگردانی شد.');
-            } catch (err) {
-              setMsg(err instanceof Error ? err.message : 'فایل خوانده نشد.');
-            }
-          }}
-        />
-        <button
-          className="fin-mini ghost"
-          onClick={() => {
-            if (window.confirm('همه داده‌های مالی این مرورگر پاک شود؟ اول پشتیبان بگیرید.') && window.confirm('مطمئن هستید؟ این کار برگشت ندارد.')) {
-              replace(emptyData(today));
-              setMsg('دفتر خالی شد.');
-            }
-          }}
-        >
-          پاک کردن همه
-        </button>
-      </div>
-      {msg ? (
-        <p className="note" role="status">
-          {msg}
-        </p>
-      ) : null}
-    </Card>
-  );
-}
-
 function Page({ d }: { d: FinanceData }) {
   return (
     <>
-      <PageHead title="حساب‌ها و کارت‌ها">موجودی کارت‌ها و حساب‌ها (از پیامک بانک)، دارایی‌هایی که با قیمت روز ارزش‌گذاری می‌شوند، تنظیمات محاسبه و پشتیبان‌گیری.</PageHead>
+      <PageHead title="حساب‌ها و کارت‌ها">موجودی کارت‌ها و حساب‌ها (از پیامک بانک)، دارایی‌هایی که با قیمت روز ارزش‌گذاری می‌شوند، و دفترچه شماره کارت و شبای اشخاص.</PageHead>
       <Accounts d={d} />
       <SmsSources d={d} />
       <Assets d={d} />
-      <SettingsCard d={d} />
-      <Backup d={d} />
+      <PayeeBook d={d} />
+      <Card title="تنظیمات و پشتیبان">
+        <p className="muted small">
+          تورم و سود مبنای محاسبه، صندوق اضطراری، یادآوری اقساط و قرض، و فایل پشتیبان دفتر حالا همه در <Link href="/settings">صفحه تنظیمات</Link> است.
+        </p>
+      </Card>
       <ClassicMigrate d={d} always />
     </>
   );

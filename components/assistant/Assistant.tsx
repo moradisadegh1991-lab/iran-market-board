@@ -688,7 +688,7 @@ export default function Assistant({
 }
 
 /** whose voice and how fast (rule 86): the app's own voices in an APK that carries them; the pace everywhere */
-function VoicePicker({ io, onSample }: { io: VoiceIO; onSample: (text: string) => void }) {
+export function VoicePicker({ io, onSample }: { io: VoiceIO; onSample: (text: string) => void }) {
   const [pref, setPref] = useState(() => voicePref());
   const voices = io.voices ?? [];
   const current = pref.voice && voices.includes(pref.voice) ? pref.voice : voices[0] ?? null;
@@ -726,7 +726,7 @@ const WAKE_LABEL: Record<WakeSensitivity, string> = {
 };
 
 /** «صدا زدن با «مالی من»» (rule 75): on/off, sensitivity, and what Android needs for it — app only. */
-function WakeSettings() {
+export function WakeSettings() {
   const [w] = useState(() => wakeIO());
   const [st, setSt] = useState<WakeState | null>(null);
   const [busy, setBusy] = useState(false);

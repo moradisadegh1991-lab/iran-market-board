@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { bookLendWithSms } from '@/lib/finance/lend-sms';
+import { addDays } from '@/lib/finance/calc';
 import { isPerson, LEND_LABEL, lendSmsCandidates, people, type LendKind } from '@/lib/finance/lending';
 import { newId, tomanToRial, type FinanceData, type TxnKind } from '@/lib/finance/model';
 import { Chips } from '../ui';
@@ -25,6 +26,9 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
   const [kind, setKind] = useState<FormKind>('expense');
   const [lendKind, setLendKind] = useState<LendKind>('lend');
   const [person, setPerson] = useState('');
+  // when a loan is to be paid back — optional; reminded `settings.reminderDays` before (rule 90)
+  const [hasDue, setHasDue] = useState(false);
+  const [dueOn, setDueOn] = useState(() => addDays(today, 30));
   const [amount, setAmount] = useState('');
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
   const [toAccountId, setToAccountId] = useState(accounts[1]?.id ?? '');
@@ -46,6 +50,8 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
     if (date > today) return setErr('تاریخ نمی‌تواند در آینده باشد؛ پرداخت‌های آینده را در «وام، چک و قبض» ثبت کنید.');
     if (kind === 'loan') {
       if (!person.trim()) return setErr('نام کسی را که قرض داده یا گرفته بنویسید.');
+      const withDue = hasDue && (lendKind === 'lend' || lendKind === 'borrow');
+      if (withDue && dueOn <= date) return setErr('موعد بازپرداخت باید بعد از تاریخ قرض باشد.');
       let r: unknown = null;
       let withSms = false;
       update((d) => {
@@ -53,11 +59,12 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
         const acc = d.accounts.find((a) => a.id === accountId);
         const sms = lendSmsCandidates(d, { kind: lendKind, amountRial: tomanToRial(t), accountId, side: acc?.bizId ? 'biz' : 'me', today: date })[0] ?? null;
         withSms = !!sms;
-        r = bookLendWithSms(d, { kind: lendKind, person, accountId, amountRial: tomanToRial(t), date, note }, sms);
+        r = bookLendWithSms(d, { kind: lendKind, person, accountId, amountRial: tomanToRial(t), date, note, dueOn: withDue ? dueOn : null }, sms);
       });
       if (typeof r === 'string') return setErr(r);
       setErr(null);
-      setSaved(`ثبت شد: ${LEND_LABEL[lendKind]} (${person.trim()}) ${amount}${withSms ? ' — با همان پیامک بانک، یک بار' : ''}`);
+      setSaved(`ثبت شد: ${LEND_LABEL[lendKind]} (${person.trim()}) ${amount}${withSms ? ' — با همان پیامک بانک، یک بار' : ''}${withDue ? `؛ ${data.settings.reminderDays.toLocaleString('fa-IR')} روز قبل از موعد یادآوری می‌شود` : ''}`);
+      setHasDue(false);
       setAmount('');
       setNote('');
       onDone?.();
@@ -114,6 +121,16 @@ export default function TxnForm({ data, onDone, compact }: { data: FinanceData; 
               <option key={a.id} value={a.name} />
             ))}
           </datalist>
+          {lendKind === 'lend' || lendKind === 'borrow' ? (
+            <>
+              <label className="toggle fin-span">
+                <input type="checkbox" checked={hasDue} onChange={(e) => setHasDue(e.target.checked)} />
+                <span className="track" aria-hidden="true" />
+                {lendKind === 'lend' ? 'قرار است تا تاریخ مشخصی پس بدهد' : 'قرار است تا تاریخ مشخصی پس بدهم'} (یادآوری می‌شود)
+              </label>
+              {hasDue ? <JalaliDate label="موعد بازپرداخت" value={dueOn} onChange={setDueOn} yearsBack={0} yearsAhead={5} /> : null}
+            </>
+          ) : null}
           <p className="fin-span muted small">
             قرض درآمد یا خرج نیست: در «بدهی، طلب و گروه» به‌عنوان طلب یا بدهی شما می‌ماند تا پس داده شود.
             {data.accounts.find((a) => a.id === accountId)?.bizId ? ' از حساب کسب‌وکار است، پس جزو طلب و بدهی کسب‌وکار ثبت می‌شود، نه شخصی.' : ''}

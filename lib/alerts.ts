@@ -16,13 +16,14 @@ export const ALERT_KEYS = {
   readAt: 'imf.notif.readat.v1',
 } as const;
 
-export type NotifyCat = 'trade' | 'alert' | 'move' | 'sms' | 'biz' | 'data';
+export type NotifyCat = 'trade' | 'alert' | 'move' | 'sms' | 'biz' | 'due' | 'data';
 export const NOTIFY_CATS: { k: NotifyCat; t: string; d: string }[] = [
   { k: 'trade', t: 'معاملات برخط', d: 'هر خرید و فروش معامله‌گر برخط و پایان جلسه' },
   { k: 'alert', t: 'هشدار قیمت', d: 'هشدارهایی که خودتان تعریف می‌کنید' },
   { k: 'move', t: 'جهش قیمت', d: 'وقتی دارایی بیش از حد تعیین‌شده در روز جابه‌جا شود' },
   { k: 'sms', t: 'پیامک بانکی', d: 'تراکنش تازه‌ای که از پیامک خوانده شد' },
   { k: 'biz', t: 'سفارش آنلاین', d: 'سفارش یا نوبتی که مشتری از صفحه آنلاین یا تلگرام کسب‌وکار شما فرستاد' },
+  { k: 'due', t: 'یادآوری سررسید', d: 'قسط، چک، قبض و قرضی که موعدش نزدیک است — چند روز قبل، طبق تنظیمات' },
   { k: 'data', t: 'وضعیت داده', d: 'قطع شدن داده یا کهنه شدن قیمت‌ها' },
 ];
 
@@ -33,10 +34,11 @@ export interface NotifyPrefs {
   move: boolean;
   sms: boolean;
   biz: boolean;
+  due: boolean;
   data: boolean;
   movePct: number;
 }
-export const DEFAULT_PREFS: NotifyPrefs = { on: true, trade: true, alert: true, move: true, sms: true, biz: true, data: false, movePct: 2 };
+export const DEFAULT_PREFS: NotifyPrefs = { on: true, trade: true, alert: true, move: true, sms: true, biz: true, due: true, data: false, movePct: 2 };
 
 export interface PriceAlert {
   asset: string;
@@ -72,6 +74,7 @@ export function normalizePrefs(raw: unknown): NotifyPrefs {
     move: p.move !== false,
     sms: p.sms !== false,
     biz: p.biz !== false,
+    due: p.due !== false,
     data: p.data === true,
     movePct: isNum(p.movePct) && p.movePct > 0 ? p.movePct : DEFAULT_PREFS.movePct,
   };

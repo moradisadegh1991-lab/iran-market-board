@@ -1,6 +1,7 @@
 import { forgetFundTxn } from './fund';
 import { forgetSplitTxn } from './split';
 import { forgetBizTxn } from '@/lib/biz/ops';
+import { settleLendDue } from './lending';
 // Mutations that touch more than one list at once. Kept pure (they mutate a draft passed in) so the
 // UI and scripts/finance-test.ts exercise the exact same code.
 import { setCurrentBalance } from './balance';
@@ -57,6 +58,7 @@ export function settleDue(d: FinanceData, due: Due, accountId: string, date: Iso
     });
     return null;
   }
+  if (due.type === 'lend') return settleLendDue(d, due.refId, accountId, amountRial, date);
   const b = d.bills.find((x) => x.id === due.refId);
   if (!b) return 'قبض پیدا نشد.';
   const mk = due.monthKey ?? monthKey(monthOf(date));
@@ -91,6 +93,10 @@ export function deleteTxn(d: FinanceData, id: string): void {
     forgetSplitTxn(d, id);
   } else if (link.type === 'biz') {
     forgetBizTxn(d, t);
+  } else if (link.type === 'lend' && link.due) {
+    // the repayment that closed a loan carried its date: the loan is open again, and so is its date
+    const who = d.accounts.find((x) => x.id === link.id);
+    if (who && !who.dueOn) who.dueOn = link.due;
   } else if (link.type === 'bill') {
     const b = d.bills.find((x) => x.id === link.id);
     if (b) {

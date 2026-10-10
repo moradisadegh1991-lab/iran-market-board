@@ -32,6 +32,15 @@ interface Ctx {
   log: LogEntry[];
   askPermission: () => Promise<string>;
   native: boolean;
+  /**
+   * Hands notifications to the phone's alarm, posted at `at` even with the app closed (Capacitor LocalNotifications →
+   * AlarmManager, inexact when exact alarms are not allowed; restored after a reboot by the plugin). Resolves false on
+   * the website, or when the phone refused notifications — then nothing was scheduled.
+   */
+  scheduleAt: (list: { id: number; at: number; title: string; body: string; cat: NotifyCat; route?: string }[]) => Promise<boolean>;
+  cancelScheduled: (ids: number[]) => Promise<void>;
+  /** can scheduleAt work here: the APK with notifications allowed */
+  canSchedule: () => Promise<boolean>;
 }
 const NotifyCtx = createContext<Ctx | null>(null);
 export function useNotify(): Ctx {
@@ -60,11 +69,12 @@ interface LocalNotifications {
   createChannel(o: { id: string; name: string; description: string; importance: number; visibility: number }): Promise<void>;
   checkPermissions(): Promise<{ display: string }>;
   requestPermissions(): Promise<{ display: string }>;
-  schedule(o: { notifications: { id: number; title: string; body: string; channelId: string; extra?: Record<string, string> }[] }): Promise<unknown>;
+  schedule(o: { notifications: { id: number; title: string; body: string; channelId: string; extra?: Record<string, string>; schedule?: { at: Date; allowWhileIdle?: boolean } }[] }): Promise<unknown>;
+  cancel?(o: { notifications: { id: number }[] }): Promise<void>;
   addListener?(event: 'localNotificationActionPerformed', fn: (e: { notification?: { extra?: { route?: string } } }) => void): Promise<{ remove: () => void }> | { remove: () => void };
 }
 /** where a tap on each kind of notification lands */
-const ROUTE: Record<NotifyCat, string> = { trade: '/live', alert: '/alerts', move: '/market', sms: '/import', biz: '/biz/orders', data: '/bot' };
+const ROUTE: Record<NotifyCat, string> = { trade: '/live', alert: '/alerts', move: '/market', sms: '/import', biz: '/biz/orders', due: '/debts', data: '/bot' };
 function plugin(): LocalNotifications | null {
   const c = (window as { Capacitor?: { Plugins?: { LocalNotifications?: LocalNotifications } } }).Capacitor;
   return c?.Plugins?.LocalNotifications ?? null;
@@ -75,7 +85,8 @@ function ensureChannels(p: LocalNotifications) {
   channelsReady ??= Promise.all(
     NOTIFY_CATS.map((c) =>
       // importance 4 = heads-up: the notice slides over whatever is on the screen
-      p.createChannel({ id: `imb-${c.k}`, name: c.t, description: c.d, importance: c.k === 'data' ? 3 : 4, visibility: 1 }).catch(() => undefined),
+      // a reminder names a loan or a person and an amount: private on the lock screen (0 = «content hidden» there)
+      p.createChannel({ id: `imb-${c.k}`, name: c.t, description: c.d, importance: c.k === 'data' ? 3 : 4, visibility: c.k === 'due' ? 0 : 1 }).catch(() => undefined),
     ),
   ).then(() => undefined);
   return channelsReady;
@@ -176,6 +187,38 @@ export default function NotifyProvider({ children }: { children: React.ReactNode
     }
   }, []);
 
+  const canSchedule = useCallback(async () => {
+    const plug = plugin();
+    if (!plug) return false;
+    try {
+      await ensureChannels(plug);
+      return (await plug.checkPermissions())?.display === 'granted';
+    } catch {
+      return false;
+    }
+  }, []);
+  const scheduleAt = useCallback<Ctx['scheduleAt']>(
+    async (list) => {
+      const plug = plugin();
+      if (!plug || !(await canSchedule())) return false;
+      if (!list.length) return true;
+      try {
+        await plug.schedule({
+          notifications: list.map((n) => ({ id: n.id, title: n.title, body: n.body, channelId: `imb-${n.cat}`, extra: { route: n.route ?? ROUTE[n.cat] }, schedule: { at: new Date(n.at), allowWhileIdle: true } })),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [canSchedule],
+  );
+  const cancelScheduled = useCallback(async (ids: number[]) => {
+    const plug = plugin();
+    if (!plug?.cancel || !ids.length) return;
+    await plug.cancel({ notifications: ids.map((id) => ({ id })) }).catch(() => undefined);
+  }, []);
+
   const askPermission = useCallback(async () => {
     const plug = plugin();
     try {
@@ -209,7 +252,7 @@ export default function NotifyProvider({ children }: { children: React.ReactNode
   }, [snap, notify, setAlerts]);
 
   return (
-    <NotifyCtx.Provider value={{ notify, unread: log.filter((e) => e.at > readAt).length, markRead, prefs, setPrefs, alerts, setAlerts, log, askPermission, native }}>
+    <NotifyCtx.Provider value={{ notify, unread: log.filter((e) => e.at > readAt).length, markRead, prefs, setPrefs, alerts, setAlerts, log, askPermission, native, scheduleAt, cancelScheduled, canSchedule }}>
       {children}
       <div className="toasts" aria-live="polite">
         {toasts.map((t) => (

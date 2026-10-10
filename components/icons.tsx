@@ -43,6 +43,7 @@ import {
   ReceiptText,
   Scale,
   Settings,
+  SlidersHorizontal,
   ShoppingBag,
   ShoppingCart,
   Store,
@@ -99,6 +100,7 @@ export const PAGE_ICON: Record<string, LucideIcon> = {
   '/game': Gamepad2,
   '/alerts': BellRing,
   '/bot': Bot,
+  '/settings': SlidersHorizontal,
 };
 
 /** the built-in categories (model.ts DEFAULT_CATEGORIES, BIZ_CATEGORIES) */
@@ -140,7 +142,9 @@ export function CatIcon({ c, size = 16 }: { c: Pick<Category, 'id' | 'emoji'> | 
 }
 
 /** an unDraw illustration (unDraw license: free, commercial, no attribution) — sanitized and recolored, in public/art */
-export type ArtKey = 'wallet' | 'transactions' | 'inbox' | 'goals' | 'lend' | 'split' | 'fund' | 'alerts' | 'income' | 'start' | 'shop';
+export type ArtKey = 'wallet' | 'transactions' | 'inbox' | 'goals' | 'lend' | 'split' | 'fund' | 'alerts' | 'income' | 'start' | 'shop' | LessonArt;
+/** one per lesson (lib/learn/lessons.ts) — the same pipeline as the rest */
+export type LessonArt = 'l_budget' | 'l_saving' | 'l_habits' | 'l_inflation' | 'l_real' | 'l_compound' | 'l_currency' | 'l_risk' | 'l_costs' | 'l_size' | 'l_chart' | 'l_forecast' | 'l_mind' | 'l_hold' | 'l_scam' | 'l_diversify' | 'l_backtest';
 export function Art({ k, className }: { k: ArtKey; className?: string }) {
   // a plain <img>: an SVG shown this way runs nothing; relative to the site root, which is the APK's root too
   // eslint-disable-next-line @next/next/no-img-element

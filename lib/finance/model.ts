@@ -55,6 +55,8 @@ export interface Account {
   balanceOk?: { key: string; diffRial: number } | null;
   /** the business's own account (its till, its card): money the owner holds, but not personal income or spending (lib/biz, rule 80) */
   bizId?: string | null;
+  /** a person (kind 'person') only: the day the loan is to be repaid — by them or by the user — reminded before (rule 90) */
+  dueOn?: Iso | null;
 }
 
 export type CategoryKind = 'expense' | 'income';
@@ -77,7 +79,7 @@ export interface Txn {
   categoryId?: string | null;
   note?: string;
   /** set when the transaction was created by paying a loan installment / bill / cheque */
-  link?: { type: 'loan' | 'bill' | 'cheque' | 'income' | 'fund' | 'split' | 'biz' | 'lend'; id: string; n?: number; mk?: string } | null;
+  link?: { type: 'loan' | 'bill' | 'cheque' | 'income' | 'fund' | 'split' | 'biz' | 'lend'; id: string; n?: number; mk?: string; due?: Iso } | null;
   /** where it came from; absent = typed in by hand */
   src?: 'statement' | 'sms' | 'classic';
   /** bank tracking / document number, when the statement or SMS had one */
@@ -251,6 +253,8 @@ export interface Settings {
   safeYieldPct: number;
   /** months of expenses the emergency fund should cover */
   emergencyMonths: number;
+  /** remind an installment, cheque, bill or person loan this many days before its date (0 = on the day; rule 90) */
+  reminderDays: number;
 }
 
 export interface FinanceData {
@@ -279,6 +283,25 @@ export interface FinanceData {
   splitGroups: SplitGroup[];
   /** کسب‌وکار من — the shop the user runs (lib/biz); null until they set one up */
   biz?: Business | null;
+  /** دفترچه شماره کارت و شبا — other people's card, شبا and account numbers (payees.ts, rule 92); device only, never to the advisor */
+  payees?: Payee[];
+}
+
+export interface PayeeNumber {
+  id: string;
+  kind: 'card' | 'sheba' | 'account';
+  /** digits only; a شبا as IR + 24 digits */
+  value: string;
+  /** the bank: from the number itself (card BIN, شبا code) or typed for an account number */
+  bank?: string | null;
+  /** e.g. «حساب حقوق» */
+  label?: string;
+}
+export interface Payee {
+  id: string;
+  name: string;
+  note?: string;
+  numbers: PayeeNumber[];
 }
 
 /** Jalali month 'jy-jm' (e.g. '1405-7'), the unit of a home fund's calendar. */
@@ -429,7 +452,9 @@ export const BIZ_CATEGORIES: Category[] = [
 export const BIZ_DRAW_CATEGORY = 'i-bizdraw';
 export const BIZ_CAPITAL_CATEGORY = 'c-bizcap';
 
-export const DEFAULT_SETTINGS: Settings = { inflationPct: 40, safeYieldPct: 30, emergencyMonths: 6 };
+/** the longest reminder lead the settings accept */
+export const MAX_REMINDER_DAYS = 30;
+export const DEFAULT_SETTINGS: Settings = { inflationPct: 40, safeYieldPct: 30, emergencyMonths: 6, reminderDays: 3 };
 
 export function emptyData(today: Iso): FinanceData {
   return {
@@ -451,6 +476,7 @@ export function emptyData(today: Iso): FinanceData {
     funds: [],
     splitGroups: [],
     biz: null,
+    payees: [],
   };
 }
 
@@ -491,10 +517,14 @@ export function normalizeData(raw: unknown, today: Iso): FinanceData {
       .filter((g) => g && typeof g.id === 'string' && Array.isArray(g.members))
       .map((g) => ({ ...g, expenses: arr<SplitExpense>(g.expenses), settlements: arr<SplitSettlement>(g.settlements), accountId: g.accountId ?? null })),
     biz: normalizeBusiness(raw.biz),
+    payees: arr<Payee>(raw.payees)
+      .filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string')
+      .map((p) => ({ ...p, numbers: arr<PayeeNumber>(p.numbers).filter((x) => x && typeof x.value === 'string' && (x.kind === 'card' || x.kind === 'sheba' || x.kind === 'account')) })),
     settings: {
       inflationPct: finite(s.inflationPct, DEFAULT_SETTINGS.inflationPct),
       safeYieldPct: finite(s.safeYieldPct, DEFAULT_SETTINGS.safeYieldPct),
       emergencyMonths: finite(s.emergencyMonths, DEFAULT_SETTINGS.emergencyMonths),
+      reminderDays: Math.min(MAX_REMINDER_DAYS, Math.max(0, Math.round(finite(s.reminderDays, DEFAULT_SETTINGS.reminderDays)))),
     },
   };
 }

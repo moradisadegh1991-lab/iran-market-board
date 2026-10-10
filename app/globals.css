@@ -785,3 +785,11 @@ ol.list { counter-reset: n; }
 .icon-btn.bell { position: relative; }
 .icon-btn .badge { position: absolute; top: -4px; inset-inline-start: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: #e5484d; color: #fff; font-size: 11px; font-weight: 800; display: grid; place-items: center; line-height: 1; box-shadow: 0 0 0 2px var(--lapis); }
 .art.art-hero { display: block; margin: 2px auto 12px; width: min(220px, 62%); }
+
+/* lessons: an illustration per lesson (rule 89), and «گوش بده» beside each step's title */
+.learn-list button:has(.learn-thumb) { grid-template-columns: 52px minmax(0, 1fr); column-gap: 12px; align-items: center; }
+.learn-thumb { grid-row: span 2; width: 52px; height: 44px; object-fit: contain; margin: 0; }
+.learn-art { display: block; width: min(100%, 260px); height: auto; max-height: 160px; object-fit: contain; margin: 4px auto 10px; }
+.learn-step-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.learn-step-head h3 { margin: 0; }
+.learn-listen { display: inline-flex; align-items: center; gap: 4px; }

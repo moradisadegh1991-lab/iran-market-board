@@ -1,7 +1,10 @@
 'use client';
 import Link from 'next/link';
-import { Component, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { LESSONS, lessonById, questionById, TRACKS, type Lesson, type QuizQ } from '@/lib/learn/lessons';
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Square, Volume2 } from 'lucide-react';
+import { LESSONS, lessonById, questionById, stepSpeech, TRACKS, type Lesson, type QuizQ } from '@/lib/learn/lessons';
+import { voiceIO, type VoiceIO } from '@/lib/voice-io';
+import { Art, type ArtKey } from '../icons';
 import { dueDeck, emptyLearn, finishLesson, LEARN_KEY, MASTERED, nextLesson, normalizeLearn, progress, review, type LearnState } from '@/lib/learn/review';
 import { tehranDate } from '@/lib/num';
 import { PageHead } from '../ui';
@@ -81,6 +84,75 @@ function Question({ q, seed, onDone, label }: { q: QuizQ; seed: string; onDone: 
   );
 }
 
+/**
+ * «گوش بده»: the step read aloud — the app's own Persian voice in the APK, the phone's or the browser's otherwise. The
+ * voice is loaded on the first tap only (rule 72); while it is on, the next step is read as soon as it is opened.
+ */
+function Listen({ lesson, step }: { lesson: Lesson; step: number }) {
+  const io = useRef<VoiceIO | null>(null);
+  const [on, setOn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [mute, setMute] = useState<string | null>(null);
+  const turn = useRef(0);
+  const say = async (i: number) => {
+    const t = ++turn.current;
+    const v = io.current;
+    if (!v) return;
+    v.hush();
+    setPlaying(true);
+    try {
+      await v.speak(stepSpeech(lesson, i));
+    } catch {
+      // a voice that failed mid-way: the text is still on the screen
+    }
+    if (turn.current === t) setPlaying(false);
+  };
+  useEffect(() => {
+    if (on) void say(step);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, on]);
+  useEffect(() => {
+    return () => {
+      turn.current++;
+      io.current?.hush();
+    };
+  }, []);
+  if (mute) return <p className="muted small" data-testid="learn-no-voice">{mute}</p>;
+  return (
+    <button
+      type="button"
+      className="fin-mini learn-listen"
+      data-testid="learn-listen"
+      aria-pressed={on && playing}
+      disabled={busy}
+      onClick={async () => {
+        if (on && playing) {
+          turn.current++;
+          io.current?.hush();
+          setPlaying(false);
+          setOn(false);
+          return;
+        }
+        if (!io.current) {
+          setBusy(true);
+          try {
+            io.current = await voiceIO();
+          } finally {
+            setBusy(false);
+          }
+          if (!io.current.canSpeak) return setMute('این دستگاه صدای فارسی برای خواندن ندارد؛ درس را بخوانید. (در اپ اندروید، صدای فارسی خود اپ هست.)');
+        }
+        if (on) void say(step);
+        else setOn(true);
+      }}
+    >
+      {on && playing ? <Square size={14} aria-hidden="true" /> : <Volume2 size={15} aria-hidden="true" />}
+      {busy ? ' آماده کردن صدا…' : on && playing ? ' توقف' : on ? ' دوباره بخوان' : ' گوش بده'}
+    </button>
+  );
+}
+
 function LessonPlayer({ lesson, s, save, today, onExit }: { lesson: Lesson; s: LearnState; save: (x: LearnState) => void; today: string; onExit: () => void }) {
   const [step, setStep] = useState(0);
   const [phase, setPhase] = useState<'read' | 'quiz' | 'done'>('read');
@@ -109,7 +181,11 @@ function LessonPlayer({ lesson, s, save, today, onExit }: { lesson: Lesson; s: L
             <li key={i} className={i <= step ? 'on' : ''} />
           ))}
         </ol>
-        <h3>{st.title}</h3>
+        {step === 0 && lesson.art ? <Art k={lesson.art as ArtKey} className="learn-art" /> : null}
+        <div className="learn-step-head">
+          <h3>{st.title}</h3>
+          <Listen lesson={lesson} step={step} />
+        </div>
         {st.body.map((b, i) => (
           <p key={i} className="learn-p">
             <Rich text={b} />
@@ -395,6 +471,7 @@ export default function LearnView() {
                   return (
                     <li key={l.id}>
                       <button onClick={() => show({ kind: 'lesson', id: l.id })} className={done ? 'done' : ''}>
+                        {l.art ? <Art k={l.art as ArtKey} className="learn-thumb" /> : null}
                         <span className="learn-li-t">
                           {done ? <span aria-label="تمام‌شده">✓ </span> : null}
                           {l.title}

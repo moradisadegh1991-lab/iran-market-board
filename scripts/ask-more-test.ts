@@ -39,6 +39,9 @@ ok('opening a page: by its menu name or an everyday word; asked, not done («…
   const d = book();
   for (const [s, href] of [
     ['بودجه رو باز کن', '/budget'],
+    ['تنظیمات رو باز کن', '/settings'],
+    ['برو به تنظیمات کسب و کار', '/biz/settings'],
+    ['یادآوری‌ها رو نشونم بده صفحه', '/settings'],
     ['برو به صندوق خانگی', '/fund'],
     ['دنگ رو باز کن', '/split'],
     ['صفحه نمودار', '/charts'],
