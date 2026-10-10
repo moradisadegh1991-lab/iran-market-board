@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { budgetStatus, cashForecast, goalPlan, health, monthForecast, monthLabel, monthOf, monthTotals, netWorth, shiftMonth, upcoming } from '@/lib/finance/calc';
+import { budgetStatus, cashForecast, daysBetween, goalPlan, health, monthForecast, monthLabel, monthOf, monthTotals, netWorth, shiftMonth, upcoming } from '@/lib/finance/calc';
 import type { FinanceData } from '@/lib/finance/model';
 import { isNum } from '@/lib/num';
 import { PageHead } from '../../ui';
@@ -11,6 +11,7 @@ import TxnForm from '../TxnForm';
 import ClassicMigrate from '../ClassicMigrate';
 import { BalanceChecks } from '../BalanceChecks';
 import { unlinkedSources } from '@/lib/finance/sources';
+import { whenText } from '@/lib/finance/reminders';
 import { CatIcon } from '../../icons';
 import { Art } from '../../icons';
 
@@ -31,7 +32,19 @@ function alerts(d: FinanceData, items: ReturnType<typeof useFinance>['items'], t
   const out: Alert[] = [];
   const dues = upcoming(d, today, 30);
   const overdue = dues.filter((x) => x.overdue);
-  if (overdue.length) out.push({ tone: 'bad', text: `${overdue.length.toLocaleString('fa-IR')} قسط/چک/قبض سررسید گذشته و ثبت‌نشده دارید.`, href: '/debts' });
+  if (overdue.length) out.push({ tone: 'bad', text: `${overdue.length.toLocaleString('fa-IR')} قسط/چک/قبض/قرض سررسید گذشته و ثبت‌نشده دارید.`, href: '/debts' });
+  // reminders: what falls due within the lead the user set (rule 90) — expected income is not a duty
+  const lead = d.settings.reminderDays;
+  const soon = dues.filter((x) => !x.overdue && x.type !== 'income' && daysBetween(today, x.date) <= lead);
+  if (soon.length)
+    out.push({
+      tone: 'warn',
+      text: `یادآوری: ${soon
+        .slice(0, 2)
+        .map((x) => `${x.label} ${whenText(today, x.date)}`)
+        .join('؛ ')}${soon.length > 2 ? ` و ${(soon.length - 2).toLocaleString('fa-IR')} مورد دیگر` : ''} (تا ${lead.toLocaleString('fa-IR')} روز آینده).`,
+      href: '/debts',
+    });
   const fresh = unlinkedSources(d);
   if (fresh.length) out.push({ tone: 'warn', text: `${fresh.length.toLocaleString('fa-IR')} کارت یا حساب از پیامک‌ها شناسایی شده؛ به حساب‌هایتان وصلشان کنید تا مانده بانک هم دیده شود.`, href: '/accounts' });
   if (d.inbox.length) out.push({ tone: 'warn', text: `${d.inbox.length.toLocaleString('fa-IR')} تراکنش از گردش حساب یا پیامک منتظر تأیید شماست؛ تا تأیید نشوند در مانده‌ها حساب نمی‌شوند.`, href: '/import' });

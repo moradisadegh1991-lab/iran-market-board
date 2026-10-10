@@ -103,46 +103,7 @@ export default function AlertsView() {
           </div>
         </Card>
 
-        <Card title="از چه چیزهایی خبردار شوم؟">
-          <div className="notif-prefs">
-            <Toggle checked={prefs.on} onChange={(v) => setPrefs({ ...prefs, on: v })}>
-              <b>همه اعلان‌ها</b>
-            </Toggle>
-            {NOTIFY_CATS.map((c) => (
-              <Toggle key={c.k} checked={prefs.on && prefs[c.k]} onChange={(v) => setPrefs({ ...prefs, [c.k]: v })}>
-                <span>
-                  {c.t}
-                  <small className="muted"> — {c.d}</small>
-                </span>
-              </Toggle>
-            ))}
-            <Field label="آستانه جهش روزانه (٪)" hint="بالاتر از این درصد تغییر در یک روز، اعلان می‌آید">
-              <input
-                className="fin-input sm"
-                inputMode="decimal"
-                dir="ltr"
-                defaultValue={String(prefs.movePct)}
-                key={prefs.movePct}
-                onBlur={(e) => {
-                  const n = parseAmount(e.target.value);
-                  setPrefs({ ...prefs, movePct: n > 0 ? n : 2 });
-                }}
-              />
-            </Field>
-          </div>
-          <div className="fin-actions" style={{ marginTop: 12 }}>
-            <button
-              className="fin-mini"
-              onClick={async () => {
-                const r = await askPermission();
-                if (r === 'granted') notify('اعلان‌ها فعال شد', native ? 'از این پس رویدادهای اپ روی گوشی اعلام می‌شوند.' : 'در مرورگر فقط تا وقتی صفحه باز است کار می‌کند.', 'trade');
-                else setMsg(r === 'denied' ? 'اجازه اعلان داده نشد؛ از تنظیمات گوشی/مرورگر روشنش کنید.' : 'این دستگاه اعلان را پشتیبانی نمی‌کند.');
-              }}
-            >
-              {native ? 'اجازه اعلان روی گوشی' : 'اجازه اعلان در مرورگر'}
-            </button>
-          </div>
-        </Card>
+        <NotifySettings />
       </div>
 
       <Card title="اعلان‌های اخیر">
@@ -163,5 +124,54 @@ export default function AlertsView() {
         )}
       </Card>
     </div>
+  );
+}
+
+/** which kinds of notification come, and the move threshold — on /alerts and /settings (rule 91) */
+export function NotifySettings() {
+  const { prefs, setPrefs, askPermission, native, notify } = useNotify();
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <Card title="از چه چیزهایی خبردار شوم؟">
+      <div className="notif-prefs">
+        <Toggle checked={prefs.on} onChange={(v) => setPrefs({ ...prefs, on: v })}>
+          <b>همه اعلان‌ها</b>
+        </Toggle>
+        {NOTIFY_CATS.map((c) => (
+          <Toggle key={c.k} checked={prefs.on && prefs[c.k]} onChange={(v) => setPrefs({ ...prefs, [c.k]: v })}>
+            <span>
+              {c.t}
+              <small className="muted"> — {c.d}</small>
+            </span>
+          </Toggle>
+        ))}
+        <Field label="آستانه جهش روزانه (٪)" hint="بالاتر از این درصد تغییر در یک روز، اعلان می‌آید">
+          <input
+            className="fin-input sm"
+            inputMode="decimal"
+            dir="ltr"
+            defaultValue={String(prefs.movePct)}
+            key={prefs.movePct}
+            onBlur={(e) => {
+              const n = parseAmount(e.target.value);
+              setPrefs({ ...prefs, movePct: n > 0 ? n : 2 });
+            }}
+          />
+        </Field>
+      </div>
+      <div className="fin-actions" style={{ marginTop: 12 }}>
+        <button
+          className="fin-mini"
+          onClick={async () => {
+            const r = await askPermission();
+            if (r === 'granted') notify('اعلان‌ها فعال شد', native ? 'از این پس رویدادهای اپ روی گوشی اعلام می‌شوند.' : 'در مرورگر فقط تا وقتی صفحه باز است کار می‌کند.', 'trade');
+            else setErr(r === 'denied' ? 'اجازه اعلان داده نشد؛ از تنظیمات گوشی/مرورگر روشنش کنید.' : 'این دستگاه اعلان را پشتیبانی نمی‌کند.');
+          }}
+        >
+          {native ? 'اجازه اعلان روی گوشی' : 'اجازه اعلان در مرورگر'}
+        </button>
+        {err ? <span className="fin-err">{err}</span> : null}
+      </div>
+    </Card>
   );
 }

@@ -59,6 +59,8 @@ export interface LendInput {
   amountRial: number;
   date: Iso;
   note?: string;
+  /** lend/borrow: when it is to be paid back (reminded before; rule 90) — absent keeps the date already set */
+  dueOn?: Iso | null;
 }
 
 /** Books the loan or the repayment. Returns the transaction or why it cannot. */
@@ -82,7 +84,59 @@ export function bookLend(d: FinanceData, p: LendInput): Txn | string {
     link: { type: 'lend', id: who.id, mk: p.kind },
   };
   d.txns.push(t);
+  if ((p.kind === 'lend' || p.kind === 'borrow') && p.dueOn) who.dueOn = p.dueOn;
+  settledClearsDue(d, who, t);
   return t;
+}
+
+/**
+ * Once the position with a person is back to zero, the repayment date is done with — kept on the transaction that
+ * closed it (link.due), so deleting that transaction brings the date back (deleteTxn).
+ */
+function settledClearsDue(d: FinanceData, who: Account, t: Txn): void {
+  if (!who.dueOn || Math.round(balances(d)[who.id] ?? 0) !== 0) return;
+  t.link = { ...t.link!, due: who.dueOn };
+  who.dueOn = null;
+}
+
+/** sets or clears the repayment date of a loan with a person */
+export function setPersonDue(d: FinanceData, personId: string, dueOn: Iso | null): string | null {
+  const a = d.accounts.find((x) => x.id === personId && isPerson(x));
+  if (!a) return 'طرف قرض پیدا نشد.';
+  a.dueOn = dueOn || null;
+  return null;
+}
+
+/**
+ * «پس داد» / «پس دادم» from the list of due dates (DueList): the repayment, from or into one of the user's accounts on
+ * the same side as the loan — a shop's loan is repaid through the shop's accounts, a personal one through personal ones.
+ */
+export function settleLendDue(d: FinanceData, personId: string, accountId: string, amountRial: number, date: Iso): string | null {
+  const who = d.accounts.find((x) => x.id === personId && isPerson(x));
+  if (!who) return 'طرف قرض پیدا نشد.';
+  const acc = d.accounts.find((a) => a.id === accountId && !a.archived && !isPerson(a));
+  if (!acc) return 'حساب را انتخاب کنید.';
+  if ((acc.bizId ?? null) !== (who.bizId ?? null)) return who.bizId ? 'این قرض کسب‌وکار است؛ یکی از حساب‌های کسب‌وکار را انتخاب کنید.' : 'این قرض شخصی است؛ یکی از حساب‌های شخصی را انتخاب کنید.';
+  const owed = Math.round(balances(d)[who.id] ?? 0);
+  if (!owed) return 'این قرض تسویه شده است.';
+  const rial = Math.round(amountRial);
+  if (!(rial > 0)) return 'مبلغ را وارد کنید.';
+  const kind: LendKind = owed > 0 ? 'repaid' : 'repay';
+  const out = kind === 'repay';
+  const t: Txn = {
+    id: newId('t'),
+    date,
+    kind: 'transfer',
+    amountRial: rial,
+    accountId: out ? acc.id : who.id,
+    toAccountId: out ? who.id : acc.id,
+    categoryId: null,
+    note: LEND_LABEL[kind],
+    link: { type: 'lend', id: who.id, mk: kind },
+  };
+  d.txns.push(t);
+  settledClearsDue(d, who, t);
+  return null;
 }
 
 export interface PersonPosition {

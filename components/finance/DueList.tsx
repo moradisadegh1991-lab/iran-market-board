@@ -6,9 +6,10 @@ import type { FinanceData } from '@/lib/finance/model';
 import { Empty } from '../ui';
 import { useFinance } from './FinanceProvider';
 import { fmtDateFa, Money, parseAmount } from './kit';
-import { tomanToRial } from '@/lib/finance/model';
+import { isMoneyAccount, tomanToRial } from '@/lib/finance/model';
+import { BriefcaseBusiness, Handshake, Landmark, Receipt, SquarePen, type LucideIcon } from 'lucide-react';
 
-const TYPE_ICON: Record<Due['type'], string> = { loan: '🏦', cheque: '✍️', bill: '🧾', income: '💼' };
+const TYPE_ICON: Record<Due['type'], LucideIcon> = { loan: Landmark, cheque: SquarePen, bill: Receipt, income: BriefcaseBusiness, lend: Handshake };
 
 function when(today: string, date: string): string {
   const d = daysBetween(today, date);
@@ -21,7 +22,7 @@ function when(today: string, date: string): string {
 /** Upcoming and overdue obligations, each settleable in one tap (which also records the transaction). */
 export default function DueList({ data, days = 30, limit }: { data: FinanceData; days?: number; limit?: number }) {
   const { update, today } = useFinance();
-  const accounts = data.accounts.filter((a) => !a.archived && a.kind !== 'person');
+  const accounts = data.accounts.filter((a) => !a.archived && isMoneyAccount(a));
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
   const [msg, setMsg] = useState<string | null>(null);
   // an expected income asks what actually came in (a salary is rarely the same twice)
@@ -30,12 +31,18 @@ export default function DueList({ data, days = 30, limit }: { data: FinanceData;
   const all = upcoming(data, today, days);
   const rows = limit ? all.slice(0, limit) : all;
 
-  if (!all.length) return <Empty>در {days.toLocaleString('fa-IR')} روز آینده قسط، چک، قبض یا درآمد پیش‌بینی‌شده‌ای ثبت نشده.</Empty>;
+  if (!all.length) return <Empty>در {days.toLocaleString('fa-IR')} روز آینده قسط، چک، قبض، قرض با موعد یا درآمد پیش‌بینی‌شده‌ای ثبت نشده.</Empty>;
 
   function settle(x: Due, actualRial?: number | null) {
     let err: string | null = null;
+    // a loan with a person is repaid on its own side: a shop's loan through a shop account, a personal one through a personal one
+    let from = accountId;
+    if (x.type === 'lend') {
+      const side = data.accounts.find((a) => a.id === x.refId)?.bizId ?? null;
+      if ((data.accounts.find((a) => a.id === from)?.bizId ?? null) !== side) from = accounts.find((a) => (a.bizId ?? null) === side)?.id ?? from;
+    }
     update((d) => {
-      err = settleDue(d, x, accountId, today, actualRial);
+      err = settleDue(d, x, from, today, actualRial);
     });
     setMsg(err ?? `«${x.label}» ثبت شد و تراکنشش به حساب رفت.`);
     setReceiving(null);
@@ -64,21 +71,24 @@ export default function DueList({ data, days = 30, limit }: { data: FinanceData;
         {rows.map((x) => (
           <li key={x.key} className={x.overdue ? 'overdue' : ''}>
             <span className="fin-list-icon" aria-hidden="true">
-              {TYPE_ICON[x.type]}
+              {(() => {
+                const I = TYPE_ICON[x.type];
+                return <I size={20} strokeWidth={1.9} />;
+              })()}
             </span>
             <span className="fin-list-main">
               <b>{x.label}</b>
               <small>
-                {fmtDateFa(x.date)} · <span className={x.overdue ? 'down' : ''}>{when(today, x.date)}</span>
+                {fmtDateFa(x.date)}، <span className={x.overdue ? 'down' : ''}>{when(today, x.date)}</span>
               </small>
             </span>
             <Money rial={x.rial} signed />
-            {x.type === 'income' && receiving === x.key ? (
+            {(x.type === 'income' || x.type === 'lend') && receiving === x.key ? (
               <span className="fin-receive">
                 <input
                   className="fin-input sm"
                   inputMode="numeric"
-                  aria-label="مبلغ دریافتی (تومان)"
+                  aria-label={x.rial < 0 ? 'مبلغ پرداختی (تومان)' : 'مبلغ دریافتی (تومان)'}
                   value={actual}
                   onChange={(e) => setActual(e.target.value)}
                 />
@@ -91,9 +101,10 @@ export default function DueList({ data, days = 30, limit }: { data: FinanceData;
                 className="fin-mini"
                 disabled={!accountId}
                 onClick={() => {
-                  if (x.type !== 'income') return settle(x);
+                  // what actually came in (a salary is rarely the same twice; a loan can be repaid in part)
+                  if (x.type !== 'income' && x.type !== 'lend') return settle(x);
                   setReceiving(x.key);
-                  setActual(String(Math.round(x.rial / 10)));
+                  setActual(String(Math.round(Math.abs(x.rial) / 10)));
                 }}
               >
                 {x.rial < 0 ? 'پرداخت شد' : 'دریافت شد'}

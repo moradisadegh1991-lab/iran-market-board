@@ -55,6 +55,7 @@ const PAGE_ALIAS: [RegExp, string][] = [
   [/(^| )(بازار)/, '/market'],
   [/(^| )(نمودار|پیش بینی|پیشبینی)/, '/charts'],
   [/(^| )(هشدار|اعلان)/, '/alerts'],
+  [/(^| )(تنظیمات|یادآوری|پشتیبان)/, '/settings'],
   [/(^| )(آموزش)/, '/learn'],
   [/(^| )(کسب ?و ?کار|مغازه)/, '/biz'],
 ];
@@ -62,6 +63,8 @@ const OPEN = /(^| )(باز کن|بازش کن|برو به|برو تو|برو|ب�
 
 function navTarget(c: string): { href: string; label: string } | null {
   const all = NAV_GROUPS.flatMap((g) => g.items);
+  // «تنظیمات کسب و کار» is the shop's page, not the app's (spoken without the half-space)
+  if (/تنظیمات (کسب ?و ?کار|مغازه)/.test(c)) return { href: '/biz/settings', label: 'تنظیمات کسب‌وکار' };
   for (const it of all) if (` ${c} `.includes(` ${clean(it.label)} `)) return { href: it.href, label: it.label };
   for (const [rx, href] of PAGE_ALIAS) if (rx.test(c)) return { href, label: all.find((x) => x.href === href)?.label ?? href };
   return null;

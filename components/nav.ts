@@ -94,6 +94,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/game', label: 'بازی اقتصاد', icon: '🎮' },
       { href: '/alerts', label: 'هشدار و اعلان', icon: '🔔' },
       { href: '/bot', label: 'ربات و منابع', icon: '🤖' },
+      { href: '/settings', label: 'تنظیمات', icon: '⚙️', hint: 'یادآوری، اعلان، پیامک، صدا، پشتیبان' },
     ],
   },
 ];

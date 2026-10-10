@@ -39,8 +39,10 @@ ok('every built-in category has an icon', () => {
 });
 
 ok('every illustration used is in public/art; each is a clean drawing in the app’s colors', () => {
-  const keys = [...src.matchAll(/export type ArtKey = ([^;]+);/g)][0][1].match(/'(\w+)'/g)!.map((k) => k.slice(1, -1));
+  const keys = [...src.matchAll(/export type (?:ArtKey|LessonArt) = ([^;]+);/g)].flatMap((m) => m[1].match(/'(\w+)'/g)!.map((k) => k.slice(1, -1)));
   const used = new Set<string>();
+  // lessons name theirs in lib/learn/lessons.ts
+  for (const m of fs.readFileSync(path.join(ROOT, 'lib/learn/lessons.ts'), 'utf8').matchAll(/\bart: '(\w+)'/g)) used.add(m[1]);
   const walk = (dir: string) => {
     for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, f.name);
@@ -53,7 +55,7 @@ ok('every illustration used is in public/art; each is a clean drawing in the app
   for (const k of used) if (keys.includes(k)) assert.ok(fs.existsSync(path.join(ROOT, 'public/art', `${k}.svg`)), `public/art/${k}.svg missing`);
   for (const f of fs.readdirSync(path.join(ROOT, 'public/art'))) {
     const svg = fs.readFileSync(path.join(ROOT, 'public/art', f), 'utf8');
-    assert.ok(keys.includes(f.replace(/\.svg$/, '')), `${f} is not used`);
+    assert.ok(keys.includes(f.replace(/\.svg$/, '')) && used.has(f.replace(/\.svg$/, '')), `${f} is not used`);
     assert.ok(svg.startsWith('<svg'), f);
     assert.ok(!/<script|<foreignObject|<image|\son\w+=|javascript:|href="http|url\((?!#)/i.test(svg), `${f}: something that runs or loads`);
     assert.ok(!/#6c63ff/i.test(svg) && /#0d7377/i.test(svg), `${f}: not recolored`);

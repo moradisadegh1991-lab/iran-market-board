@@ -410,3 +410,29 @@ b.fin-raw { display: block; font-weight: 400; }
 .asset-perf .down, .asset-perf-total .down { color: var(--down, #c0392b); }
 .fin-subhead { font-size: 14px; margin: 14px 0 4px; }
 .voice-pick { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; } .voice-pick .chips small { opacity: .7; }
+
+/* a quiet text button under a list row (People: repayment date) */
+.fin-link { border: 0; background: none; padding: 4px 0; color: var(--teal); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.fin-link:hover { color: var(--ink); }
+.fin-list-main small + small { display: block; }
+.fin-list-icon { display: inline-flex; color: var(--teal); }
+
+/* تنظیمات (rule 91): one page, a section per part of the app */
+.set-index { margin: 4px 0 14px; }
+.set-section { scroll-margin-top: 72px; margin-bottom: 18px; }
+.set-h { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0 0 8px; color: var(--ink); }
+.set-h svg { color: var(--teal); }
+.set-section .fin-card > .chips { margin: 8px 0 12px; }
+.set-section .fin-card > .toggle { display: flex; margin: 10px 0; }
+
+/* دفترچه شماره کارت و شبا (rule 92) */
+.payee-nums { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.payee-num { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.payee-kind { font-size: 12px; font-weight: 700; color: var(--teal); background: var(--teal-wash, #e6f2f2); border-radius: 999px; padding: 2px 8px; }
+.payee-val { display: grid; min-width: 0; }
+.payee-val .num { font-size: 15px; letter-spacing: 0.02em; overflow-wrap: anywhere; text-align: start; unicode-bidi: isolate; }
+.payee-acts { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
+.payee-acts .fin-mini { display: inline-flex; align-items: center; gap: 4px; }
+.payee-conv { margin-top: 12px; font-size: 13.5px; color: var(--ink-2); }
+.payee-conv summary { cursor: pointer; color: var(--teal); font-weight: 600; }
+.payee-conv ul { margin: 8px 0 0; padding-inline-start: 18px; display: grid; gap: 6px; }

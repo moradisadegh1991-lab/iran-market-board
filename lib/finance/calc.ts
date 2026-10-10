@@ -238,7 +238,8 @@ export interface Due {
   /** + money coming in, − money going out */
   rial: number;
   label: string;
-  type: 'loan' | 'cheque' | 'bill' | 'income';
+  /** lend: a loan with a person that has a repayment date (Account.dueOn) — refId is the person's account */
+  type: 'loan' | 'cheque' | 'bill' | 'income' | 'lend';
   refId: string;
   n?: number;
   monthKey?: string;
@@ -303,6 +304,15 @@ export function upcoming(d: FinanceData, today: Iso, days = 30): Due[] {
     for (const x of billDueDates(b, today, horizon)) {
       out.push({ key: `bill:${b.id}:${x.mk}`, date: x.date, rial: -b.amountRial, label: b.name, type: 'bill', refId: b.id, monthKey: x.mk, overdue: x.date < today });
     }
+  }
+  // a loan with a person that has a repayment date: what is still open, + they pay the user, − the user pays them
+  const people = d.accounts.filter((a) => a.kind === 'person' && !a.archived && a.dueOn && a.dueOn <= horizon);
+  const bal = people.length ? accountBalances(d) : {};
+  for (const a of people) {
+    const rial = Math.round(bal[a.id] ?? 0);
+    if (!rial) continue;
+    const who = a.bizId ? `${a.name} (کسب‌وکار)` : a.name;
+    out.push({ key: `lend:${a.id}:${a.dueOn}`, date: a.dueOn!, rial, label: rial > 0 ? `پس گرفتن قرض از ${who}` : `پس دادن قرض به ${who}`, type: 'lend', refId: a.id, overdue: a.dueOn! < today });
   }
   for (const inc of d.incomes ?? []) {
     for (const x of incomeDueDates(inc, today, horizon)) {
@@ -370,7 +380,8 @@ export function monthForecast(d: FinanceData, m: JMonth, today: Iso): MonthForec
   const actual = today >= from ? totalsBetween(d, from, today < to ? today : to) : { incomeRial: 0, expenseRial: 0 };
   const past = to < today;
   const horizon = daysBetween(today, to);
-  const dues = horizon >= 0 ? upcoming(d, today, horizon).filter((x) => x.date >= from && x.date <= to) : [];
+  // a loan with a person is a transfer, not income or spending (rule 84): it moves cash, not the month's result
+  const dues = horizon >= 0 ? upcoming(d, today, horizon).filter((x) => x.date >= from && x.date <= to && x.type !== 'lend') : [];
   const incomeLines = dues.filter((x) => x.type === 'income').map((x) => ({ label: x.label, date: x.date, rial: x.rial, overdue: x.overdue }));
   const obligationsRial = -dues.filter((x) => x.rial < 0).reduce((s, x) => s + x.rial, 0);
   const chequesIn = dues.filter((x) => x.type === 'cheque' && x.rial > 0).reduce((s, x) => s + x.rial, 0);

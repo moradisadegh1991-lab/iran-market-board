@@ -7,7 +7,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { compound, doublingYears, inflate, mixVol, positionSize, split503020, workHours } from '../lib/learn/calc';
-import { LESSONS, lessonById, questionById, TRACKS } from '../lib/learn/lessons';
+import { LESSONS, lessonById, questionById, stepSpeech, TRACKS } from '../lib/learn/lessons';
 import { addDaysIso, BOX_DAYS, dueDeck, emptyLearn, finishLesson, MASTERED, nextLesson, normalizeLearn, progress, review } from '../lib/learn/review';
 
 let n = 0;
@@ -143,6 +143,25 @@ ok('calculators: compound, inflation, real money, mix volatility, position size,
   close((1.25 / 1.35 - 1) * 100, -7.407407, 1e-5);
   close((1.23 / 1.4 - 1) * 100, -12.142857, 1e-5);
   close(0.99 ** 20, 0.8179069, 1e-6);
+  // d-goals: 600 m toman, 24 months; 40% a year for two years
+  close(600 / 24, 25);
+  close(600 * 1.4 * 1.4, 1176, 1e-9);
+  close(600 * 1.8, 1080, 1e-9); // the «simple» answer the question warns against
+});
+
+ok('every lesson has its illustration (public/art) and «گوش بده» reads plain text', () => {
+  for (const l of LESSONS) {
+    assert.ok(l.art, `${l.id}: no illustration`);
+    assert.ok(fs.existsSync(`public/art/${l.art}.svg`), `${l.id}: public/art/${l.art}.svg`);
+    l.steps.forEach((_, i) => {
+      const t = stepSpeech(l, i);
+      assert.ok(t.startsWith(l.steps[i].title), l.id);
+      assert.ok(!t.includes('**'), `${l.id}: bold marks would be read`);
+    });
+    assert.ok(stepSpeech(l, l.steps.length - 1).endsWith(l.takeaway), `${l.id}: the key point closes the last step`);
+  }
+  assert.equal(stepSpeech(LESSONS[0], 99), '');
+  assert.ok(LESSONS.length >= 20, 'the course grew (16 → 20)');
 });
 
 ok('no effect returns a browser call (newer WebViews return Promises from scrollTo → React calls it as cleanup)', () => {

@@ -5,6 +5,7 @@ import { AUTO_TICK_MS, callLocal, loadLocalSession, tradeNote } from '@/lib/live
 import { askOn, autoReadOn, readInbox, smsPlugin } from '@/lib/finance/phone-sms';
 import { applyAsked, type AskApplied } from '@/lib/finance/sms-ask';
 import { queueSms } from '@/lib/finance/sources';
+import { normalizeReminderState, reminderPlan, reminderStep } from '@/lib/finance/reminders';
 import { tehranDate } from '@/lib/num';
 import { useFinance } from './finance/FinanceProvider';
 import { useNotify } from './NotifyProvider';
@@ -14,6 +15,8 @@ export const SMS_POLL_MS = 30_000;
 const ASKED_KEY = 'imf.perm.asked.v1';
 /** installs from before the «نوعش چیست؟» notification: RECEIVE_SMS is asked for once more */
 const RECEIVE_ASKED_KEY = 'imf.perm.receive.v1';
+/** what was reminded and what the phone holds scheduled (lib/finance/reminders.ts) */
+export const REMIND_KEY = 'imf.due.remind.v1';
 
 function once(key: string): boolean {
   try {
@@ -43,7 +46,7 @@ function once(key: string): boolean {
  */
 export default function AppStartup() {
   const { data, update } = useFinance();
-  const { notify, askPermission } = useNotify();
+  const { notify, askPermission, prefs, scheduleAt, cancelScheduled, canSchedule } = useNotify();
   const router = useRouter();
   const busy = useRef(false);
   const ready = !!data;
@@ -169,6 +172,50 @@ export default function AppStartup() {
       handles.forEach((h) => h.remove());
     };
   }, [ready, update, notify, askPermission, router]);
+
+  // reminders of installments, cheques, bills and loans (rule 90): on opening, after every change to the book or to the
+  // reminder settings, and when the app comes back — what is due now is shown, what is ahead goes to the phone's alarm
+  const remindBusy = useRef(false);
+  const remindOn = prefs.on && prefs.due;
+  useEffect(() => {
+    if (!data) return;
+    const pass = async () => {
+      if (remindBusy.current) return;
+      remindBusy.current = true;
+      try {
+        let prev = normalizeReminderState(null);
+        try {
+          prev = normalizeReminderState(JSON.parse(localStorage.getItem(REMIND_KEY) ?? 'null'));
+        } catch {
+          // a broken record: start over (at worst one reminder is shown twice)
+        }
+        const today = tehranDate();
+        const native = await canSchedule();
+        const step = reminderStep(reminderPlan(data, today), prev, Date.now(), today, native, remindOn);
+        await cancelScheduled(step.cancel);
+        // scheduling failed: forget those, so the next pass tries again rather than thinking the phone holds them
+        if (step.schedule.length && !(await scheduleAt(step.schedule.map((x) => ({ ...x, cat: 'due' as const })))))
+          for (const x of step.schedule) for (const [k, v] of Object.entries(step.state.sched)) if (v.id === x.id) delete step.state.sched[k];
+        step.now.forEach((n) => notify(n.title, n.body, 'due'));
+        try {
+          localStorage.setItem(REMIND_KEY, JSON.stringify(step.state));
+        } catch {
+          // no storage: reminders are shown again next time rather than lost
+        }
+      } finally {
+        remindBusy.current = false;
+      }
+    };
+    const t = setTimeout(() => void pass(), 1500);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void pass();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [data, remindOn, notify, scheduleAt, cancelScheduled, canSchedule]);
 
   return null;
 }

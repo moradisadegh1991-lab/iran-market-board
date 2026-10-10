@@ -83,7 +83,7 @@ function Loans({ d }: { d: FinanceData }) {
                       {l.direction === 'borrowed' ? '🏦' : '🤝'} {l.name}
                     </b>
                     <small>
-                      {l.direction === 'borrowed' ? 'بدهی' : 'طلب'} · {fmtPctFa(l.annualRatePct, 1)} سالانه · {(l.paidCount).toLocaleString('fa-IR')} از {l.months.toLocaleString('fa-IR')} قسط پرداخت شده
+                      {l.direction === 'borrowed' ? 'بدهی' : 'طلب'}، {fmtPctFa(l.annualRatePct, 1)} سالانه، {(l.paidCount).toLocaleString('fa-IR')} از {l.months.toLocaleString('fa-IR')} قسط پرداخت شده
                       {st.overdue.length ? <span className="down"> · {st.overdue.length.toLocaleString('fa-IR')} قسط عقب</span> : null}
                     </small>
                   </span>
@@ -265,7 +265,7 @@ function Bills({ d }: { d: FinanceData }) {
               <span className="fin-list-main">
                 <b>{b.name}</b>
                 <small>
-                  هر ماه، روز {b.dueDay.toLocaleString('fa-IR')} · {b.paidMonths.includes(monthKey(monthOf(today))) ? 'این ماه پرداخت شده' : 'این ماه پرداخت نشده'}
+                  هر ماه، روز {b.dueDay.toLocaleString('fa-IR')}؛ {b.paidMonths.includes(monthKey(monthOf(today))) ? 'این ماه پرداخت شده' : 'این ماه پرداخت نشده'}
                 </small>
               </span>
               <Money rial={-b.amountRial} signed />
