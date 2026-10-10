@@ -41,6 +41,7 @@
     "test:ask": "tsx scripts/ask-test.ts && tsx scripts/ask-more-test.ts",
     "test:reminders": "tsx scripts/reminders-test.ts",
     "test:payees": "tsx scripts/payees-test.ts",
+    "test:forecastwhy": "tsx scripts/forecast-why-test.ts",
     "test:lending": "tsx scripts/lending-test.ts && tsx scripts/lend-sms-test.ts",
     "test:assetperf": "tsx scripts/asset-perf-test.ts",
     "test:integration": "tsx scripts/integration-test.ts",
