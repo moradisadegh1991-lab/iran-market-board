@@ -83,6 +83,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/live', label: 'معامله برخط', icon: '⚡' },
       { href: '/swing', label: 'نوسان‌گیری', icon: '🌊' },
+      { href: '/futures', label: 'فیوچرز', icon: '📈', hint: 'اهرم، کاغذی؛ لیکویید، فاندینگ و کارمزد واقعی' },
       { href: '/simulator', label: 'معامله‌گر شبیه‌ساز', icon: '🧪' },
     ],
   },

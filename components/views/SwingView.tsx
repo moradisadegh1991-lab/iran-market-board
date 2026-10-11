@@ -9,6 +9,9 @@ import type { SwingScan } from '@/lib/engine/swing-scan';
 import type { SwingLiveSession } from '@/lib/engine/swing-live';
 import { fmtDateTimeFa as fdt } from '@/lib/num';
 import { AdminActions, Chips, Empty, PageHead, Pct, Select } from '../ui';
+import CoinPicks from '../swing/CoinPicks';
+import MySwing from '../swing/MySwing';
+import SwingSessionCard from '../swing/SwingSessionCard';
 import { tomanWords } from '../TradeEntry';
 import type { EquityLine } from '../EquityChart';
 
@@ -58,7 +61,8 @@ function Evidence({ rows, current }: { rows: NonNullable<Menu['evidence']>; curr
         نوسان‌گیری ساعتی در هیچ‌کدام از دو دوره پس از کارمزد سودده نبود؛ نسخه ۲ فقط زیان را خیلی کمتر کرد. تنها سبکی که در بازار صعودی سود واقعی ساخت و در بازار نزولی بیرون ماند،
         روندسوار است — آن هم با افت سرمایه بزرگ‌تر و بدون تضمین برای آینده. دوره صعودی هنگام طراحی نسخه ۲ دیده نشده بود.
         با کارمزد ۰٫۱٪ هر طرف هم نوسان‌گیری ساعتی فقط سربه‌سر شد. شاخص ترس و طمع، نرخ فاندینگ، امتیاز اخبار و چرخش بین ارزهای قوی‌تر هم آزمون شدند و
-        هیچ‌کدام اثر پایدار نداشتند؛ تنها بهبود پذیرفته‌شده، کوچک‌کردن موقعیت روندسوار در زمان نوسان بالا بود.
+        هیچ‌کدام اثر پایدار نداشتند؛ بهبودهای پذیرفته‌شده: کوچک‌کردن موقعیت روندسوار در زمان نوسان بالا، و انتخاب ارزهای آرام‌تر (بالای همین صفحه) که روی ۴۰ ارز، در سال‌های
+        طراحی و آزمون، از معامله روی همه ارزها بهتر بود.
       </p>
     </details>
   );
@@ -212,102 +216,18 @@ export default function SwingView() {
         کارمزد و اسپرد دو طرف را می‌پردازد و نتیجه با «خرید و نگه‌داری» همان ارز مقایسه می‌شود.
       </PageHead>
 
+      <CoinPicks
+        useLabel="این‌ها را در سبد بگذار"
+        onUse={(rows) => {
+          setBasket(rows.map((r) => r.id).filter((id) => menu?.coins.some((c) => c.id === id)));
+          setMode('multi');
+          requestAnimationFrame(() => document.getElementById('ticket-h')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        }}
+      />
+      <MySwing basket={basket.map((id) => { const c = menu?.coins.find((x) => x.id === id); return { id, symbol: c?.symbol ?? id, name: c?.name ?? id }; })} />
+
       {live && live.status === 'running' ? (
-        <section className="panel pad live-swing">
-          <div className="live-status-top">
-            <span className="state-pill ok">نوسان‌گیری برخط در حال اجرا</span>
-            <span className="muted">{live.config.coins.map((c) => c.symbol).join('، ')} · کندل {fmtInt(live.barMinutes)} دقیقه‌ای</span>
-          </div>
-          <dl className="metrics">
-            <div>
-              <dt>ارزش کنونی</dt>
-              <dd className="num">{tomanWords(live.equity[live.equity.length - 1]?.equity ?? live.config.capitalToman)}</dd>
-            </div>
-            <div>
-              <dt>بازده</dt>
-              <dd><Pct v={((live.equity[live.equity.length - 1]?.equity ?? live.config.capitalToman) / live.config.capitalToman - 1) * 100} digits={2} /></dd>
-            </div>
-            <div>
-              <dt>معاملات بسته‌شده</dt>
-              <dd className="num">{fmtInt(live.fills.length)}</dd>
-            </div>
-            <div>
-              <dt>موقعیت باز</dt>
-              <dd className="num">{fmtInt(live.open.length)}</dd>
-            </div>
-            <div>
-              <dt>پایان</dt>
-              <dd>{fdt(live.endsAt)}</dd>
-            </div>
-            <div>
-              <dt>آخرین بررسی</dt>
-              <dd>{fdt(live.lastTickAt)}</dd>
-            </div>
-          </dl>
-
-          {live.open.length ? (
-            <div className="table-scroll">
-              <table className="t compact">
-                <thead>
-                  <tr>
-                    <th scope="col">ارز</th>
-                    <th scope="col">ورود</th>
-                    <th scope="col">قیمت لحظه‌ای</th>
-                    <th scope="col">سود/زیان باز</th>
-                    <th scope="col">هدف / حد ضرر</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {live.open.map((o) => (
-                    <tr key={o.coinId}>
-                      <th scope="row">{o.symbol}</th>
-                      <td className="num">{fmtNum(o.entryPrice, 4)}</td>
-                      <td className="num">{fmtNum(o.markPrice, 4)}</td>
-                      <td><Pct v={o.unrealisedPct} digits={2} /></td>
-                      <td className="num muted">{fmtNum(o.targetPrice, 4)} / {fmtNum(o.stopPrice, 4)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-
-          {live.fills.length ? (
-            <div className="table-scroll">
-              <table className="t compact">
-                <thead>
-                  <tr>
-                    <th scope="col">ارز</th>
-                    <th scope="col">خروج</th>
-                    <th scope="col">بازده</th>
-                    <th scope="col">سود/زیان</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...live.fills].reverse().slice(0, 12).map((f, i) => (
-                    <tr key={`${f.coinId}-${f.exitAt}-${i}`}>
-                      <th scope="row">{f.symbol}</th>
-                      <td>{SWING_EXIT_LABEL[f.exit]}</td>
-                      <td><Pct v={f.netPct} digits={2} /></td>
-                      <td className="num">{tomanWords(f.pnlToman)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="muted small">هنوز معامله‌ای بسته نشده است.</p>
-          )}
-
-          <ul className="event-list">
-            {live.events.slice(0, 5).map((e, i) => (
-              <li className="event-row" key={i}>
-                <span className="event-when">{fdt(e.at)}</span>
-                <span className="event-text">{e.text}</span>
-              </li>
-            ))}
-          </ul>
-
+        <SwingSessionCard s={live} title="جلسه مشترک سایت در حال اجرا">
           <AdminActions>
             <input type="password" placeholder="ADMIN_SECRET" value={secret} onChange={(e) => setSecret(e.target.value)} />
             <button className="btn run danger" disabled={liveBusy || !secret} onClick={() => liveAction('stop')}>
@@ -315,12 +235,12 @@ export default function SwingView() {
             </button>
           </AdminActions>
           {liveErr ? <p className="empty">{liveErr}</p> : null}
-        </section>
+        </SwingSessionCard>
       ) : (
         <section className="panel pad live-swing">
-          <h2>نوسان‌گیری برخط</h2>
+          <h2>جلسه مشترک سایت</h2>
           <p className="lede">
-            همین موتور را روی قیمت واقعی اجرا می‌کند: خودش می‌خرد و می‌فروشد، هر معامله را ثبت می‌کند و به تلگرام خبر می‌دهد. پول واقعی جابه‌جا نمی‌شود.
+            یک جلسه روی سرور که همه بازدیدکنندگان سایت می‌بینند و به تلگرام خبر می‌دهد (با رمز مدیر). برای جلسه خودتان «نوسان‌گیری برخط من» بالا را بزنید.
             ارزها از همان «سبد ارزها» در حالت چند ارزی برداشته می‌شوند.
           </p>
           <div className="ticket-grid">
