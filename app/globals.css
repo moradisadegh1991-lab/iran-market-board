@@ -857,3 +857,25 @@ ol.list { counter-reset: n; }
 .fcw-why-no { margin-top: 8px; font-size: 13.5px; }
 .fcw-why-no summary { cursor: pointer; color: var(--teal); font-weight: 600; }
 .fcw-why-no p { margin: 6px 0 0; color: var(--ink-2); line-height: 1.9; }
+
+/* ── «ارزهای پیشنهادی» and «فیوچرز» (rules 95–97) ── */
+.picks-skel { height: 120px; }
+.pick-list { list-style: none; margin: 12px 0; padding: 0; display: grid; gap: 8px; }
+.pick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: var(--r-m); background: var(--surface); }
+.pick-sym { font-weight: 800; font-size: 17px; color: var(--lapis); direction: ltr; }
+.pick-name { color: var(--muted); font-size: 13.5px; direction: ltr; }
+.pick-vol { font-size: 13.5px; margin-inline-start: auto; }
+.warn-box { border-inline-start: 4px solid var(--down); background: var(--down-soft); color: #5e221c; line-height: 1.9; }
+.ticket-grid .span2 { grid-column: 1 / -1; }
+.field input { font: inherit; color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-s); padding: 8px 10px; background: var(--surface); direction: ltr; text-align: right; width: 100%; min-width: 0; font-variant-numeric: tabular-nums; }
+.big-num { font-size: 22px; font-weight: 800; color: var(--lapis); margin: 0; direction: ltr; text-align: right; }
+.metrics.calc { margin-top: 16px; gap: 12px 28px; }
+.metrics.calc dd { font-size: 17px; }
+.metrics.calc small { font-size: 12px; font-weight: 600; color: var(--muted); }
+.sub-panel { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.sub-panel h3 { margin: 0 0 6px; font-size: 16px; }
+.sub-panel .chips { margin-bottom: 8px; }
+.btn.small-btn { padding: 5px 12px; font-size: 13px; }
+.t tr.bad-row th, .t tr.bad-row td { background: var(--down-soft); }
+.note-list { margin: 10px 0 0; padding-inline-start: 18px; color: var(--muted); font-size: 13.5px; line-height: 1.9; }
+@media (max-width: 600px) { .pick-vol { margin-inline-start: 0; } .ticket-grid .span2 .chips { flex-wrap: wrap; } }

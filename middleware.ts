@@ -17,11 +17,18 @@ import { NextResponse, type NextRequest } from 'next/server';
  * call counter). Because each call spends the Anthropic key, it additionally requires the
  * `x-advisor-secret` header, which is why that header is allowed below.
  *
+ * `/api/futures/local` and `/api/swing-live/local` are stateless in the same way: the device's paper account or
+ * swing session comes in, advances on live candles, and goes straight back.
+ *
  * `/api/biz/*` («فروشگاه آنلاین», rule 80) does write, but only into the namespace of one slug and
  * only with that slug's token (publish, inbox, status); the customer calls (order, book) are
  * checked against the published catalog and rate-limited. No admin secret is involved.
  */
-const READ_ONLY = ['/api/snapshot', '/api/chart', '/api/forecast', '/api/forecast-news', '/api/price-on', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor', '/api/biz'];
+const READ_ONLY = [
+  '/api/snapshot', '/api/chart', '/api/forecast', '/api/forecast-news', '/api/price-on', '/api/swing', '/api/simulate', '/api/live/local', '/api/advisor', '/api/biz',
+  // rule 95–97: read-only market data, and two stateless device endpoints in the /api/live/local pattern
+  '/api/coin-picks', '/api/futures', '/api/swing-live/local',
+];
 
 /**
  * GET-only: the shared live session, the swing live session and the holdings list are already

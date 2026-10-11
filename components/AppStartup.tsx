@@ -2,6 +2,8 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { AUTO_TICK_MS, callLocal, loadLocalSession, tradeNote } from '@/lib/live-local';
+import { callSwingLocal, loadSwingSession, SWING_TICK_MS, swingFillNote } from '@/lib/swing-local';
+import { callFutures, futFillNote, FUT_TICK_MS, loadFutures } from '@/lib/futures-local';
 import { askOn, autoReadOn, readInbox, smsPlugin } from '@/lib/finance/phone-sms';
 import { applyAsked, type AskApplied } from '@/lib/finance/sms-ask';
 import { queueSms } from '@/lib/finance/sources';
@@ -128,6 +130,32 @@ export default function AppStartup() {
             if (r.finished) notify('معامله برخط پایان یافت', 'گزارش نهایی در «معامله برخط» آماده است.', 'trade');
           } catch {
             // offline: the session simply waits for the next open
+          }
+        }
+        // «نوسان‌گیری برخط من» and «فیوچرز من» (rules 95, 97) advance the same way while the app is open
+        const sw = loadSwingSession();
+        if (sw && sw.status === 'running' && Date.now() - (sw.lastTickAt || 0) >= SWING_TICK_MS) {
+          try {
+            const r = await callSwingLocal('tick', { session: sw });
+            r.newFills.forEach((f) => {
+              const n = swingFillNote(f);
+              notify(n.title, n.body, 'trade', '/swing');
+            });
+            if (r.session.status === 'finished') notify('نوسان‌گیری برخط پایان یافت', 'نتیجه در «نوسان‌گیری کریپتو» آماده است.', 'trade', '/swing');
+          } catch {
+            /* offline: the next open replays the whole gap */
+          }
+        }
+        const fa = loadFutures();
+        if (fa && (fa.positions.length || fa.auto) && Date.now() - (fa.lastTickAt || 0) >= FUT_TICK_MS) {
+          try {
+            const r = await callFutures(fa, { action: 'tick' });
+            r.newFills.forEach((f) => {
+              const n = futFillNote(f);
+              notify(n.title, n.body, 'trade', '/futures');
+            });
+          } catch {
+            /* offline */
           }
         }
         await readSms();

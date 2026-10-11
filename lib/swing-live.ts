@@ -30,6 +30,9 @@ const MIN_TICK_GAP_MS = 60_000;
 export const MAX_COINS = 6;
 export const MIN_HOURS = 1;
 export const MAX_HOURS = 168;
+/** a device session (/api/swing-live/local) may run up to 30 days: it only advances while the app is open, and
+ *  every tick replays the whole span from the anchor, so a closed app loses nothing */
+export const LOCAL_MAX_HOURS = 720;
 
 export interface SwingLiveHistoryItem {
   id: string;
@@ -74,7 +77,7 @@ export async function loadLastFinishedSwing(): Promise<SwingLiveSession | null> 
   return (await kv.get<SwingLiveSession>(sessionKey(h[0].id))) ?? null;
 }
 
-export function validateSwingConfig(body: any, usdtRial: number | null): SwingLiveConfig {
+export function validateSwingConfig(body: any, usdtRial: number | null, maxHours = MAX_HOURS): SwingLiveConfig {
   const coins = (Array.isArray(body?.coins) ? body.coins : [])
     .map((c: any) => ({ id: String(c?.id ?? '').trim(), symbol: String(c?.symbol ?? c?.id ?? '').toUpperCase(), name: String(c?.name ?? c?.id ?? '') }))
     .filter((c: any) => /^[a-z0-9][a-z0-9-]{1,60}$/.test(c.id));
@@ -86,7 +89,7 @@ export function validateSwingConfig(body: any, usdtRial: number | null): SwingLi
   if (!isNum(capitalToman) || capitalToman < 1_000_000 || capitalToman > 1e13) throw new Error('سرمایه باید بین ۱ میلیون تومان و ۱۰ هزار میلیارد تومان باشد.');
 
   const hours = Math.round(Number(body?.hours));
-  if (!isNum(hours) || hours < MIN_HOURS || hours > MAX_HOURS) throw new Error(`مدت باید بین ${MIN_HOURS} و ${MAX_HOURS} ساعت باشد.`);
+  if (!isNum(hours) || hours < MIN_HOURS || hours > maxHours) throw new Error(`مدت باید بین ${MIN_HOURS.toLocaleString('fa-IR')} و ${maxHours.toLocaleString('fa-IR')} ساعت باشد.`);
 
   const preset = (Object.keys(SWING_PRESETS).includes(body?.preset) ? body.preset : 'normal') as SwingPreset;
   const feePct = isNum(Number(body?.feePct)) ? Math.max(0, Math.min(2, Number(body.feePct))) : 0.4;
@@ -96,7 +99,7 @@ export function validateSwingConfig(body: any, usdtRial: number | null): SwingLi
 }
 
 /** Bars plus a spot price for each coin in the session (and BTC context for v2). */
-async function gatherInputs(s: SwingLiveSession): Promise<{ inputs: SwingLiveInput[]; mkt?: SwingLiveMarket }> {
+export async function gatherInputs(s: SwingLiveSession): Promise<{ inputs: SwingLiveInput[]; mkt?: SwingLiveMarket }> {
   const { days, barMinutes } = barPlan(s.config.hours, s.config.engine);
   const spot = new Map<string, number>();
   try {

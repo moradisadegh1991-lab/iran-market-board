@@ -52,7 +52,10 @@ export async function swingDataFor(coin: { id: string; symbol: string }, days: n
   const tradeFrom = Math.floor(now / HOUR) * HOUR - days * 24 * HOUR;
   const errors: string[] = [];
   try {
-    const hours = anchor ? Math.ceil((now - anchor) / HOUR) + 1 : Math.min(MAX_SWING_DAYS_V2 * 24, days * 24) + warm;
+    // anchored (live) sessions: the span grows by an hour every hour; asking for exactly that would give every
+    // session and every hour its own cache key (and its own Redis write, rule 82). A weekly bucket is shared by
+    // all sessions of the coin and filtered to the anchor below.
+    const hours = anchor ? Math.ceil((Math.ceil((now - anchor) / HOUR) + 1) / 168) * 168 : Math.min(MAX_SWING_DAYS_V2 * 24, days * 24) + warm;
     const { candles: c, via, stale } = await candles(coin.symbol, hours);
     const daily = engine === 'v2' ? await dailyCloses(coin.symbol) : null;
     const bars = toBars(anchor ? c.filter((k) => k.t >= anchor) : c);

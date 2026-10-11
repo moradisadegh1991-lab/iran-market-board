@@ -45,7 +45,8 @@
     "test:lending": "tsx scripts/lending-test.ts && tsx scripts/lend-sms-test.ts",
     "test:assetperf": "tsx scripts/asset-perf-test.ts",
     "test:integration": "tsx scripts/integration-test.ts",
-    "test:ui": "tsx scripts/ui-test.ts"
+    "test:ui": "tsx scripts/ui-test.ts",
+    "test:futures": "tsx scripts/futures-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
