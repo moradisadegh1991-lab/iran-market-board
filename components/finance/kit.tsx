@@ -201,6 +201,43 @@ export function Disclosure({ label, children, defaultOpen = false }: { label: st
   );
 }
 
+/**
+ * Tabs for a page that holds several lists: a scrolling pill strip, one panel shown. `badge` is a count that wants attention
+ * (cards found in SMS and not yet linked). Arrow keys move between tabs (the app is right-to-left, so ← is the next one).
+ */
+export function Tabs<T extends string>({ label, tabs, value, onChange, idPrefix = 'tab' }: { label: string; tabs: { key: T; label: string; title?: string; badge?: number }[]; value: T; onChange: (k: T) => void; idPrefix?: string }) {
+  const move = (e: React.KeyboardEvent, i: number) => {
+    const d = e.key === 'ArrowLeft' ? 1 : e.key === 'ArrowRight' ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    const next = tabs[(i + d + tabs.length) % tabs.length];
+    onChange(next.key);
+    // every tab is already in the page (tabIndex -1 is still focusable), so no need to wait for the re-render
+    document.getElementById(`${idPrefix}-${next.key}`)?.focus();
+  };
+  return (
+    <div className="fin-tabs" role="tablist" aria-label={label}>
+      {tabs.map((t, i) => (
+        <button
+          key={t.key}
+          id={`${idPrefix}-${t.key}`}
+          role="tab"
+          type="button"
+          title={t.title}
+          aria-selected={value === t.key}
+          aria-controls={`${idPrefix}-panel`}
+          tabIndex={value === t.key ? 0 : -1}
+          onClick={() => onChange(t.key)}
+          onKeyDown={(e) => move(e, i)}
+        >
+          {t.label}
+          {t.badge ? <span className="fin-tab-badge" aria-label={`${t.badge.toLocaleString('fa-IR')} مورد`}>{t.badge.toLocaleString('fa-IR')}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function confirmDelete(what: string): boolean {
   return typeof window !== 'undefined' && window.confirm(`${what} حذف شود؟ این کار برگشت‌پذیر نیست.`);
 }

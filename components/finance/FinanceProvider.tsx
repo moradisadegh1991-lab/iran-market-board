@@ -134,7 +134,7 @@ export function WithBook({ children }: { children: (d: FinanceData) => React.Rea
     <>
       {saveError ? (
         <p className="banner warn" role="alert">
-          ذخیره ناموفق بود ({saveError}). حافظه مرورگر پر است یا در حالت خصوصی هستید؛ از صفحه «حساب‌ها و کارت‌ها» پشتیبان بگیرید.
+          ذخیره ناموفق بود ({saveError}). حافظه مرورگر پر است یا در حالت خصوصی هستید؛ از صفحه «تنظیمات» پشتیبان بگیرید.
         </p>
       ) : null}
       {children(data)}

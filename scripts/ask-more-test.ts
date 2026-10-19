@@ -46,6 +46,9 @@ ok('opening a page: by its menu name or an everyday word; asked, not done («…
     ['دنگ رو باز کن', '/split'],
     ['صفحه نمودار', '/charts'],
     ['برو به تراکنش ها', '/transactions'],
+    ['سرمایه‌ها رو باز کن', '/assets'],
+    ['دارایی هام رو باز کن', '/assets'],
+    ['حساب ها رو باز کن', '/accounts'],
   ] as const) {
     const q = more(d, s);
     assert.equal(q?.type, 'nav', s);

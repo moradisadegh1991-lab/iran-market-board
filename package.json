@@ -46,7 +46,8 @@
     "test:assetperf": "tsx scripts/asset-perf-test.ts",
     "test:integration": "tsx scripts/integration-test.ts",
     "test:ui": "tsx scripts/ui-test.ts",
-    "test:futures": "tsx scripts/futures-test.ts"
+    "test:futures": "tsx scripts/futures-test.ts",
+    "test:assetgroups": "tsx scripts/asset-groups-test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

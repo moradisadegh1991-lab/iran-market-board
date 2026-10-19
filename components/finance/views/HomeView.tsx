@@ -46,7 +46,7 @@ function alerts(d: FinanceData, items: ReturnType<typeof useFinance>['items'], t
       href: '/debts',
     });
   const fresh = unlinkedSources(d);
-  if (fresh.length) out.push({ tone: 'warn', text: `${fresh.length.toLocaleString('fa-IR')} کارت یا حساب از پیامک‌ها شناسایی شده؛ به حساب‌هایتان وصلشان کنید تا مانده بانک هم دیده شود.`, href: '/accounts' });
+  if (fresh.length) out.push({ tone: 'warn', text: `${fresh.length.toLocaleString('fa-IR')} کارت یا حساب از پیامک‌ها شناسایی شده؛ به حساب‌هایتان وصلشان کنید تا مانده بانک هم دیده شود.`, href: '/accounts?tab=cards' });
   if (d.inbox.length) out.push({ tone: 'warn', text: `${d.inbox.length.toLocaleString('fa-IR')} تراکنش از گردش حساب یا پیامک منتظر تأیید شماست؛ تا تأیید نشوند در مانده‌ها حساب نمی‌شوند.`, href: '/import' });
   const fc = cashForecast(d, today, 30);
   if (fc.low.balanceRial < 0)
@@ -70,7 +70,7 @@ function Onboarding() {
       <Art k="start" className="art-hero" />
       <ol className="fin-steps">
         <li>
-          <Link href="/accounts">حساب‌ها</Link> را با موجودی امروزشان بسازید (بانک، نقد، صندوق) و طلا/ارز/خودرو را به‌عنوان دارایی اضافه کنید.
+          <Link href="/accounts">حساب‌ها</Link> را با موجودی امروزشان بسازید (بانک، نقد، صندوق) و طلا/ارز/خودرو را در <Link href="/assets">سرمایه‌ها</Link> اضافه کنید.
         </li>
         <li>
           هر خرج و درآمد را در <Link href="/transactions">تراکنش‌ها</Link> ثبت کنید؛ از همین صفحه هم می‌شود.
@@ -82,7 +82,7 @@ function Onboarding() {
           برای هر دسته <Link href="/budget">بودجه</Link> بگذارید و از <Link href="/advisor">مشاور</Link> بپرسید.
         </li>
       </ol>
-      <p className="note">همه‌چیز فقط در همین مرورگر ذخیره می‌شود. از صفحه «حساب‌ها و کارت‌ها» فایل پشتیبان بگیرید.</p>
+      <p className="note">همه‌چیز فقط در همین مرورگر ذخیره می‌شود. از صفحه «تنظیمات» فایل پشتیبان بگیرید.</p>
     </Card>
   );
 }
