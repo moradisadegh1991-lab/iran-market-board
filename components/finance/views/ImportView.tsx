@@ -330,7 +330,7 @@ function SmsCard({ d }: { d: FinanceData }) {
           </p>
           {result.newSources ? (
             <p className="banner info">
-              {faN(result.newSources)} کارت یا حساب تازه در پیامک‌ها شناسایی شد. در <Link href="/accounts">حساب‌ها و کارت‌ها</Link> به حساب‌هایتان وصلشان کنید تا تراکنش‌ها و مانده بانکشان
+              {faN(result.newSources)} کارت یا حساب تازه در پیامک‌ها شناسایی شد. در <Link href="/accounts?tab=cards">حساب‌ها و کارت‌ها</Link> به حساب‌هایتان وصلشان کنید تا تراکنش‌ها و مانده بانکشان
               خودکار به همان حساب برود.
             </p>
           ) : null}
@@ -714,7 +714,7 @@ function Import({ d }: { d: FinanceData }) {
       </PageHead>
       {unlinkedSources(d).length ? (
         <p className="banner info">
-          {faN(unlinkedSources(d).length)} کارت یا حساب از پیامک‌ها شناسایی شده که هنوز به حسابی وصل نیست. <Link href="/accounts">وصلشان کنید</Link> تا تراکنش‌ها و مانده
+          {faN(unlinkedSources(d).length)} کارت یا حساب از پیامک‌ها شناسایی شده که هنوز به حسابی وصل نیست. <Link href="/accounts?tab=cards">وصلشان کنید</Link> تا تراکنش‌ها و مانده
           بانکشان خودکار به همان حساب برود.
         </p>
       ) : null}

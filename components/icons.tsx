@@ -6,6 +6,18 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Banknote,
+  ArrowDown,
+  ArrowUp,
+  X,
+  ArrowUpDown,
+  TrendingDown,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Hexagon,
+  Gem,
+  CircleDollarSign,
+  Coins,
   BellRing,
   Bitcoin,
   BookOpen,
@@ -67,6 +79,7 @@ export const PAGE_ICON: Record<string, LucideIcon> = {
   '/': House,
   '/transactions': ReceiptText,
   '/accounts': CreditCard,
+  '/assets': Gem,
   '/import': Import,
   '/budget': Target,
   '/debts': Landmark,
@@ -130,6 +143,32 @@ export const CATEGORY_ICON: Record<string, LucideIcon> = {
   'i-bizdraw': ArrowDownToLine,
   'c-bizcap': ArrowUpFromLine,
 };
+
+/** small glyphs the pages draw themselves (buttons, arrows) — still chosen here, with the rest */
+export const Glyph = { Plus, Chevron: ChevronLeft, Back: ChevronRight, Up: ArrowUp, Down: ArrowDown, TrendUp: TrendingUp, TrendDown: TrendingDown, Sort: ArrowUpDown, Close: X };
+
+/** one mark per kind of asset on the «سرمایه‌ها» page (key of MARKET_ASSETS, or 'manual'), with the tone its tile is drawn in */
+export const ASSET_ICON: Record<string, { icon: LucideIcon; tone: 'gold' | 'silver' | 'green' | 'orange' | 'indigo' | 'lapis' }> = {
+  g18: { icon: Gem, tone: 'gold' },
+  coin: { icon: Coins, tone: 'gold' },
+  nim: { icon: Coins, tone: 'gold' },
+  rob: { icon: Coins, tone: 'gold' },
+  silver: { icon: Gem, tone: 'silver' },
+  usd: { icon: Banknote, tone: 'green' },
+  usdt: { icon: CircleDollarSign, tone: 'green' },
+  btc: { icon: Bitcoin, tone: 'orange' },
+  eth: { icon: Hexagon, tone: 'indigo' },
+  manual: { icon: Landmark, tone: 'lapis' },
+};
+export function AssetIcon({ id, size = 22 }: { id: string; size?: number }) {
+  const a = ASSET_ICON[id] ?? ASSET_ICON.manual;
+  const I = a.icon;
+  return (
+    <span className={`asset-ic t-${a.tone}`} aria-hidden="true">
+      <I size={size} strokeWidth={1.9} />
+    </span>
+  );
+}
 
 export function PageIcon({ href, size = 22 }: { href: string; size?: number }) {
   const I = PAGE_ICON[href] ?? Ellipsis;

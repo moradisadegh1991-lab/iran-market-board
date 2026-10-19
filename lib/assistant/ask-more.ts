@@ -40,7 +40,7 @@ const PAGE_ALIAS: [RegExp, string][] = [
   [/(^| )(خونه|خانه|داشبورد)( |$)/, '/'],
   [/(^| )تراکنش/, '/transactions'],
   [/(^| )(حساب|کارت)/, '/accounts'],
-  [/(^| )(دارایی)/, '/accounts'],
+  [/(^| )(دارایی|سرمایه)/, '/assets'],
   [/(^| )(بودجه)/, '/budget'],
   [/(^| )(وام|قسط|چک|قبض|بدهی|قرض)/, '/debts'],
   [/(^| )(صندوق خانگی)/, '/fund'],
@@ -282,7 +282,7 @@ export function answerMore(d: FinanceData, items: PriceItem[], today: Iso, q: Mo
     }
 
     case 'assetsPerf': {
-      const link = { href: '/accounts', label: 'دارایی‌ها' };
+      const link = { href: '/assets', label: 'سرمایه‌ها' };
       const nw = netWorth(d, items, today);
       const usdNow = unitPrice('usd', items)?.rial ?? null;
       const perfs = d.assets
@@ -290,7 +290,7 @@ export function answerMore(d: FinanceData, items: PriceItem[], today: Iso, q: Mo
         .map((a) => assetPerformance(a, nw.byAsset.find((x) => x.id === a.id)?.rial ?? null, usdNow, today, d.settings.inflationPct))
         .filter((x): x is NonNullable<typeof x> => !!x);
       if (!perfs.length)
-        return { text: 'برای مقایسه با دلار و تورم، تاریخ و مبلغ خرید دارایی‌ها را در «حساب‌ها و کارت‌ها» بنویسید.', speech: 'تاریخ و مبلغ خرید دارایی‌هات رو وارد نکردی؛ اول اونا رو بنویس.', link };
+        return { text: 'برای مقایسه با دلار و تورم، تاریخ و مبلغ خرید دارایی‌ها را در «سرمایه‌ها» بنویسید.', speech: 'تاریخ و مبلغ خرید دارایی‌هات رو وارد نکردی؛ اول اونا رو بنویس.', link };
       if (perfs.length === 1) {
         const p = perfs[0];
         const yrs = p.years >= 1 ? `${fa(p.years, 1)} سال` : `${fa(Math.max(1, daysBetween(p.boughtOn, today)))} روز`;

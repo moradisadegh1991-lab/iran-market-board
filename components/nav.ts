@@ -22,7 +22,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/', label: 'خانه', icon: '🏠', hint: 'داشبورد مالی' },
       { href: '/transactions', label: 'تراکنش‌ها', icon: '🧾' },
-      { href: '/accounts', label: 'حساب‌ها و کارت‌ها', icon: '💳', hint: 'موجودی از پیامک بانک، دارایی‌ها' },
+      { href: '/accounts', label: 'حساب‌ها و کارت‌ها', icon: '💳', hint: 'موجودی از پیامک بانک، دفترچه کارت و شبا' },
+      { href: '/assets', label: 'سرمایه‌ها', icon: '💎', hint: 'طلا، سکه، ارز، کریپتو و سود هر خرید' },
       { href: '/import', label: 'ورود از بانک و پیامک', icon: '📥', hint: 'گردش حساب و پیامک' },
       { href: '/budget', label: 'بودجه', icon: '🎯' },
     ],
