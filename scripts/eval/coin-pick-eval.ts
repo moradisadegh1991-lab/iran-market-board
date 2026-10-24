@@ -57,7 +57,9 @@ export function prepCoin(sym: string, sma = 50): Coin {
   return { sym, bars, idx, up, vol20 };
 }
 
-const VOL_T = 0.6, EXPO = 0.9, FEE = 0.004;
+const VOL_T = 0.6, EXPO = 0.9;
+// per side; --fee=0.0071 is Abantether (0.38% fee + half its USDT spread, rule 102)
+const FEE = Number(process.argv.find((a) => a.startsWith("--fee="))?.slice(6) ?? 0.004);
 
 /** weight the trend rider wants in this coin after the close of day d (null = no data) */
 export function trendWeight(c: Coin, btc: Coin, d: number, rule: (c: Coin, i: number) => boolean | null = (c, i) => c.up[i]): number | null {

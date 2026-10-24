@@ -13,6 +13,8 @@ import { useNotify } from '../NotifyProvider';
 import { useSnapshot } from '../SnapshotProvider';
 import { Chips, Empty, PageHead, Pct } from '../ui';
 import { usePicks } from '../swing/CoinPicks';
+import { cachedBasis, currentBasis } from '@/lib/aban/basis-store';
+import type { AbanBasis } from '@/lib/aban/basis';
 
 interface Meta {
   sym: string;
@@ -196,6 +198,14 @@ export default function FuturesView() {
 
   const marks = acct?.marks ?? {};
   const eq = acct ? equityOf(acct) : 0;
+  // toman at Abantether's USDT sell price — what the tether would bring there (rule 102)
+  const [basis, setBasis] = useState<AbanBasis | null>(null);
+  useEffect(() => {
+    setBasis(cachedBasis());
+    void currentBasis()
+      .then((b) => setBasis(b))
+      .catch(() => undefined);
+  }, []);
   const coinsOpts = (meta?.coins ?? [{ sym: 'BTC', name: 'Bitcoin', maxLeverage: 125 }]).map((c) => ({ key: c.sym, label: `${c.sym} — ${c.name}` }));
   const autoCoins = (picks?.picked ?? []).map((r) => r.sym);
 
@@ -211,6 +221,11 @@ export default function FuturesView() {
       </section>
 
       {meta ? <Evidence e={meta.evidence} /> : null}
+
+      <p className="muted small" data-testid="fut-basis">
+        آبان‌تتر قرارداد آتی (فیوچرز) ندارد؛ این حساب روی قیمت جهانی همان ارزهاست — همان قیمتی که آبان‌تتر هم قیمت تومانی‌اش را از آن می‌سازد.
+        {basis ? ` معادل تومانی با قیمت فروش تتر آبان‌تتر (${fmtInt(basis.usdtSell)} تومان) حساب می‌شود.` : ''}
+      </p>
 
       <section className="panel pad ticket" data-testid="fut-calc">
         <h2>ماشین‌حساب و سفارش</h2>
@@ -317,6 +332,11 @@ export default function FuturesView() {
               <div>
                 <dt>ارزش حساب</dt>
                 <dd className="num" data-testid="fut-equity">{usdt(eq)} <small>تتر</small></dd>
+                {basis ? (
+                  <dd className="fin-money small" data-testid="fut-equity-toman">
+                    ≈ {fmtInt(eq * basis.usdtSell)} تومان
+                  </dd>
+                ) : null}
               </div>
               <div>
                 <dt>بازده</dt>

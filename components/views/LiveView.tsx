@@ -268,6 +268,11 @@ export default function LiveView() {
             <p className="empty">هنوز معامله‌ای ثبت نشده؛ موتور منتظر فرصت مناسب است.</p>
           )}
 
+          {active.priceBasis ? (
+            <p className="muted small" data-testid="live-basis">
+              مبنای قیمت رمزارزها: {active.priceBasis.kind === 'aban' ? active.priceBasis.note : 'تابلو (قیمت آبان‌تتر خوانده نشد یا خاموش است)'}
+            </p>
+          ) : null}
           {active.events.length ? (
             <div>
               <h2>رویدادها</h2>

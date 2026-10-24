@@ -99,6 +99,32 @@ export default function CoinPicks({ onUse, useLabel }: { onUse?: (rows: PickRow[
             </tbody>
           </table>
         </div>
+        <div className="table-scroll">
+          <table className="t compact" data-testid="picks-aban">
+            <caption>همان مطالعه با هزینه آبان‌تتر (حدود ۰٫۷۱٪ هر طرف)</caption>
+            <thead>
+              <tr>
+                <th scope="col">قاعده انتخاب</th>
+                <th scope="col">طراحی {e.design}</th>
+                <th scope="col">افت</th>
+                <th scope="col">آزمون {e.test}</th>
+                <th scope="col">افت</th>
+              </tr>
+            </thead>
+            <tbody>
+              {e.aban.rows.map((r, i) => (
+                <tr key={r.label} className={i === 1 ? 'sel' : ''}>
+                  <th scope="row">{r.label}</th>
+                  <td><Pct v={r.designCagr} digits={0} /></td>
+                  <td><Pct v={r.designDd} digits={0} /></td>
+                  <td><Pct v={r.testCagr} digits={0} /></td>
+                  <td><Pct v={r.testDd} digits={0} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="note">{e.aban.note}</p>
         <p className="note">{e.years}</p>
         <p className="note">{e.rules}</p>
         <p className="note">{e.caveat}</p>

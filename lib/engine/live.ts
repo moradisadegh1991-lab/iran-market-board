@@ -78,6 +78,8 @@ export interface LiveSession {
   newsUse: Record<string, number[]>;
   newsSeen: ScoredNews[];
   result: SimResult | null;
+  /** what the last tick priced crypto on (rule 102): Abantether's quotes and costs, or the board's */
+  priceBasis?: { kind: 'aban' | 'board'; note: string; at: number } | null;
 }
 
 export interface TickContext {
@@ -88,6 +90,8 @@ export interface TickContext {
   ons?: { dates: string[]; prices: number[] };
   usdRef?: { dates: string[]; prices: number[] };
   news: ScoredNews[];
+  /** cost per side by asset, replacing the engine's own (the Abantether basis, rule 102) */
+  costs?: Partial<Record<SimAsset, number>>;
 }
 
 export interface TickOutcome {
@@ -266,7 +270,7 @@ export function liveTick(s: LiveSession, ctx: TickContext): TickOutcome {
 
   const fillNow = (o: Order) => {
     const q = live(o.asset)!;
-    const f = executeOrder(o, q, today, s.acct, pos, cooldown, prof, totalEquity());
+    const f = executeOrder(o, q, today, s.acct, pos, cooldown, prof, totalEquity(), ctx.costs?.[o.asset]);
     if (!f) return;
     const n = s.trades.length + 1;
     const rec = tradeRecord(o, n, today, f, totalEquity(), valueOf(o.asset), newsUse, s.params.version);

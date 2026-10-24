@@ -1,18 +1,44 @@
 'use client';
-// آبان‌تتر (rule 101): prices, balances, real orders with the user's own API key — from the phone straight to the
-// exchange. Every order is shown in full and sent only after the user confirms it; nothing trades on its own.
+// آبان‌تتر (rules 101–102): prices, wallets, boxes, real orders with the user's own API key — from the phone straight to
+// the exchange — and the switch that prices the app's bots as Abantether would. Every order is shown in full and sent
+// only after the user confirms it; nothing trades on its own, and nothing here can withdraw.
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { abanApi, loadKey, nativeTransport, saveKey, type AbanResult } from '@/lib/aban/client';
-import { ABAN_TAG, assetsFromBalances, BOX_KINDS, isOpenOrder, orderBody, orderChecks, parseBalances, parseOrders, parseTicker, type BalanceRow, type OrderInput, type OrderRow, type Quote, type Side, type TickerRow } from '@/lib/aban/parse';
+import { abanApi, loadKey, nativeTransport, saveKey, type AbanResult, type AccountType, type WalletType } from '@/lib/aban/client';
+import { basisNote, type AbanBasis } from '@/lib/aban/basis';
+import { basisOn, cachedBasis, currentBasis, setBasisOn } from '@/lib/aban/basis-store';
+import {
+  ABAN_TAG,
+  assetsFromBalances,
+  isOpenOrder,
+  orderBody,
+  orderChecks,
+  parseBalances,
+  parseCoinInfo,
+  parseCoins,
+  parseOrders,
+  parseTicker,
+  STATUS_FA,
+  type BalanceRow,
+  type CoinInfo,
+  type CoinRow,
+  type OrderInput,
+  type OrderRow,
+  type Quote,
+  type Side,
+  type TickerRow,
+} from '@/lib/aban/parse';
 import { newId, tomanToRial, type FinanceData } from '@/lib/finance/model';
-import { PageHead } from '../ui';
+import { PageHead, Toggle } from '../ui';
 import { useFinance, WithBook } from '../finance/FinanceProvider';
 import { Card, confirmDelete, Field, fmtDateFa, JalaliDate, Modal, Money, parseAmount, Tabs, TomanInput } from '../finance/kit';
 
-type Tab = 'connect' | 'prices' | 'wallet' | 'trade' | 'orders' | 'boxes';
+type Tab = 'connect' | 'prices' | 'wallet' | 'trade' | 'orders' | 'boxes' | 'transfers';
 const faN = (n: number, d = 8) => n.toLocaleString('fa-IR', { maximumFractionDigits: d });
 const ltr = (t: string) => `⁦${t}⁩`;
+const qFa = (q: string | null) => (q === 'USDT' ? 'تتر' : 'تومان');
+const WALLET_FA: Record<WalletType, string> = { spot: 'اصلی', credit: 'اعتباری', collateral: 'وثیقه' };
+const ACCOUNT_FA: Record<AccountType, string> = { spot: 'کیف پول اصلی', credit: 'اعتباری', collateral: 'وثیقه', investment: 'سرمایه‌گذاری (باکس‌ها)' };
 
 function Raw({ r }: { r: AbanResult | null }) {
   if (!r) return null;
@@ -32,6 +58,50 @@ function Err({ r }: { r: AbanResult | null }) {
   ) : null;
 }
 
+/** «مبنای قیمت ربات‌ها» (rule 102) */
+function BasisCard() {
+  const [on, setOn] = useState(true);
+  const [b, setB] = useState<AbanBasis | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setOn(basisOn());
+    setB(cachedBasis());
+  }, []);
+  const refresh = async () => {
+    setBusy(true);
+    setB(await currentBasis(Date.now(), true));
+    setBusy(false);
+  };
+  return (
+    <Card title="مبنای قیمت ربات‌ها">
+      <Toggle
+        checked={on}
+        onChange={(v) => {
+          setOn(v);
+          setBasisOn(v);
+        }}
+      >
+        معامله برخط، نوسان‌گیری و فیوچرز با قیمت آبان‌تتر حساب شوند
+      </Toggle>
+      <p className="muted small">
+        آبان‌تتر قیمت تومانی هر ارز را از قیمت جهانی دلاری‌اش ضرب در قیمت خرید یا فروش تتر خودش می‌سازد و ۰٫۳۸٪ کارمزد می‌گیرد. با این گزینه ربات‌ها همین را حساب می‌کنند:
+        تبدیل به تومان با تتر آبان‌تتر، و هزینه هر طرف = کارمزد + نصف اختلاف خرید و فروش تتر. قیمت‌ها از فهرست عمومی صرافی، بدون کلید، از همین گوشی خوانده می‌شوند. ربات‌ها
+        کاغذی می‌مانند و هیچ سفارشی به صرافی نمی‌فرستند.
+      </p>
+      {on ? (
+        <>
+          <p className="small" data-testid="aban-basis">
+            {b ? `${basisNote(b)} (خوانده‌شده ${new Date(b.at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })})` : 'هنوز قیمتی از آبان‌تتر خوانده نشده؛ تا آن موقع ربات‌ها با قیمت تابلو کار می‌کنند.'}
+          </p>
+          <button className="fin-mini ghost" onClick={refresh} disabled={busy}>
+            {busy ? 'در حال خواندن…' : 'خواندن قیمت‌ها از آبان‌تتر'}
+          </button>
+        </>
+      ) : null}
+    </Card>
+  );
+}
+
 function Connect({ hasKey, onKey }: { hasKey: boolean; onKey: () => void }) {
   const [key, setKey] = useState('');
   const [res, setRes] = useState<AbanResult | null>(null);
@@ -42,67 +112,68 @@ function Connect({ hasKey, onKey }: { hasKey: boolean; onKey: () => void }) {
     setBusy(false);
   };
   return (
-    <Card title="اتصال با کلید API">
-      <ol className="small aban-steps">
-        <li>
-          در سایت یا اپ آبان‌تتر وارد شوید و از بخش API پنل کاربری یک کلید بسازید. اگر صرافی اجازه می‌دهد، دسترسی <b>برداشت</b> را برای این کلید خاموش بگذارید — این صفحه فقط
-          قیمت، موجودی و سفارش لازم دارد.
-        </li>
-        <li>کلید را این‌جا بچسبانید. فقط روی همین گوشی می‌ماند؛ به سرور «مالی من» نمی‌رود و در فایل پشتیبان هم نیست.</li>
-        <li>«آزمایش اتصال» موجودی را از صرافی می‌خواند.</li>
-      </ol>
-      {!nativeTransport() ? (
-        <p className="banner info" data-testid="aban-browser">
-          این‌جا مرورگر است: درخواست‌ها مستقیم از مرورگر به صرافی می‌روند و صرافی ممکن است آن‌ها را نپذیرد. در اپ اندروید «مالی من» این محدودیت نیست.
+    <>
+      <Card title="اتصال با کلید API">
+        <ol className="small aban-steps">
+          <li>در سایت آبان‌تتر وارد شوید و از صفحه «حساب کاربری» پنل، Api-Key خود را بردارید.</li>
+          <li>کلید را این‌جا بچسبانید. فقط روی همین گوشی می‌ماند؛ به سرور «مالی من» نمی‌رود و در فایل پشتیبان هم نیست.</li>
+          <li>«آزمایش اتصال» موجودی را از صرافی می‌خواند.</li>
+        </ol>
+        <p className="banner warn small">
+          به گفته خود آبان‌تتر، این کلید منقضی نمی‌شود و مثل نام کاربری و رمز عبور شماست — با آن می‌شود برداشت هم کرد. «مالی من» برداشت را عمداً نساخته، ولی گوشی را قفل نگه دارید و
+          اگر گوشی گم شد، کلید را از صفحه «امنیت» پنل آبان‌تتر غیرفعال کنید.
         </p>
-      ) : null}
-      <div className="fin-grid">
-        <Field label={hasKey ? 'کلید تازه (کلید فعلی ذخیره است)' : 'کلید API'}>
-          <input className="fin-input" type="password" autoComplete="off" spellCheck={false} dir="ltr" aria-label="کلید API" value={key} onChange={(e) => setKey(e.target.value)} placeholder="•••••••" />
-        </Field>
-      </div>
-      <div className="fin-actions">
-        <button
-          className="fin-mini"
-          disabled={!key.trim()}
-          onClick={() => {
-            saveKey(key);
-            setKey('');
-            onKey();
-          }}
-          data-testid="aban-save-key"
-        >
-          ذخیره کلید
-        </button>
-        <button className="fin-mini ghost" disabled={!hasKey || busy} onClick={test}>
-          {busy ? 'در حال آزمایش…' : 'آزمایش اتصال'}
-        </button>
-        {hasKey ? (
-          <button
-            className="fin-mini ghost"
-            onClick={() => {
-              if (confirmDelete('کلید API آبان‌تتر از این گوشی')) {
-                saveKey('');
-                onKey();
-                setRes(null);
-              }
-            }}
-          >
-            حذف کلید
-          </button>
+        {!nativeTransport() ? (
+          <p className="banner info" data-testid="aban-browser">
+            این‌جا مرورگر است: درخواست‌ها مستقیم از مرورگر به صرافی می‌روند و صرافی ممکن است آن‌ها را نپذیرد. در اپ اندروید «مالی من» این محدودیت نیست.
+          </p>
         ) : null}
-      </div>
-      {res?.ok ? (
-        <p className="fin-ok" role="status">
-          وصل شد. {faN(parseBalances(res.json).length, 0)} دارایی در کیف پول دیدیم.
-        </p>
-      ) : null}
-      <Err r={res} />
-      <Raw r={res} />
-      <p className="muted small">
-        این اتصال با مستندات عمومی API آبان‌تتر ساخته شده و هنوز با یک حساب واقعی آزمایش نشده است. اگر چیزی درست خوانده نشد، «پاسخ خام صرافی» را ببینید.
-      </p>
-    </Card>
+        <div className="fin-grid">
+          <Field label={hasKey ? 'کلید تازه (کلید فعلی ذخیره است)' : 'کلید API'}>
+            <input className="fin-input" type="password" autoComplete="off" spellCheck={false} dir="ltr" aria-label="کلید API" value={key} onChange={(e) => setKey(e.target.value)} placeholder="•••••••" />
+          </Field>
+        </div>
+        <div className="fin-actions">
+          <button
+            className="fin-mini"
+            disabled={!key.trim()}
+            onClick={() => {
+              saveKey(key);
+              setKey('');
+              onKey();
+            }}
+            data-testid="aban-save-key"
+          >
+            ذخیره کلید
+          </button>
+          <button className="fin-mini ghost" disabled={!hasKey || busy} onClick={test}>
+            {busy ? 'در حال آزمایش…' : 'آزمایش اتصال'}
+          </button>
+          {hasKey ? (
+            <button
+              className="fin-mini ghost"
+              onClick={() => {
+                if (confirmDelete('کلید API آبان‌تتر از این گوشی')) {
+                  saveKey('');
+                  onKey();
+                  setRes(null);
+                }
+              }}
+            >
+              حذف کلید
+            </button>
+          ) : null}
+        </div>
+        {res?.ok ? (
+          <p className="fin-ok" role="status">
+            وصل شد. {faN(parseBalances(res.json).length, 0)} دارایی در کیف پول اصلی دیدیم.
+          </p>
+        ) : null}
+        <Err r={res} />
+        <Raw r={res} />
+      </Card>
+      <BasisCard />
+    </>
   );
 }
 
@@ -110,26 +181,26 @@ function Prices({ ticker, res, load }: { ticker: TickerRow[]; res: AbanResult | 
   const [q, setQ] = useState('');
   const shown = ticker.filter((t) => !q.trim() || t.symbol.includes(q.trim().toUpperCase()));
   return (
-    <Card title="قیمت خرید و فروش" action={<button className="fin-mini ghost" onClick={load}>به‌روزرسانی</button>}>
-      <p className="muted small">قیمتی که صرافی می‌خرد (شما می‌فروشید) و می‌فروشد (شما می‌خرید)، از فهرست عمومی آبان‌تتر — بدون کلید.</p>
+    <Card title="قیمت خرید و فروش (تومان)" action={<button className="fin-mini ghost" onClick={load}>به‌روزرسانی</button>}>
+      <p className="muted small">«خرید شما» قیمتی است که برای خرید هر واحد می‌پردازید و «فروش شما» آن‌چه با فروشش می‌گیرید — از فهرست عمومی آبان‌تتر، بدون کلید. کارمزد ۰٫۳۸٪ جداست.</p>
       <Field label="جست‌وجوی ارز">
         <input className="fin-input" dir="ltr" value={q} onChange={(e) => setQ(e.target.value)} placeholder="BTC, TON…" aria-label="جست‌وجوی ارز" />
       </Field>
       <Err r={res} />
       {shown.length ? (
         <ul className="fin-list" data-testid="aban-ticker">
-          {shown.slice(0, 80).map((t) => (
-            <li key={t.symbol}>
+          {shown.slice(0, 120).map((t) => (
+            <li key={`${t.symbol}-${t.quote}`}>
               <span className="fin-list-main">
                 <b>{ltr(t.symbol)}</b>
-                <small>{t.quote === 'USDT' ? 'به تتر' : 'به تومان'}</small>
+                <small>{t.active ? `به ${qFa(t.quote)}` : 'غیرفعال'}</small>
               </span>
               <span className="fin-list-nums aban-quote">
                 <span>
-                  <small>خرید شما</small> {t.sell !== null ? faN(t.sell) : '—'}
+                  <small>خرید شما</small> {t.buy !== null ? faN(t.buy, t.buy < 100 ? 4 : 0) : '—'}
                 </span>
                 <span>
-                  <small>فروش شما</small> {t.buy !== null ? faN(t.buy) : '—'}
+                  <small>فروش شما</small> {t.sell !== null ? faN(t.sell, t.sell < 100 ? 4 : 0) : '—'}
                 </span>
               </span>
             </li>
@@ -143,13 +214,20 @@ function Prices({ ticker, res, load }: { ticker: TickerRow[]; res: AbanResult | 
   );
 }
 
-function Wallet({ d, balances, ticker, res, load }: { d: FinanceData; balances: BalanceRow[]; ticker: TickerRow[]; res: AbanResult | null; load: () => void }) {
+function Wallet({ d, ticker, coins }: { d: FinanceData; ticker: TickerRow[]; coins: CoinRow[] }) {
   const { update } = useFinance();
+  const [type, setType] = useState<WalletType>('spot');
+  const [res, setRes] = useState<AbanResult | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const load = useCallback(() => void abanApi.balances(type).then(setRes), [type]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const balances = useMemo(() => (res?.ok ? parseBalances(res.json) : []), [res]);
   const sync = () => {
     let msg = '';
     update((dr) => {
-      const r = assetsFromBalances(dr.assets, balances, ticker, () => newId('as'));
+      const r = assetsFromBalances(dr.assets, balances, ticker, () => newId('as'), coins);
       for (const a of r.upsert) {
         const i = dr.assets.findIndex((x) => x.id === a.id);
         if (i >= 0) dr.assets[i] = a;
@@ -162,6 +240,15 @@ function Wallet({ d, balances, ticker, res, load }: { d: FinanceData; balances: 
   const synced = d.assets.filter((a) => a.name.startsWith(ABAN_TAG)).length;
   return (
     <Card title="کیف پول آبان‌تتر" action={<button className="fin-mini ghost" onClick={load}>به‌روزرسانی</button>}>
+      <Field label="کدام کیف پول">
+        <select className="fin-input" aria-label="کدام کیف پول" value={type} onChange={(e) => setType(e.target.value as WalletType)}>
+          {(Object.keys(WALLET_FA) as WalletType[]).map((k) => (
+            <option key={k} value={k}>
+              {WALLET_FA[k]}
+            </option>
+          ))}
+        </select>
+      </Field>
       <Err r={res} />
       {balances.length ? (
         <>
@@ -187,13 +274,13 @@ function Wallet({ d, balances, ticker, res, load }: { d: FinanceData; balances: 
             </button>
           </div>
           <p className="muted small">
-            تتر، بیت‌کوین و اتریوم با قیمت تابلو ارزش‌گذاری می‌شوند؛ ارزهای دیگر با قیمت خرید خود آبان‌تتر، همان لحظه. موجودی تومانی کیف پول را اگر خواستید به‌عنوان یک حساب در
-            «حساب‌ها و کارت‌ها» بسازید. هزینه خریدشان معلوم نیست، پس سودشان «نامشخص» می‌ماند تا خودتان در <Link href="/assets">سرمایه‌ها</Link> بنویسید.
+            تتر، بیت‌کوین و اتریوم با قیمت تابلو ارزش‌گذاری می‌شوند؛ ارزهای دیگر و باکس‌ها با قیمت فروش خود آبان‌تتر، همان لحظه. موجودی تومانی کیف پول را اگر خواستید به‌عنوان یک
+            حساب در «حساب‌ها و کارت‌ها» بسازید. هزینه خریدشان معلوم نیست، پس سودشان «نامشخص» می‌ماند تا خودتان در <Link href="/assets">سرمایه‌ها</Link> بنویسید.
             {synced ? ` (${faN(synced, 0)} دارایی از آبان‌تتر در دفتر هست؛ دوباره زدن همان‌ها را به‌روز می‌کند.)` : ''}
           </p>
         </>
       ) : res?.ok ? (
-        <p className="muted">کیف پول خالی است (یا پاسخ صرافی خوانده نشد).</p>
+        <p className="muted">این کیف پول خالی است.</p>
       ) : null}
       {note ? (
         <p className="fin-ok" role="status">
@@ -205,21 +292,48 @@ function Wallet({ d, balances, ticker, res, load }: { d: FinanceData; balances: 
   );
 }
 
-function Trade({ ticker, balances, onPlaced }: { ticker: TickerRow[]; balances: BalanceRow[]; onPlaced: () => void }) {
+export interface TradePreset {
+  base: string;
+  account?: AccountType;
+}
+
+function Trade({ ticker, preset, onPlaced }: { ticker: TickerRow[]; preset: TradePreset | null; onPlaced: () => void }) {
   const [kind, setKind] = useState<'market' | 'limit'>('market');
   const [side, setSide] = useState<Side>('buy');
-  const [base, setBase] = useState('');
+  const [base, setBase] = useState(preset?.base ?? '');
   const [quote, setQuote] = useState<Quote>('IRT');
+  const [account, setAccount] = useState<AccountType>(preset?.account ?? 'spot');
   const [volume, setVolume] = useState('');
   const [price, setPrice] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [sure, setSure] = useState(false);
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<AbanResult | null>(null);
-  const input: OrderInput = { kind, side, base, quote, volume: parseAmount(volume), price: kind === 'limit' ? parseAmount(price) : null };
+  const [info, setInfo] = useState<CoinInfo | null>(null);
+  const [balances, setBalances] = useState<BalanceRow[]>([]);
+  useEffect(() => {
+    if (preset) {
+      setBase(preset.base);
+      setAccount(preset.account ?? 'spot');
+    }
+  }, [preset]);
+  useEffect(() => {
+    void abanApi.balances(account === 'investment' ? 'spot' : account).then((r) => setBalances(r.ok ? parseBalances(r.json) : []));
+  }, [account]);
+  // the exchange's limits and fee for this coin and side
+  useEffect(() => {
+    setInfo(null);
+    if (!/^[A-Z0-9]{2,15}$/.test(base)) return;
+    const t = setTimeout(() => void abanApi.coinInfo(base, side).then((r) => setInfo(r.ok ? parseCoinInfo(r.json, quote) : null)), 400);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [base, side, quote]);
+  const input: OrderInput = { kind, side, base, quote, volume: parseAmount(volume), price: kind === 'limit' ? parseAmount(price) : null, account };
   const body = orderBody(input);
-  const checks = orderChecks(input, ticker, balances);
+  const checks = orderChecks(input, ticker, balances, info);
   const close = useCallback(() => setConfirm(false), []);
+  const unitFa = side === 'buy' ? qFa(quote) : base || 'ارز';
 
   const send = async () => {
     if (typeof body === 'string') return;
@@ -232,11 +346,16 @@ function Trade({ ticker, balances, onPlaced }: { ticker: TickerRow[]; balances: 
     if (r.ok) onPlaced();
   };
 
+  const summary = () => {
+    const what = side === 'buy' ? `خرید ${ltr(base)} با ${faN(input.volume, 4)} ${qFa(quote)}` : `فروش ${faN(input.volume)} ${ltr(base)}`;
+    return `${what} ${kind === 'market' ? 'با قیمت بازار' : `با قیمت ${faN(input.price!, 4)} ${qFa(quote)}`}`;
+  };
+
   return (
     <Card title="سفارش واقعی">
       <p className="banner warn small" data-testid="aban-real">
-        این سفارش با پول واقعی در حساب آبان‌تتر شما انجام می‌شود و برگشت‌پذیر نیست. «مالی من» هیچ سفارشی را خودش نمی‌فرستد و پیشنهاد خرید و فروش نمی‌دهد؛ موتورهای
-        معامله این اپ کاغذی‌اند و به صرافی وصل نیستند.
+        این سفارش با پول واقعی در حساب آبان‌تتر شما انجام می‌شود و برگشت‌پذیر نیست. «مالی من» هیچ سفارشی را خودش نمی‌فرستد و پیشنهاد خرید و فروش نمی‌دهد؛ ربات‌های این اپ
+        کاغذی‌اند و به صرافی سفارش نمی‌دهند.
       </p>
       <div className="fin-grid">
         <Field label="نوع سفارش">
@@ -255,29 +374,45 @@ function Trade({ ticker, balances, onPlaced }: { ticker: TickerRow[]; balances: 
           <input className="fin-input" dir="ltr" aria-label="ارز" value={base} onChange={(e) => setBase(e.target.value.toUpperCase())} placeholder="TON" list="aban-coins" />
           <datalist id="aban-coins">
             {ticker.map((t) => (
-              <option key={t.symbol} value={t.symbol} />
+              <option key={`${t.symbol}-${t.quote}`} value={t.symbol} />
             ))}
           </datalist>
         </Field>
-        <Field label="به">
-          <select className="fin-input" aria-label="به" value={quote} onChange={(e) => setQuote(e.target.value as Quote)}>
+        <Field label="با">
+          <select className="fin-input" aria-label="با" value={quote} onChange={(e) => setQuote(e.target.value as Quote)}>
             <option value="IRT">تومان</option>
             <option value="USDT">تتر</option>
           </select>
         </Field>
-        <Field label={`مقدار (${base || 'ارز'})`}>
-          <input className="fin-input" inputMode="decimal" dir="ltr" aria-label="مقدار" value={volume} onChange={(e) => setVolume(e.target.value)} placeholder="0.5" />
+        <Field label={side === 'buy' ? `چقدر ${qFa(quote)} خرج شود` : `مقدار فروش (${base || 'ارز'})`}>
+          <input className="fin-input" inputMode="decimal" dir="ltr" aria-label={side === 'buy' ? 'مبلغ خرید' : 'مقدار فروش'} value={volume} onChange={(e) => setVolume(e.target.value)} placeholder={side === 'buy' ? '1000000' : '0.5'} />
         </Field>
         {kind === 'limit' ? (
-          <Field label={`قیمت هر واحد (${quote === 'IRT' ? 'تومان' : 'تتر'})`}>
+          <Field label={`قیمت هر واحد (${qFa(quote)})`}>
             <input className="fin-input" inputMode="decimal" dir="ltr" aria-label="قیمت هر واحد" value={price} onChange={(e) => setPrice(e.target.value)} />
           </Field>
         ) : null}
+        <Field label="از کدام حساب">
+          <select className="fin-input" aria-label="از کدام حساب" value={account} onChange={(e) => setAccount(e.target.value as AccountType)}>
+            {(Object.keys(ACCOUNT_FA) as AccountType[]).map((k) => (
+              <option key={k} value={k}>
+                {ACCOUNT_FA[k]}
+              </option>
+            ))}
+          </select>
+        </Field>
       </div>
-      {checks.value !== null ? (
+      {checks.price !== null && input.volume > 0 ? (
         <p className="small" data-testid="aban-value">
-          ارزش تقریبی: {faN(checks.value, quote === 'IRT' ? 0 : 4)} {quote === 'IRT' ? 'تومان' : 'تتر'}
-          {kind === 'market' ? ' (قیمت نهایی را صرافی هنگام اجرا تعیین می‌کند؛ کارمزد جداست)' : ''}
+          {side === 'buy'
+            ? `حدود ${faN(checks.coinQty ?? 0, 6)} ${base} می‌گیرید (قیمت هر واحد ${faN(checks.price, 4)} ${qFa(quote)}، بعد از کارمزد ${faN(checks.feePct, 2)}٪)`
+            : `حدود ${faN(checks.quoteValue ?? 0, quote === 'IRT' ? 0 : 4)} ${qFa(quote)} می‌گیرید (قیمت هر واحد ${faN(checks.price, 4)}، بعد از کارمزد ${faN(checks.feePct, 2)}٪)`}
+          {kind === 'market' ? '؛ قیمت نهایی را صرافی هنگام اجرا تعیین می‌کند.' : ''}
+        </p>
+      ) : null}
+      {info ? (
+        <p className="muted small">
+          حداقل و حداکثر هر معامله: {faN((quote === 'IRT' ? info.minIrt : info.minUsdt) ?? 0, 2)} تا {faN((quote === 'IRT' ? info.maxIrt : info.maxUsdt) ?? 0, 2)} {qFa(quote)}
         </p>
       ) : null}
       {checks.warnings.map((w) => (
@@ -293,7 +428,7 @@ function Trade({ ticker, balances, onPlaced }: { ticker: TickerRow[]; balances: 
       </div>
       {res?.ok ? (
         <p className="fin-ok" role="status" data-testid="aban-placed">
-          صرافی سفارش را پذیرفت. وضعیتش را در «سفارش‌ها» ببینید.
+          صرافی سفارش را پذیرفت ({STATUS_FA[parseOrders(res.json)[0]?.status ?? ''] ?? parseOrders(res.json)[0]?.status ?? 'ثبت شد'}). وضعیتش را در «سفارش‌ها» ببینید.
         </p>
       ) : null}
       <Err r={res} />
@@ -301,15 +436,12 @@ function Trade({ ticker, balances, onPlaced }: { ticker: TickerRow[]; balances: 
       {confirm && typeof body !== 'string' ? (
         <Modal title="تأیید سفارش واقعی" onClose={close}>
           <p>
-            <b>
-              {side === 'buy' ? 'خرید' : 'فروش'} {faN(input.volume)} {ltr(body.base_symbol)} {kind === 'market' ? 'با قیمت بازار' : `با قیمت ${faN(input.price!)} ${quote === 'IRT' ? 'تومان' : 'تتر'}`}
-            </b>
+            <b>{summary()}</b>
           </p>
-          {checks.value !== null ? (
-            <p className="small">
-              حدود {faN(checks.value, quote === 'IRT' ? 0 : 4)} {quote === 'IRT' ? 'تومان' : 'تتر'}
-            </p>
-          ) : null}
+          <p className="small muted">
+            {side === 'buy' ? 'در سفارش خرید، آبان‌تتر مبلغ را به تومان/تتر می‌گیرد، نه تعداد ارز. ' : ''}
+            از حساب: {ACCOUNT_FA[account]}
+          </p>
           {checks.warnings.map((w) => (
             <p key={w} className="fin-hint">
               {w}
@@ -317,7 +449,7 @@ function Trade({ ticker, balances, onPlaced }: { ticker: TickerRow[]; balances: 
           ))}
           <details className="fin-details">
             <summary>آن‌چه به صرافی فرستاده می‌شود</summary>
-            <pre className="fin-raw" dir="ltr">{`POST api.abantether.com/…/orders/otc/${kind}\n${JSON.stringify(body, null, 2)}`}</pre>
+            <pre className="fin-raw" dir="ltr">{`POST api.abantether.com/api/v1/order_handler/orders/otc/${kind}\n${JSON.stringify(body, null, 2)}`}</pre>
           </details>
           <label className="toggle">
             <input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} data-testid="aban-sure" />
@@ -338,13 +470,64 @@ function Trade({ ticker, balances, onPlaced }: { ticker: TickerRow[]; balances: 
   );
 }
 
-function Orders({ orders, res, load }: { orders: OrderRow[]; res: AbanResult | null; load: () => void }) {
+function OrderLine({ o, onCancel, onRefresh }: { o: OrderRow; onCancel: (o: OrderRow) => void; onRefresh: (o: OrderRow) => void }) {
+  const amount = o.side === 'buy' ? (o.volQuote ? `${faN(o.volQuote, 4)} ${qFa(o.quote)}` : null) : o.volBase ? `${faN(o.volBase)} ${o.base ?? ''}` : null;
+  const filled = o.filledBase ? `انجام‌شده: ${faN(o.filledBase)} ${o.base ?? ''}${o.filledQuote ? ` / ${faN(o.filledQuote, 4)} ${qFa(o.quote)}` : ''}` : null;
+  return (
+    <li data-testid="aban-order">
+      <span className="fin-list-main">
+        <b>
+          {o.side === 'buy' ? 'خرید' : o.side === 'sell' ? 'فروش' : 'سفارش'} {o.base ? ltr(o.base) : ''} {o.type === 'limit' ? '(محدود)' : o.type === 'market' ? '(بازار)' : ''}
+        </b>
+        <small>
+          {o.status ? (STATUS_FA[o.status] ?? o.status) : 'وضعیت نامعلوم'}
+          {o.at ? `، ${o.at.slice(0, 16).replace('T', ' ')}` : ''}
+          {o.code ? `، کد ${o.code}` : ''}
+        </small>
+        {filled ? <small>{filled}</small> : null}
+      </span>
+      <span className="fin-list-nums">
+        {amount ? <b className="money">{amount}</b> : null}
+        {o.price !== null ? <small>قیمت {faN(o.price, 4)}</small> : null}
+      </span>
+      {o.id ? (
+        <span className="fin-actions">
+          <button className="fin-mini ghost" onClick={() => onRefresh(o)}>
+            وضعیت
+          </button>
+          {isOpenOrder(o) ? (
+            <button className="fin-mini ghost" onClick={() => onCancel(o)}>
+              لغو
+            </button>
+          ) : null}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function Orders() {
+  const [res, setRes] = useState<AbanResult | null>(null);
   const [cres, setCres] = useState<AbanResult | null>(null);
+  const [page, setPage] = useState(1);
+  const [override, setOverride] = useState<Record<string, OrderRow>>({});
+  const load = useCallback(() => void abanApi.orders(page).then(setRes), [page]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const orders = useMemo(() => (res?.ok ? parseOrders(res.json).map((o) => override[o.id] ?? o) : []), [res, override]);
+  const total = res?.ok ? Number((res.json as { page_count?: unknown })?.page_count) || 1 : 1;
   const cancel = async (o: OrderRow) => {
     if (!window.confirm(`سفارش ${o.side === 'buy' ? 'خرید' : o.side === 'sell' ? 'فروش' : ''} ${o.base ?? ''} لغو شود؟`)) return;
     const r = await abanApi.cancel(o.id);
     setCres(r);
     if (r.ok) load();
+  };
+  const refresh = async (o: OrderRow) => {
+    const r = await abanApi.order(o.id);
+    const one = r.ok ? parseOrders(r.json)[0] : null;
+    if (one) setOverride((x) => ({ ...x, [o.id]: one }));
+    else setCres(r);
   };
   return (
     <Card title="سفارش‌های من" action={<button className="fin-mini ghost" onClick={load}>به‌روزرسانی</button>}>
@@ -352,31 +535,24 @@ function Orders({ orders, res, load }: { orders: OrderRow[]; res: AbanResult | n
       {orders.length ? (
         <ul className="fin-list" data-testid="aban-orders">
           {orders.map((o) => (
-            <li key={o.id || `${o.at}-${o.base}`}>
-              <span className="fin-list-main">
-                <b>
-                  {o.side === 'buy' ? 'خرید' : o.side === 'sell' ? 'فروش' : 'سفارش'} {o.base ? ltr(o.base) : ''}
-                  {o.quote ? ` / ${ltr(o.quote)}` : ''}
-                </b>
-                <small>
-                  {o.status ?? 'وضعیت نامعلوم'}
-                  {o.at ? ` · ${o.at.slice(0, 16).replace('T', ' ')}` : ''}
-                </small>
-              </span>
-              <span className="fin-list-nums">
-                {o.volume !== null ? <b className="num">{faN(o.volume)}</b> : null}
-                {o.price !== null ? <small>قیمت {faN(o.price)}</small> : null}
-              </span>
-              {o.id && isOpenOrder(o) ? (
-                <button className="fin-mini ghost" onClick={() => void cancel(o)}>
-                  لغو
-                </button>
-              ) : null}
-            </li>
+            <OrderLine key={o.id || `${o.at}-${o.base}`} o={o} onCancel={(x) => void cancel(x)} onRefresh={(x) => void refresh(x)} />
           ))}
         </ul>
       ) : res?.ok ? (
-        <p className="muted">سفارشی نیست (یا پاسخ صرافی خوانده نشد).</p>
+        <p className="muted">سفارشی نیست.</p>
+      ) : null}
+      {total > 1 ? (
+        <div className="fin-actions">
+          <button className="fin-mini ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            قبلی
+          </button>
+          <span className="small">
+            صفحه {faN(page, 0)} از {faN(total, 0)}
+          </span>
+          <button className="fin-mini ghost" disabled={page >= total} onClick={() => setPage((p) => p + 1)}>
+            بعدی
+          </button>
+        </div>
       ) : null}
       <Err r={cres} />
       <Raw r={res} />
@@ -384,67 +560,157 @@ function Orders({ orders, res, load }: { orders: OrderRow[]; res: AbanResult | n
   );
 }
 
-/** No public API for the investment boxes was found: they are recorded by hand, as assets with their own value. */
-function Boxes({ d }: { d: FinanceData }) {
+/**
+ * The investment boxes: in the coin list they are the coins of type FUND (GET /api/v2/manager/coins), bought and sold
+ * with the same OTC orders; the docs list «investment» among the order account types. Recording one by hand stays.
+ */
+function Boxes({ d, coins, coinsRes, onTrade }: { d: FinanceData; coins: CoinRow[]; coinsRes: AbanResult | null; onTrade: (p: TradePreset) => void }) {
   const { update, today } = useFinance();
-  const [kind, setKind] = useState(BOX_KINDS[0]);
+  const funds = coins.filter((c) => c.type === 'FUND');
+  const [name, setName] = useState('');
   const [cost, setCost] = useState('');
   const [value, setValue] = useState('');
   const [date, setDate] = useState(today);
   const [note, setNote] = useState<string | null>(null);
-  const boxes = d.assets.filter((a) => a.name.startsWith(`${ABAN_TAG} — `) && BOX_KINDS.some((k) => a.name.includes(k)));
+  const boxes = d.assets.filter((a) => a.name.startsWith(`${ABAN_TAG} — `) && a.kind === 'manual');
   const add = () => {
     const costRial = tomanToRial(parseAmount(cost));
     const valueRial = value ? tomanToRial(parseAmount(value)) : costRial;
+    if (!name.trim()) return setNote('نام باکس را بنویسید.');
     if (!(valueRial > 0)) return setNote('مبلغ را بنویسید.');
     update((dr) => {
-      dr.assets.push({ id: newId('as'), name: `${ABAN_TAG} — ${kind}`, kind: 'manual', valueRial, liquid: true, costRial: costRial > 0 ? costRial : null, boughtOn: date });
+      dr.assets.push({ id: newId('as'), name: `${ABAN_TAG} — ${name.trim()}`, kind: 'manual', valueRial, liquid: true, costRial: costRial > 0 ? costRial : null, boughtOn: date });
     });
     setCost('');
     setValue('');
-    setNote(`«${kind}» در سرمایه‌ها ثبت شد. ارزش فعلی‌اش را هر وقت خواستید از همان‌جا به‌روز کنید.`);
+    setNote(`«${name.trim()}» در سرمایه‌ها ثبت شد. ارزش فعلی‌اش را هر وقت خواستید از همان‌جا به‌روز کنید.`);
   };
   return (
-    <Card title="باکس‌های سرمایه‌گذاری">
-      <p className="muted small">
-        در مستندات عمومی API آبان‌تتر راهی برای خواندن یا خریدن باکس‌ها (فیکس‌باکس، گلدباکس، …) پیدا نکردیم، پس این‌جا نمی‌توانیم مستقیم از صرافی بخوانیمشان. می‌توانید هر باکس را با
-        مبلغ و تاریخ سرمایه‌گذاری ثبت کنید تا در دارایی خالص و مقایسه با دلار و تورم بیاید. سود ادعایی هر باکس تضمین‌شده نیست.
-      </p>
-      <div className="fin-grid">
-        <Field label="کدام باکس">
-          <select className="fin-input" aria-label="کدام باکس" value={kind} onChange={(e) => setKind(e.target.value)}>
-            {BOX_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
+    <>
+      <Card title="باکس‌های سرمایه‌گذاری">
+        <p className="muted small">
+          در فهرست ارزهای آبان‌تتر، باکس‌ها دارایی‌هایی از نوع «FUND» هستند و با همان سفارش خرید و فروش معامله می‌شوند. سود ادعایی هر باکس تضمین‌شده نیست و ریسک دارد.
+        </p>
+        <Err r={coinsRes} />
+        {funds.length ? (
+          <ul className="fin-list" data-testid="aban-funds">
+            {funds.map((c) => (
+              <li key={c.symbol}>
+                <span className="fin-list-main">
+                  <b>{c.persian ?? c.name}</b>
+                  <small>
+                    {ltr(c.symbol)}
+                    {c.change24h !== null ? `، ۲۴ ساعت ${c.change24h > 0 ? '+' : ''}${faN(c.change24h, 2)}٪` : ''}
+                  </small>
+                </span>
+                <span className="fin-list-nums aban-quote">
+                  <span>
+                    <small>خرید</small> {c.buy !== null ? faN(c.buy, 0) : '—'}
+                  </span>
+                  <span>
+                    <small>فروش</small> {c.sell !== null ? faN(c.sell, 0) : '—'}
+                  </span>
+                </span>
+                {c.canBuy || c.canSell ? (
+                  <button className="fin-mini ghost" onClick={() => onTrade({ base: c.symbol, account: 'investment' })}>
+                    معامله
+                  </button>
+                ) : null}
+              </li>
             ))}
-          </select>
-        </Field>
-        <TomanInput label="مبلغ سرمایه‌گذاری (تومان)" value={cost} onChange={setCost} />
-        <TomanInput label="ارزش فعلی (تومان، اگر فرق دارد)" value={value} onChange={setValue} />
-        <JalaliDate label="تاریخ" value={date} onChange={setDate} yearsBack={5} yearsAhead={0} />
-      </div>
-      <div className="fin-actions">
-        <button className="fin-mini" onClick={add} disabled={!cost && !value}>
-          ثبت در سرمایه‌ها
-        </button>
-      </div>
-      {note ? <p className="fin-ok" role="status">{note}</p> : null}
-      {boxes.length ? (
-        <ul className="fin-list">
-          {boxes.map((b) => (
-            <li key={b.id}>
+          </ul>
+        ) : coinsRes?.ok ? (
+          <p className="muted">در فهرست ارزهای صرافی، دارایی از نوع باکس (FUND) پیدا نشد.</p>
+        ) : null}
+        <p className="muted small">
+          برای معامله باکس، حساب «سرمایه‌گذاری» پیش‌فرض می‌شود (مستندات آن را در انواع حساب سفارش نام برده)؛ اگر صرافی نپذیرفت، «کیف پول اصلی» را امتحان کنید.
+        </p>
+        <Raw r={coinsRes} />
+      </Card>
+      <Card title="ثبت دستی باکس در سرمایه‌ها">
+        <div className="fin-grid">
+          <Field label="نام باکس">
+            <input className="fin-input" aria-label="نام باکس" value={name} onChange={(e) => setName(e.target.value)} placeholder="مثلاً گلدباکس" list="aban-box-names" />
+            <datalist id="aban-box-names">
+              {funds.map((c) => (
+                <option key={c.symbol} value={c.persian ?? c.name} />
+              ))}
+            </datalist>
+          </Field>
+          <TomanInput label="مبلغ سرمایه‌گذاری (تومان)" value={cost} onChange={setCost} />
+          <TomanInput label="ارزش فعلی (تومان، اگر فرق دارد)" value={value} onChange={setValue} />
+          <JalaliDate label="تاریخ" value={date} onChange={setDate} yearsBack={5} yearsAhead={0} />
+        </div>
+        <div className="fin-actions">
+          <button className="fin-mini" onClick={add} disabled={!cost && !value}>
+            ثبت در سرمایه‌ها
+          </button>
+        </div>
+        {note ? <p className="fin-ok" role="status">{note}</p> : null}
+        {boxes.length ? (
+          <ul className="fin-list">
+            {boxes.map((b) => (
+              <li key={b.id}>
+                <span className="fin-list-main">
+                  <b>{b.name.replace(`${ABAN_TAG} — `, '')}</b>
+                  <small>{b.boughtOn ? fmtDateFa(b.boughtOn) : ''}</small>
+                </span>
+                <span className="fin-list-nums">
+                  <Money rial={b.valueRial ?? 0} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </Card>
+    </>
+  );
+}
+
+/** read-only: blockchain deposits and withdrawals (the app never withdraws) */
+function Transfers() {
+  const [type, setType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
+  const [res, setRes] = useState<AbanResult | null>(null);
+  useEffect(() => {
+    void abanApi.transfers(type).then(setRes);
+  }, [type]);
+  const rows = useMemo(() => {
+    const p = res?.ok ? (res.json as { data?: unknown }).data : null;
+    return Array.isArray(p) ? (p as Record<string, unknown>[]) : [];
+  }, [res]);
+  return (
+    <Card title="واریز و برداشت رمزارز">
+      <p className="muted small">فقط نمایش. «مالی من» برداشت ثبت نمی‌کند — برای برداشت از خود آبان‌تتر استفاده کنید.</p>
+      <Field label="نوع">
+        <select className="fin-input" aria-label="نوع" value={type} onChange={(e) => setType(e.target.value as 'DEPOSIT' | 'WITHDRAWAL')}>
+          <option value="DEPOSIT">واریزها</option>
+          <option value="WITHDRAWAL">برداشت‌ها</option>
+        </select>
+      </Field>
+      <Err r={res} />
+      {rows.length ? (
+        <ul className="fin-list" data-testid="aban-transfers">
+          {rows.map((t) => (
+            <li key={String(t.id)}>
               <span className="fin-list-main">
-                <b>{b.name.replace(`${ABAN_TAG} — `, '')}</b>
-                <small>{b.boughtOn ? fmtDateFa(b.boughtOn) : ''}</small>
+                <b>
+                  {ltr(String(t.coin ?? ''))} ({String(t.network ?? '')})
+                </b>
+                <small>
+                  {String(t.state ?? '')}
+                  {t.created_at ? `، ${String(t.created_at).slice(0, 16).replace('T', ' ')}` : ''}
+                </small>
               </span>
               <span className="fin-list-nums">
-                <Money rial={b.valueRial ?? 0} />
+                <b className="num">{String(t.amount ?? '')}</b>
               </span>
             </li>
           ))}
         </ul>
+      ) : res?.ok ? (
+        <p className="muted">موردی نیست.</p>
       ) : null}
+      <Raw r={res} />
     </Card>
   );
 }
@@ -453,15 +719,12 @@ function Page({ d }: { d: FinanceData }) {
   const [tab, setTab] = useState<Tab>('prices');
   const [hasKey, setHasKey] = useState(false);
   const [tickerRes, setTickerRes] = useState<AbanResult | null>(null);
-  const [balRes, setBalRes] = useState<AbanResult | null>(null);
-  const [ordRes, setOrdRes] = useState<AbanResult | null>(null);
+  const [coinsRes, setCoinsRes] = useState<AbanResult | null>(null);
+  const [preset, setPreset] = useState<TradePreset | null>(null);
   const ticker = useMemo(() => (tickerRes?.ok ? parseTicker(tickerRes.json) : []), [tickerRes]);
-  const balances = useMemo(() => (balRes?.ok ? parseBalances(balRes.json) : []), [balRes]);
-  const orders = useMemo(() => (ordRes?.ok ? parseOrders(ordRes.json) : []), [ordRes]);
-
+  const coins = useMemo(() => (coinsRes?.ok ? parseCoins(coinsRes.json) : []), [coinsRes]);
   const loadTicker = useCallback(() => void abanApi.ticker().then(setTickerRes), []);
-  const loadBal = useCallback(() => void abanApi.balances().then(setBalRes), []);
-  const loadOrders = useCallback(() => void abanApi.orders().then(setOrdRes), []);
+  const loadCoins = useCallback(() => void abanApi.coins().then(setCoinsRes), []);
 
   useEffect(() => {
     const k = !!loadKey();
@@ -469,17 +732,16 @@ function Page({ d }: { d: FinanceData }) {
     if (!k) setTab('connect');
   }, []);
   useEffect(() => {
-    if ((tab === 'prices' || tab === 'trade') && !tickerRes) loadTicker();
-    if ((tab === 'wallet' || tab === 'trade') && hasKey && !balRes) loadBal();
-    if (tab === 'orders' && hasKey && !ordRes) loadOrders();
-  }, [tab, hasKey, tickerRes, balRes, ordRes, loadTicker, loadBal, loadOrders]);
+    if ((tab === 'prices' || tab === 'trade' || tab === 'wallet') && !tickerRes) loadTicker();
+    if ((tab === 'boxes' || tab === 'wallet') && !coinsRes) loadCoins();
+  }, [tab, tickerRes, coinsRes, loadTicker, loadCoins]);
 
-  const needKey = !hasKey && (tab === 'wallet' || tab === 'trade' || tab === 'orders');
+  const needKey = !hasKey && (tab === 'wallet' || tab === 'trade' || tab === 'orders' || tab === 'transfers');
   return (
     <>
       <PageHead title="آبان‌تتر">
-        قیمت‌ها، موجودی کیف پول و سفارش واقعی در صرافی آبان‌تتر با کلید API خودتان — مستقیم از همین گوشی به صرافی؛ کلید و سفارش‌ها از سرور «مالی من» رد نمی‌شوند. هیچ سفارشی
-        بدون تأیید شما فرستاده نمی‌شود.
+        قیمت‌ها، کیف پول، باکس‌ها و سفارش واقعی در صرافی آبان‌تتر با کلید API خودتان — مستقیم از همین گوشی به صرافی؛ کلید و سفارش‌ها از سرور «مالی من» رد نمی‌شوند. هیچ سفارشی
+        بدون تأیید شما فرستاده نمی‌شود و برداشت از این‌جا ممکن نیست.
       </PageHead>
       <Tabs<Tab>
         label="بخش‌های آبان‌تتر"
@@ -492,7 +754,8 @@ function Page({ d }: { d: FinanceData }) {
           { key: 'trade', label: 'معامله' },
           { key: 'orders', label: 'سفارش‌ها' },
           { key: 'boxes', label: 'باکس‌ها' },
-          { key: 'connect', label: hasKey ? 'کلید API' : 'اتصال' },
+          { key: 'transfers', label: 'واریز و برداشت' },
+          { key: 'connect', label: hasKey ? 'کلید و مبنا' : 'اتصال' },
         ]}
       />
       <div id="aban-panel" role="tabpanel">
@@ -504,31 +767,27 @@ function Page({ d }: { d: FinanceData }) {
             </button>
           </p>
         ) : tab === 'connect' ? (
-          <Connect
-            hasKey={hasKey}
-            onKey={() => {
-              setHasKey(!!loadKey());
-              setBalRes(null);
-              setOrdRes(null);
-            }}
-          />
+          <Connect hasKey={hasKey} onKey={() => setHasKey(!!loadKey())} />
         ) : tab === 'prices' ? (
           <Prices ticker={ticker} res={tickerRes} load={loadTicker} />
         ) : tab === 'wallet' ? (
-          <Wallet d={d} balances={balances} ticker={ticker} res={balRes} load={loadBal} />
+          <Wallet d={d} ticker={ticker} coins={coins} />
         ) : tab === 'trade' ? (
-          <Trade
-            ticker={ticker}
-            balances={balances}
-            onPlaced={() => {
-              setBalRes(null);
-              setOrdRes(null);
+          <Trade ticker={ticker} preset={preset} onPlaced={() => undefined} />
+        ) : tab === 'orders' ? (
+          <Orders />
+        ) : tab === 'boxes' ? (
+          <Boxes
+            d={d}
+            coins={coins}
+            coinsRes={coinsRes}
+            onTrade={(p) => {
+              setPreset(p);
+              setTab(hasKey ? 'trade' : 'connect');
             }}
           />
-        ) : tab === 'orders' ? (
-          <Orders orders={orders} res={ordRes} load={loadOrders} />
         ) : (
-          <Boxes d={d} />
+          <Transfers />
         )}
       </div>
     </>

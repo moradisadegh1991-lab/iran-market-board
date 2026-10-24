@@ -1,11 +1,9 @@
 // آبان‌تتر — the pure half (rule 101): reading the exchange's answers, building an order, and turning balances into
-// the book's assets.
+// the book's assets. Shapes follow the API reference (docs.abantether.com); the readers still accept a missing
+// wrapper or a number sent as a string, and the page always shows the raw answer too. Nothing here touches the network.
 //
-// The API reference (docs.abantether.com) could not be opened from where this was written (the site refuses
-// non-Iranian addresses); endpoints and fields come from the docs' search snippets and Abantether's own Python SDK
-// (github.com/Abantether-com/abantether-python-sdk). So every reader here accepts the shapes an answer plausibly
-// takes (wrapped in `data`/`result`/`results` or not, numbers as strings, a few field names) and the page always
-// shows the raw answer too. Nothing here touches the network.
+// Prices: «buy» is what the USER pays to buy, «sell» what the user gets selling (the ticker's buy_price is the higher
+// one: XRPIRT 262,625 buy / 260,477 sell). IRT is toman.
 import type { Asset, MarketKey } from '@/lib/finance/model';
 
 export type Side = 'buy' | 'sell';
@@ -13,10 +11,35 @@ export type Quote = 'IRT' | 'USDT';
 
 export interface TickerRow {
   symbol: string;
-  /** what the exchange buys at / sells at, in the quote; null when the answer did not say */
+  quote: Quote;
+  /** the user buys at / sells at, in the quote */
   buy: number | null;
   sell: number | null;
-  quote: Quote | null;
+  active: boolean;
+}
+export interface CoinRow {
+  symbol: string;
+  name: string;
+  persian: string | null;
+  /** COIN, or FUND — the investment boxes (باکس‌ها) */
+  type: string;
+  /** toman */
+  buy: number | null;
+  sell: number | null;
+  /** the global price in USDT the toman prices are built from */
+  usdt: number | null;
+  change24h: number | null;
+  canBuy: boolean;
+  canSell: boolean;
+}
+export interface CoinInfo {
+  symbol: string;
+  /** total cost of one trade, % (exchange + Aban fee) */
+  feePct: number;
+  minIrt: number | null;
+  maxIrt: number | null;
+  minUsdt: number | null;
+  maxUsdt: number | null;
 }
 export interface BalanceRow {
   symbol: string;
@@ -26,13 +49,18 @@ export interface BalanceRow {
 }
 export interface OrderRow {
   id: string;
+  code: string | null;
   side: Side | null;
   base: string | null;
   quote: string | null;
-  volume: number | null;
-  price: number | null;
-  status: string | null;
   type: string | null;
+  status: string | null;
+  /** what was ordered: a buy is set in the quote, a sell in the base (docs) */
+  volBase: number | null;
+  volQuote: number | null;
+  filledBase: number | null;
+  filledQuote: number | null;
+  price: number | null;
   at: string | null;
 }
 
@@ -49,170 +77,221 @@ export function num(x: unknown): number | null {
     .replace(/٫/g, '.');
   if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
   const v = Number(s);
-  return Number.isFinite(v) ? v : null;
+  return Number.isFinite(v) ? (Object.is(v, -0) ? 0 : v) : null;
 }
 
-/** the payload inside the usual wrappers */
+/** the payload inside `data` (and the docs' `markets` in the ticker) */
 export function unwrap(x: unknown): unknown {
   let cur = x;
   for (let i = 0; i < 3 && isObj(cur); i++) {
-    const inner = cur.data ?? cur.result ?? cur.results ?? cur.items ?? cur.balances ?? cur.orders;
+    const inner = cur.data ?? cur.markets ?? cur.result ?? cur.results;
     if (inner === undefined) break;
     cur = inner;
   }
   return cur;
 }
 
-const pick = (o: Record<string, unknown>, keys: string[]): unknown => {
-  for (const k of keys) if (o[k] !== undefined && o[k] !== null && o[k] !== '') return o[k];
-  return undefined;
-};
 const str = (x: unknown): string | null => (typeof x === 'string' && x.trim() ? x.trim() : typeof x === 'number' ? String(x) : null);
-const sym = (x: unknown): string | null => {
-  const s = isObj(x) ? str(pick(x, ['symbol', 'code', 'name'])) : str(x);
-  return s ? s.toUpperCase() : null;
-};
+const up = (x: unknown) => str(x)?.toUpperCase() ?? null;
 
-const BUY = ['buy', 'buy_price', 'buyPrice', 'bid', 'price_buy', 'irt_buy', 'toman_buy', 'buy_irt'];
-const SELL = ['sell', 'sell_price', 'sellPrice', 'ask', 'price_sell', 'irt_sell', 'toman_sell', 'sell_irt'];
-const PRICE = ['price', 'last', 'last_price', 'irt_price', 'toman_price', 'usdt_price'];
-
-function tickerOf(symbol: string, v: unknown): TickerRow | null {
-  if (num(v) !== null) return { symbol, buy: num(v), sell: num(v), quote: null };
-  if (!isObj(v)) return null;
-  const p = num(pick(v, PRICE));
-  const buy = num(pick(v, BUY)) ?? p;
-  const sell = num(pick(v, SELL)) ?? p;
-  if (buy === null && sell === null) {
-    // { irt: {buy, sell}, usdt: {…} } — prefer toman
-    for (const [q, k] of [['IRT', ['irt', 'IRT', 'toman', 'irr']], ['USDT', ['usdt', 'USDT']]] as [Quote, string[]][]) {
-      const inner = pick(v, k);
-      if (isObj(inner)) {
-        const r = tickerOf(symbol, inner);
-        if (r) return { ...r, quote: q };
-      }
-    }
-    return null;
-  }
-  const q = str(pick(v, ['quote', 'quote_symbol', 'currency']));
-  return { symbol, buy, sell, quote: q ? (/usdt/i.test(q) ? 'USDT' : /irt|irr|toman|تومان/i.test(q) ? 'IRT' : null) : null };
-}
-
-/** The OTC ticker: one row per coin, whatever the answer's shape (an array of rows, or an object keyed by symbol). */
+/**
+ * The OTC ticker (GET /api/v1/manager/otc/ticker): {data:{markets:{XRPIRT:{symbol, buy_price, sell_price, active}}}}.
+ * The market key says the quote (…IRT / …USDT).
+ */
 export function parseTicker(json: unknown): TickerRow[] {
   const p = unwrap(json);
-  const out: TickerRow[] = [];
-  if (Array.isArray(p)) {
-    for (const r of p) {
-      if (!isObj(r)) continue;
-      const s = sym(pick(r, ['symbol', 'coin', 'base_symbol', 'base', 'currency_symbol', 'name']));
-      const t = s ? tickerOf(s, r) : null;
-      if (t) out.push(t);
-    }
-  } else if (isObj(p)) {
-    for (const [k, v] of Object.entries(p)) {
-      const t = tickerOf(k.toUpperCase(), v);
-      if (t) out.push(t);
-    }
-  }
-  return out.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  const rows: TickerRow[] = [];
+  const add = (key: string, v: unknown) => {
+    if (!isObj(v)) return;
+    const k = key.toUpperCase();
+    const quote: Quote = k.endsWith('USDT') && k !== 'USDT' ? 'USDT' : 'IRT';
+    const symbol = up(v.symbol) ?? (k.endsWith(quote) ? k.slice(0, -quote.length) : k);
+    const buy = num(v.buy_price ?? v.price_buy);
+    const sell = num(v.sell_price ?? v.price_sell);
+    if (!symbol || (buy === null && sell === null)) return;
+    rows.push({ symbol, quote, buy, sell, active: v.active !== false });
+  };
+  if (isObj(p)) for (const [k, v] of Object.entries(p)) add(k, v);
+  else if (Array.isArray(p)) for (const v of p) if (isObj(v)) add(String(v.symbol ?? ''), v);
+  return rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 
-/** Balances: the docs show [{symbol, balance, available, blocked, debit}]; an object keyed by symbol is read too. */
+/** GET /api/v2/manager/coins */
+export function parseCoins(json: unknown): CoinRow[] {
+  const p = unwrap(json);
+  return (Array.isArray(p) ? p : [])
+    .filter(isObj)
+    .map((c) => ({
+      symbol: up(c.symbol) ?? '',
+      name: str(c.name) ?? '',
+      persian: str(c.persian_name),
+      type: up(c.coin_type) ?? 'COIN',
+      buy: num(c.price_buy),
+      sell: num(c.price_sell),
+      usdt: num(c.tether_price),
+      change24h: num(c.percent_change_24h),
+      canBuy: c.is_buy_active !== false && c.is_active !== false,
+      canSell: c.is_sell_active !== false && c.is_active !== false,
+    }))
+    .filter((c) => c.symbol);
+}
+
+/** GET /api/v1/feecalculator/coin-info: fees are percents (exchange_fee 0.08 + irt_fee 0.3); the coefficient 0.9962 says the same */
+export function parseCoinInfo(json: unknown, quote: Quote = 'IRT'): CoinInfo | null {
+  const p = unwrap(json);
+  if (!isObj(p)) return null;
+  const ex = num(p.exchange_fee);
+  const own = num(quote === 'IRT' ? p.irt_fee : p.tether_fee);
+  const coef = num((p[quote === 'IRT' ? 'irt' : 'usdt'] as { quantity?: { total?: unknown } } | undefined)?.quantity?.total);
+  const feePct = ex !== null && own !== null ? ex + own : coef !== null ? (1 - coef) * 100 : 0.38;
+  return {
+    symbol: up(p.symbol) ?? '',
+    feePct,
+    minIrt: num(p.irt_min_trade),
+    maxIrt: num(p.irt_max_trade),
+    minUsdt: num(p.usdt_min_trade),
+    maxUsdt: num(p.usdt_max_trade),
+  };
+}
+
+/** GET /api/v1/accounting/balances: [{symbol, balance, available, blocked, debit, banned}]; zero balances dropped */
 export function parseBalances(json: unknown): BalanceRow[] {
   const p = unwrap(json);
   const rows: BalanceRow[] = [];
   const add = (s: string | null, v: unknown) => {
-    if (!s) return;
-    if (num(v) !== null) return void rows.push({ symbol: s, balance: num(v)!, available: null, blocked: null });
-    if (!isObj(v)) return;
-    const balance = num(pick(v, ['balance', 'total', 'amount', 'value']));
-    const available = num(pick(v, ['available', 'free', 'available_balance']));
-    const blocked = num(pick(v, ['blocked', 'locked', 'frozen', 'in_order']));
+    if (!s || !isObj(v)) return;
+    const balance = num(v.balance);
+    const available = num(v.available);
+    const blocked = num(v.blocked);
     const b = balance ?? (available !== null ? available + (blocked ?? 0) : null);
-    if (b !== null) rows.push({ symbol: s, balance: b, available, blocked });
+    if (b !== null && b !== 0) rows.push({ symbol: s, balance: b, available, blocked });
   };
-  if (Array.isArray(p)) for (const r of p) add(isObj(r) ? sym(pick(r, ['symbol', 'coin', 'currency', 'asset'])) : null, r);
+  if (Array.isArray(p)) for (const r of p) add(isObj(r) ? (up(r.symbol) ?? up((r.asset as { symbol?: unknown } | undefined)?.symbol)) : null, r);
   else if (isObj(p)) for (const [k, v] of Object.entries(p)) add(k.toUpperCase(), v);
-  return rows.filter((r) => r.balance !== 0).sort((a, b) => a.symbol.localeCompare(b.symbol));
+  return rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 
+const vol = (v: unknown, k: 'base' | 'quote') => (isObj(v) ? num(v[k]) : null);
+
+/** GET /api/v1/order_handler/orders/otc (and one order: the same fields under `data`) */
 export function parseOrders(json: unknown): OrderRow[] {
   const p = unwrap(json);
-  const list = Array.isArray(p) ? p : [];
+  const list = Array.isArray(p) ? p : isObj(p) ? [p] : [];
   return list.filter(isObj).map((o) => {
-    const side = str(pick(o, ['side', 'type_side', 'order_side']));
+    const side = str(o.side);
     return {
-      id: str(pick(o, ['id', 'order_id', 'uuid', 'track_id'])) ?? '',
-      side: side && /buy|خرید/i.test(side) ? 'buy' : side && /sell|فروش/i.test(side) ? 'sell' : null,
-      base: sym(pick(o, ['base_symbol', 'base', 'coin', 'symbol'])),
-      quote: sym(pick(o, ['quote_symbol', 'quote', 'currency'])),
-      volume: num(pick(o, ['volume', 'quantity', 'amount', 'base_amount'])),
-      price: num(pick(o, ['price', 'coin_price', 'avg_price', 'average_price'])),
-      status: str(pick(o, ['status', 'state'])),
-      type: str(pick(o, ['order_type', 'type', 'kind'])),
-      at: str(pick(o, ['created_at', 'created', 'date', 'time'])),
+      id: str(o.id) ?? '',
+      code: str(o.code),
+      side: side === 'buy' || side === 'sell' ? side : null,
+      base: up(o.base_symbol),
+      quote: up(o.quote_symbol),
+      type: str(o.type),
+      status: str(o.status),
+      volBase: vol(o.volume, 'base'),
+      volQuote: vol(o.volume, 'quote'),
+      filledBase: vol(o.filled_volume, 'base'),
+      filledQuote: vol(o.filled_volume, 'quote'),
+      price: num(o.price),
+      at: str(o.created_at),
     };
   });
 }
 
-/** An order still open on the exchange (cancel makes sense) */
-export const isOpenOrder = (o: OrderRow) => !o.status || /open|pending|new|active|waiting|partial|باز|در انتظار/i.test(o.status);
+/** the docs' order states, in Persian; anything else is shown as sent */
+export const STATUS_FA: Record<string, string> = {
+  new: 'ثبت شد',
+  processing: 'در حال انجام',
+  fee_calculated: 'در حال انجام',
+  accounting_blocked: 'در حال انجام',
+  open: 'باز',
+  filled: 'انجام شد',
+  filled_and_unblock_requested: 'انجام شد',
+  filled_and_unblock_failed: 'انجام شد',
+  canceled: 'لغو شد',
+  canceled_and_unblock_requested: 'لغو شد',
+  rejected: 'رد شد',
+  failed: 'ناموفق',
+  failed_and_unblock_requested: 'ناموفق',
+  failed_and_unblock_failed: 'ناموفق',
+};
+const OPEN = new Set(['new', 'processing', 'fee_calculated', 'accounting_blocked', 'open']);
+/** an order that can still be cancelled */
+export const isOpenOrder = (o: Pick<OrderRow, 'status'>) => !!o.status && OPEN.has(o.status);
 
 export interface OrderInput {
   kind: 'market' | 'limit';
   side: Side;
   base: string;
   quote: Quote;
-  /** in the base coin */
+  /** a BUY: how much of the quote to spend (toman or tether); a SELL: how much of the coin (docs: «volume») */
   volume: number;
-  /** limit only, in the quote */
+  /** limit only, per coin, in the quote */
   price?: number | null;
+  /** which wallet (docs: spot, credit, collateral, investment) */
+  account?: 'spot' | 'credit' | 'collateral' | 'investment';
 }
 
-/** The request body (field names from the docs and the SDK); an error message when something is missing. */
+/** The request body; an error message when something is missing. */
 export function orderBody(o: OrderInput): Record<string, string> | string {
   const base = o.base.trim().toUpperCase();
-  if (!/^[A-Z0-9]{2,12}$/.test(base)) return 'کدام ارز؟';
+  if (!/^[A-Z0-9]{2,15}$/.test(base)) return 'کدام ارز؟';
   if (base === o.quote) return 'ارز و واحد معامله یکی‌اند.';
-  if (!(o.volume > 0)) return 'مقدار را بنویسید.';
+  if (!(o.volume > 0)) return o.side === 'buy' ? `چقدر ${o.quote === 'IRT' ? 'تومان' : 'تتر'} خرج شود؟` : 'چه مقدار بفروشید؟';
   if (o.kind === 'limit' && !(o.price && o.price > 0)) return 'قیمت سفارش محدود را بنویسید.';
   const body: Record<string, string> = { side: o.side, base_symbol: base, quote_symbol: o.quote, volume: trimNum(o.volume) };
   if (o.kind === 'limit') body.price = trimNum(o.price!);
+  if (o.account && o.account !== 'spot') body.account_type = o.account;
   return body;
 }
 const trimNum = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(8).replace(/0+$/, '').replace(/\.$/, ''));
 
 /**
- * What to check before sending: the value of the order in its quote, and warnings — never a block, the user
- * decides: more than the free balance, a limit price far from the market.
+ * What to check before sending — warnings, never a block; the user decides: the coin the order buys (or the quote it
+ * brings), the exchange's min/max, more than the free balance, a limit price far from the market.
  */
-export function orderChecks(o: OrderInput, ticker: TickerRow[], balances: BalanceRow[]): { value: number | null; marketPrice: number | null; warnings: string[] } {
-  const t = ticker.find((x) => x.symbol === o.base.toUpperCase());
-  // the exchange sells to a buyer at its sell price and buys from a seller at its buy price
-  const marketPrice = t ? (o.side === 'buy' ? (t.sell ?? t.buy) : (t.buy ?? t.sell)) : null;
-  const tickerInQuote = !t?.quote || t.quote === o.quote;
-  const price = o.kind === 'limit' ? (o.price ?? null) : tickerInQuote ? marketPrice : null;
-  const value = price !== null && o.volume > 0 ? price * o.volume : null;
+export function orderChecks(o: OrderInput, ticker: TickerRow[], balances: BalanceRow[], info?: CoinInfo | null): { price: number | null; coinQty: number | null; quoteValue: number | null; feePct: number; warnings: string[] } {
+  const t = ticker.find((x) => x.symbol === o.base.toUpperCase() && x.quote === o.quote);
+  const market = t ? (o.side === 'buy' ? t.buy : t.sell) : null;
+  const price = o.kind === 'limit' ? (o.price ?? null) : market;
+  const feePct = info?.feePct ?? 0.38;
+  const keep = 1 - feePct / 100;
+  let coinQty: number | null = null;
+  let quoteValue: number | null = null;
+  if (o.volume > 0 && price) {
+    if (o.side === 'buy') {
+      quoteValue = o.volume;
+      coinQty = (o.volume / price) * keep;
+    } else {
+      coinQty = o.volume;
+      quoteValue = o.volume * price * keep;
+    }
+  }
   const warnings: string[] = [];
   const free = (s: string) => {
     const b = balances.find((x) => x.symbol === s);
     return b ? (b.available ?? b.balance) : null;
   };
-  if (o.side === 'sell') {
+  const qFa = o.quote === 'IRT' ? 'تومان' : 'تتر';
+  if (o.side === 'buy') {
+    const f = free(o.quote === 'IRT' ? 'IRT' : 'USDT');
+    if (f !== null && o.volume > f) warnings.push(`موجودی آزاد ${qFa} شما ${f.toLocaleString('fa-IR')} است؛ این سفارش بیشتر از آن است.`);
+  } else {
     const f = free(o.base.toUpperCase());
     if (f !== null && o.volume > f) warnings.push(`موجودی آزاد ${o.base.toUpperCase()} شما ${f.toLocaleString('fa-IR')} است؛ این سفارش بیشتر از آن است.`);
-  } else if (value !== null) {
-    const f = free(o.quote);
-    if (f !== null && value > f) warnings.push(`ارزش سفارش از موجودی آزاد ${o.quote === 'IRT' ? 'تومانی' : 'تتری'} شما بیشتر است.`);
   }
-  if (o.kind === 'limit' && o.price && marketPrice && tickerInQuote) {
-    const gap = (o.price - marketPrice) / marketPrice;
+  const tradeValue = o.side === 'buy' ? o.volume : quoteValue;
+  const min = o.quote === 'IRT' ? info?.minIrt : info?.minUsdt;
+  const max = o.quote === 'IRT' ? info?.maxIrt : info?.maxUsdt;
+  if (tradeValue !== null && tradeValue > 0 && min && tradeValue < min) warnings.push(`کمتر از حداقل معامله صرافی (${min.toLocaleString('fa-IR')} ${qFa}) است؛ احتمالاً رد می‌شود.`);
+  if (tradeValue !== null && max && tradeValue > max) warnings.push(`بیشتر از حداکثر معامله صرافی (${max.toLocaleString('fa-IR')} ${qFa}) است.`);
+  if (t && !t.active) warnings.push('صرافی این بازار را فعلاً غیرفعال اعلام کرده است.');
+  if (o.kind === 'limit' && o.price && market) {
+    const gap = (o.price - market) / market;
     if (Math.abs(gap) > 0.1) warnings.push(`قیمت سفارش ${Math.round(Math.abs(gap) * 100).toLocaleString('fa-IR')}٪ ${gap > 0 ? 'بالاتر' : 'پایین‌تر'} از قیمت فعلی صرافی است.`);
     if (o.side === 'buy' && gap > 0) warnings.push('قیمت خرید محدود بالاتر از قیمت فعلی است — احتمالاً همین حالا با قیمت بالاتر پر می‌شود.');
     if (o.side === 'sell' && gap < 0) warnings.push('قیمت فروش محدود پایین‌تر از قیمت فعلی است — احتمالاً همین حالا با قیمت پایین‌تر پر می‌شود.');
   }
-  return { value, marketPrice, warnings };
+  return { price, coinQty, quoteValue, feePct, warnings };
 }
 
 /** coins the board already prices (the rest are kept as hand-valued assets) */
@@ -221,11 +300,12 @@ export const ABAN_TAG = 'آبان‌تتر';
 
 /**
  * Exchange balances → the book's assets, one per coin, named «آبان‌تتر — …» so a later sync updates the same asset
- * instead of adding another. USDT/BTC/ETH become market assets the board prices; any other coin a hand-valued
- * asset at the exchange's own toman price (from the ticker; skipped when there is none). The toman wallet is cash,
- * not an asset — it is left to the user's accounts. Purchase cost is unknown here: profit shows «نامشخص» (rule 98).
+ * instead of adding another. USDT/BTC/ETH become market assets the board prices; any other coin (and the boxes) a
+ * hand-valued asset at what the exchange would pay for it now (its sell price, from the ticker or the coin list;
+ * skipped when there is none). The toman wallet is cash, not an asset — it is left to the user's accounts. Purchase
+ * cost is unknown here: profit shows «نامشخص» (rule 98).
  */
-export function assetsFromBalances(existing: Asset[], balances: BalanceRow[], ticker: TickerRow[], newId: () => string): { upsert: Asset[]; skipped: string[] } {
+export function assetsFromBalances(existing: Asset[], balances: BalanceRow[], ticker: TickerRow[], newId: () => string, coins: CoinRow[] = []): { upsert: Asset[]; skipped: string[] } {
   const upsert: Asset[] = [];
   const skipped: string[] = [];
   for (const b of balances) {
@@ -237,8 +317,8 @@ export function assetsFromBalances(existing: Asset[], balances: BalanceRow[], ti
       upsert.push({ ...(prev ?? {}), id: prev?.id ?? newId(), name, kind: 'market', key, qty: b.balance, valueRial: undefined });
       continue;
     }
-    const t = ticker.find((x) => x.symbol === b.symbol && (!x.quote || x.quote === 'IRT'));
-    const p = t ? (t.buy ?? t.sell) : null; // what the exchange would pay for it now
+    const t = ticker.find((x) => x.symbol === b.symbol && x.quote === 'IRT');
+    const p = t?.sell ?? coins.find((c) => c.symbol === b.symbol)?.sell ?? null;
     if (!p) {
       skipped.push(b.symbol);
       continue;
@@ -247,6 +327,3 @@ export function assetsFromBalances(existing: Asset[], balances: BalanceRow[], ti
   }
   return { upsert, skipped };
 }
-
-/** باکس‌های سرمایه‌گذاری — no public API for them was found; the page records them by hand as assets */
-export const BOX_KINDS = ['فیکس‌باکس', 'گلدباکس', 'سیلورباکس', 'کریپتوباکس', 'بورس‌باکس', 'دیفای‌باکس', 'پروباکس'];

@@ -21,6 +21,9 @@ import { getLearnedParams } from '@/lib/learning';
 import { ACTIVITY_LABEL, PROFILES, SIM_ASSETS, applyActivity, type SimAsset } from '@/lib/engine/simulator';
 import { createSession, finishSession, liveTick, seedHoldings, type LiveSession } from '@/lib/engine/live';
 import { buildContext, scaleParamsForSession, validateConfig } from '@/lib/paper';
+import { abanQuotes } from '@/lib/aban/apply';
+import { basisNote, validBasis } from '@/lib/aban/basis';
+import type { TickContext } from '@/lib/engine/live';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -66,6 +69,27 @@ function sane(raw: any): LiveSession {
   } as LiveSession;
 }
 
+/**
+ * Prices the session's crypto as Abantether would (rule 102) when the device sent a basis it read from the exchange:
+ * quotes at Abantether's mid, costs = its fee + half its spread. Otherwise the board's prices, and the session says so
+ * once when that changes.
+ */
+function withBasis<C extends TickContext>(s: LiveSession, ctx: C, raw: unknown, now: number): C {
+  const crypto = s.config.assets.some((a) => SIM_ASSETS.find((x) => x.key === a)?.crypto);
+  if (!crypto) return ctx;
+  const b = validBasis(raw, now, ctx.usdRial ? ctx.usdRial / 10 : null);
+  const r = b ? abanQuotes(ctx.quotes, b) : null;
+  const kind = r?.used.length ? 'aban' : 'board';
+  if (s.priceBasis?.kind !== kind)
+    s.events.unshift({
+      at: now,
+      kind: 'data',
+      text: kind === 'aban' ? `مبنای قیمت رمزارزها: آبان‌تتر. ${basisNote(b!)}.` : 'قیمت آبان‌تتر در دسترس نبود (یا خاموش است)؛ رمزارزها با قیمت تابلو و هزینه پیش‌فرض حساب می‌شوند.',
+    });
+  s.priceBasis = kind === 'aban' ? { kind, note: basisNote(b!), at: b!.at } : { kind, note: 'قیمت تابلو', at: now };
+  return kind === 'aban' ? { ...ctx, quotes: r!.quotes, costs: r!.costs } : ctx;
+}
+
 export async function POST(req: Request) {
   try {
     const text = await req.text();
@@ -79,7 +103,7 @@ export async function POST(req: Request) {
       const params = applyActivity(scaleParamsForSession(await getLearnedParams(), config.days), config.activity ?? 'normal');
       const s = createSession(now.toString(36) + Math.random().toString(36).slice(2, 6), config, params, now);
       // first review immediately, so the session does not sit idle until the next app open
-      const ctx = await buildContext(now, config.assets, config.useNews);
+      const ctx = withBasis(s, await buildContext(now, config.assets, config.useNews), body?.basis, now);
       let fromHoldings = '';
       if (config.startHoldings?.length) {
         const seed = seedHoldings(s, ctx);
@@ -106,8 +130,8 @@ export async function POST(req: Request) {
     if (action === 'tick') {
       const s = sane(body?.session);
       if (s.status !== 'running') return NextResponse.json({ session: s, newTrades: [], newEvents: [], finished: true }, { headers: { 'Cache-Control': 'no-store' } });
-      const ctx = await buildContext(now, s.config.assets, s.config.useNews);
       const prevNote = s.events.find((e) => e.kind === 'data')?.text;
+      const ctx = withBasis(s, await buildContext(now, s.config.assets, s.config.useNews), body?.basis, now);
       const out = liveTick(s, ctx);
       if (ctx.dataNote && ctx.dataNote !== prevNote) s.events.unshift({ at: now, kind: 'data', text: ctx.dataNote });
       return NextResponse.json({ session: s, newTrades: out.newTrades, newEvents: out.newEvents, finished: out.finished }, { headers: { 'Cache-Control': 'no-store' } });
@@ -119,7 +143,7 @@ export async function POST(req: Request) {
       // one last look at live prices so the closing valuation is current (may also fire a due stop)
       const newTrades = [];
       try {
-        const ctx = await buildContext(now, s.config.assets, false);
+        const ctx = withBasis(s, await buildContext(now, s.config.assets, false), body?.basis, now);
         const out = liveTick(s, { ...ctx, news: [] });
         newTrades.push(...out.newTrades);
       } catch (e) {

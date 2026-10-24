@@ -7,6 +7,7 @@
  * POST { action: 'start', config } | { action: 'tick'|'stop', session }
  */
 import { NextResponse } from 'next/server';
+import { basisNote, usdtMidToman, validBasis } from '@/lib/aban/basis';
 import { errMsg } from '@/lib/http';
 import { isNum } from '@/lib/num';
 import { barPlan, finishSwingLive, startSwingLive, swingLiveTick, type SwingLiveSession } from '@/lib/engine/swing-live';
@@ -55,9 +56,18 @@ export async function POST(req: Request) {
     const now = Date.now();
 
     if (action === 'start') {
-      const config = { ...validateSwingConfig(body?.config, await swingUsdtRial(), LOCAL_MAX_HOURS), engine: 'v2' as const };
+      // the Abantether basis (rule 102): its USDT rate when the device read one that agrees with the board's tether
+      const boardRial = await swingUsdtRial();
+      const basis = validBasis(body?.basis, now, boardRial ? boardRial / 10 : null);
+      const cfg0 = validateSwingConfig(body?.config, basis ? Math.round(usdtMidToman(basis) * 10) : boardRial, LOCAL_MAX_HOURS);
+      const config = { ...cfg0, engine: 'v2' as const, priceBasis: basis ? ('aban' as const) : ('board' as const) };
       const s = startSwingLive(config, now);
-      s.events[0] = { ...s.events[0], text: `${s.events[0].text} این جلسه فقط روی همین گوشی ذخیره می‌شود و فقط وقتی اپ باز است جلو می‌رود؛ با باز شدن دوباره، کل فاصله از روی کندل‌ها بازپخش می‌شود.` };
+      s.events[0] = {
+        ...s.events[0],
+        text:
+          `${s.events[0].text} این جلسه فقط روی همین گوشی ذخیره می‌شود و فقط وقتی اپ باز است جلو می‌رود؛ با باز شدن دوباره، کل فاصله از روی کندل‌ها بازپخش می‌شود.` +
+          (basis ? ` مبنای قیمت: آبان‌تتر — ${basisNote(basis)}؛ هزینه هر طرف این جلسه ${config.feePct.toLocaleString('fa-IR')}٪.` : ' قیمت آبان‌تتر در دسترس نبود؛ نرخ تتر تابلو و هزینه پیش‌فرض استفاده شد.'),
+      };
       const { inputs, mkt } = await gatherInputs(s);
       const { minBars } = barPlan(config.hours, 'v2');
       const thin = inputs.filter((i) => !i.bars || i.bars.length < minBars);

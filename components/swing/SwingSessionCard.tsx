@@ -15,6 +15,12 @@ export default function SwingSessionCard({ s, title, children, testId }: { s: Sw
         <span className={`state-pill ${s.status === 'running' ? 'ok' : 'warn'}`}>{s.status === 'running' ? title : `${title} — پایان‌یافته`}</span>
         <span className="muted">{s.config.coins.map((c) => c.symbol).join('، ')}، کندل {fmtInt(s.barMinutes)} دقیقه‌ای</span>
       </div>
+      {s.config.priceBasis ? (
+        <p className="muted small" data-testid="swing-basis">
+          مبنای قیمت: {s.config.priceBasis === 'aban' ? 'آبان‌تتر' : 'تابلو'}؛ هزینه هر طرف {s.config.feePct.toLocaleString('fa-IR')}٪
+          {s.config.usdtRial ? `، تتر ${fmtInt(s.config.usdtRial / 10)} تومان` : ''}
+        </p>
+      ) : null}
       <dl className="metrics">
         <div>
           <dt>ارزش کنونی</dt>

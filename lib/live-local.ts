@@ -3,6 +3,7 @@
 // applies live prices with the same engine the website uses, and hands it back. Two devices never
 // see each other's run and nothing about it is stored on the server. Same keys as the earlier
 // Android app, so a running session there continues here.
+import { currentBasis } from './aban/basis-store';
 import type { LiveSession, LiveTrade } from '@/lib/engine/live';
 import { api } from './api';
 
@@ -75,10 +76,12 @@ export async function callLocal(action: 'start' | 'tick' | 'stop', prefs?: LiveP
           },
         }
       : { action, session };
+  // crypto priced as Abantether would (rule 102): the device reads the exchange, the server prices with it
+  const basis = await currentBasis().catch(() => null);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 70_000);
   try {
-    const r = await fetch(api('/api/live/local'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctl.signal });
+    const r = await fetch(api('/api/live/local'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, basis }), signal: ctl.signal });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
     saveLocalSession(j.session);
