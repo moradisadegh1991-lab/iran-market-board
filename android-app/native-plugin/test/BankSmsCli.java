@@ -29,10 +29,12 @@ public final class BankSmsCli {
             BankSms.Result c = BankSms.classify(body);
             BankSms.Tx t = BankSms.parse(body);
             BankSms.Row r = BankSms.row(body, address.isEmpty() ? null : address);
+            BankSms.Balance b = BankSms.balanceReport(BankSms.jsTrim(body));
             String[] f = {
                 c.kind, v(c.guessedAmount), c.kind.equals("ambiguous") ? v(c.guessedWithdrawal) : "~",
                 t == null ? "~" : String.join("|", v(t.amount), v(t.isWithdrawal), v(t.cardLast4), v(t.balance), v(t.channel), v(t.accountNo), v(t.isFee), v(t.bankNameInSms), v(t.directionClear)),
                 r == null ? "~" : String.join("|", v(r.amountRial), v(r.direction), v(r.card), v(r.accountNo), v(r.bank), v(r.balanceRial), v(r.uncertainAmount)),
+                b == null ? "~" : String.join("|", v(b.balance), v(b.cardLast4), v(b.accountNo)),
             };
             sb.append(String.join("\u0001", f)).append('\u0000');
         }

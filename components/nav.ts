@@ -26,6 +26,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/assets', label: 'سرمایه‌ها', icon: '💎', hint: 'طلا، سکه، ارز، کریپتو و سود هر خرید' },
       { href: '/import', label: 'ورود از بانک و پیامک', icon: '📥', hint: 'گردش حساب و پیامک' },
       { href: '/budget', label: 'بودجه', icon: '🎯' },
+      { href: '/shopping', label: 'لیست خرید', icon: '🛒', hint: 'یادداشت خرید روزمره، تیک و ثبت یک‌جا' },
     ],
   },
   {
@@ -86,6 +87,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/swing', label: 'نوسان‌گیری', icon: '🌊' },
       { href: '/futures', label: 'فیوچرز', icon: '📈', hint: 'اهرم، کاغذی؛ لیکویید، فاندینگ و کارمزد واقعی' },
       { href: '/simulator', label: 'معامله‌گر شبیه‌ساز', icon: '🧪' },
+      { href: '/aban', label: 'آبان‌تتر', icon: '🔁', hint: 'قیمت، کیف پول و سفارش واقعی با کلید API خودتان' },
     ],
   },
   {

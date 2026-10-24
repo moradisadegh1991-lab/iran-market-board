@@ -6,7 +6,8 @@ import { callSwingLocal, loadSwingSession, SWING_TICK_MS, swingFillNote } from '
 import { callFutures, futFillNote, FUT_TICK_MS, loadFutures } from '@/lib/futures-local';
 import { askOn, autoReadOn, readInbox, smsPlugin } from '@/lib/finance/phone-sms';
 import { applyAsked, type AskApplied } from '@/lib/finance/sms-ask';
-import { queueSms } from '@/lib/finance/sources';
+import { moveQueuedBalances, noteBalanceSms, queueSms } from '@/lib/finance/sources';
+import { smsParser } from '@/lib/finance/sms';
 import { normalizeReminderState, reminderPlan, reminderStep } from '@/lib/finance/reminders';
 import { tehranDate } from '@/lib/num';
 import { useFinance } from './finance/FinanceProvider';
@@ -53,6 +54,17 @@ export default function AppStartup() {
   const busy = useRef(false);
   const ready = !!data;
 
+  // balance announcements queued by an earlier version leave the queue once (rule 99)
+  const movedBalances = useRef(false);
+  useEffect(() => {
+    if (!ready || movedBalances.current) return;
+    movedBalances.current = true;
+    if (data!.inbox.some((r) => r.source === 'sms' && smsParser.balanceReport?.(r.raw.trim())))
+      update((d) => {
+        moveQueuedBalances(d, smsParser, Date.now());
+      });
+  }, [ready, data, update]);
+
   useEffect(() => {
     if (!ready) return;
 
@@ -62,7 +74,7 @@ export default function AppStartup() {
       try {
         const r = autoReadOn() ? await readInbox(plugin, tehranDate(), null, false) : null;
         const items = plugin.asked ? ((await plugin.asked().catch(() => null))?.items ?? []) : [];
-        if (!r?.rows.length && !items.length) return;
+        if (!r?.rows.length && !r?.balances.length && !items.length) return;
         const now = Date.now();
         let added = 0;
         let newSources = 0;
@@ -70,6 +82,8 @@ export default function AppStartup() {
         update((d) => {
           // answers first: an inbox row the phone already asked about then finds its twin queued or booked
           if (items.length) applied = applyAsked(d, items, tehranDate(), now);
+          // «مانده حساب: …» SMS update balances only; they are never transactions to confirm (rule 99)
+          if (r?.balances.length) noteBalanceSms(d, r.balances, now);
           if (r?.rows.length) {
             const asked = applied?.announced ?? new Set<string>();
             ({ added, newSources } = queueSms(d, r.rows.filter((x) => !x.smsKey || !asked.has(x.smsKey)), now));

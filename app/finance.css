@@ -514,3 +514,26 @@ button.asset-card:focus-visible, .asset-lot-row:focus-visible, .asset-back:focus
   .asset-hero-val { font-size: 20px; }
 }
 @media (prefers-reduced-motion: reduce) { .fin-modal, .fin-modal-wrap { animation: none; } }
+.fin-range { margin: 8px 0 4px; display: grid; gap: 8px; }
+/* لیست خرید (ShoppingView) */
+.shop-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.shop-chips .fin-chip { padding: 4px 10px; font-size: 13px; }
+.shop-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.shop-item { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid var(--line-soft); min-width: 0; }
+.shop-item:last-child { border-bottom: 0; }
+.shop-check { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
+.shop-check input { width: 22px; height: 22px; accent-color: var(--teal); flex: none; }
+.shop-name { min-width: 0; overflow-wrap: anywhere; }
+.shop-item.done .shop-name b { text-decoration: line-through; color: var(--muted); font-weight: 500; }
+.shop-price { width: 120px; flex: none; padding: 6px 8px; }
+.shop-est { flex: none; white-space: nowrap; }
+.shop-del { flex: none; padding: 4px 6px; }
+.shop-match { border: 1px solid var(--line); border-radius: var(--r-m); padding: 8px 12px; margin: 10px 0; display: grid; gap: 6px; }
+.shop-match legend { font-size: 14px; padding: 0 4px; }
+.fin-radio { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 1.7; }
+.fin-radio input { margin-top: 6px; flex: none; }
+@media (max-width: 380px) { .shop-price { width: 96px; } }
+/* آبان‌تتر (AbanView) */
+.aban-steps { margin: 0 0 10px; padding-inline-start: 20px; line-height: 1.9; }
+.aban-quote { display: grid; gap: 2px; text-align: left; }
+.aban-quote small { color: var(--muted); margin-inline-end: 4px; }

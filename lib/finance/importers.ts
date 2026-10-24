@@ -448,6 +448,8 @@ function mergeCells(line: PdfItem[]): PdfItem[] {
 /** Shape of android-app/www/sms-parser.js, which is reused here so both apps read SMS the same way. */
 export interface SmsApi {
   classify(body: string): { kind: 'confirmed'; tx: SmsTx } | { kind: 'ambiguous'; guessedAmount: number | null; guessedWithdrawal: boolean } | { kind: 'not' };
+  /** a balance announcement with no movement of money (sms-parser.js; BankSms.java mirrors it) */
+  balanceReport?(body: string): { balance: number; cardLast4: string | null; accountNo: string | null } | null;
 }
 interface SmsTx {
   amount: number;
@@ -490,6 +492,8 @@ export function smsDate(body: string, today: Iso): Iso | null {
 export interface SmsResult {
   rows: Staged[];
   ignored: { text: string; reason: string }[];
+  /** balance-only SMS («مانده حساب: …»): they update balances, never the queue (balanceOnly rows) */
+  balances: Staged[];
 }
 
 /**
@@ -528,6 +532,7 @@ export function smsKeyOf(body: string): string {
 export function rowsFromMessages(msgs: SmsMessage[], api: SmsApi, today: Iso, opts: { accountId?: string | null; now?: number } = {}): SmsResult {
   const rows: Staged[] = [];
   const ignored: SmsResult['ignored'] = [];
+  const balances: Staged[] = [];
   for (const { body: rawBody, at, address } of msgs) {
     const body = rawBody.trim();
     if (body.length <= 8) continue;
@@ -541,6 +546,16 @@ export function rowsFromMessages(msgs: SmsMessage[], api: SmsApi, today: Iso, op
     };
     if (c.kind === 'not') {
       ignored.push({ text: body, reason: 'پیام بانکی تراکنش نبود (رمز یک‌بار مصرف، تبلیغ یا پیام اپراتور)' });
+      continue;
+    }
+    // «مانده حساب: ۱۲٬۳۰۰٬۰۰۰» moved no money: before, it reached the queue as a transaction whose amount was
+    // the balance (or the account number). It only tells the balance (rule 99).
+    const bal = api.balanceReport?.(body);
+    if (bal) {
+      balances.push({
+        ...base, id: stableId(['smsbal', body, at ?? '']), amountRial: 0, direction: null, balanceOnly: true, why: 'اعلام مانده حساب، بدون تراکنش',
+        balanceRial: bal.balance * k, card: bal.cardLast4, accountNo: bal.accountNo, description: [bal.cardLast4 ? `کارت ${bal.cardLast4}` : null, bal.accountNo ? `حساب ${bal.accountNo}` : null].filter(Boolean).join(' · ') || 'مانده حساب',
+      });
       continue;
     }
     if (c.kind === 'ambiguous') {
@@ -572,7 +587,7 @@ export function rowsFromMessages(msgs: SmsMessage[], api: SmsApi, today: Iso, op
       fee: !!t.isFee,
     });
   }
-  return { rows, ignored };
+  return { rows, ignored, balances };
 }
 
 // ── shared: duplicates, category suggestion, queueing ──────────────────────
@@ -721,8 +736,49 @@ export function commitStaged(d: FinanceData, id: string, inp: CommitInput): stri
   return null;
 }
 
-/** Drops staged rows without recording them (already entered by hand, a duplicate, not mine…). */
-export function dismissStaged(d: FinanceData, ids: string[]): void {
+/** how many ignored SMS are remembered (the oldest are forgotten after that) */
+export const MAX_DISMISSED = 3000;
+/** how many of them keep their whole row for «برگرداندن به صف» */
+export const KEEP_DISMISSED_ROWS = 300;
+
+/**
+ * Drops staged rows without recording them (already entered by hand, a duplicate, not mine…). An SMS
+ * row is remembered as ignored so that reading the phone again — any time range — never brings it
+ * back (rule 99); «برگرداندن» in the ignored list undoes it.
+ */
+export function dismissStaged(d: FinanceData, ids: string[], now = Date.now()): void {
   const drop = new Set(ids);
+  d.smsDismissed ??= [];
+  for (const s of d.inbox) {
+    if (!drop.has(s.id) || !s.smsKey) continue;
+    if (d.smsDismissed.some((x) => x.smsKey === s.smsKey && sameMoment(x, s))) continue;
+    d.smsDismissed.push({ smsKey: s.smsKey, at: s.at ?? null, date: s.date, amountRial: s.amountRial, label: s.description.slice(0, 80), dismissedAt: now, row: { ...s } });
+  }
+  if (d.smsDismissed.length > MAX_DISMISSED) d.smsDismissed.splice(0, d.smsDismissed.length - MAX_DISMISSED);
+  // the full row (with the SMS text) only on the newest ones: the key alone keeps the rest away
+  for (let i = 0; i < d.smsDismissed.length - KEEP_DISMISSED_ROWS; i++) delete d.smsDismissed[i].row;
   d.inbox = d.inbox.filter((x) => !drop.has(x.id));
+}
+
+/** the same rule as sameSms (sources.ts): receive times within 5 minutes, else the same day */
+function sameMoment(a: { at?: number | null; date?: Iso | null }, b: { at?: number | null; date?: Iso | null }): boolean {
+  if (typeof a.at === 'number' && typeof b.at === 'number') return Math.abs(a.at - b.at) <= 5 * 60_000;
+  return !!a.date && a.date === b.date;
+}
+
+/** An SMS the user ignored before (dismissStaged). */
+export function wasDismissed(d: FinanceData, r: Pick<Staged, 'smsKey' | 'at' | 'date'>): boolean {
+  return !!r.smsKey && (d.smsDismissed ?? []).some((x) => x.smsKey === r.smsKey && sameMoment(x, r));
+}
+
+/**
+ * «برگرداندن»: forget that an SMS was ignored. A kept row goes straight back to the queue (returns true);
+ * otherwise the next read of the phone, or a paste, queues it again.
+ */
+export function undismissSms(d: FinanceData, smsKey: string, at: number | null): boolean {
+  const hit = (d.smsDismissed ?? []).find((x) => x.smsKey === smsKey && x.at === at);
+  d.smsDismissed = (d.smsDismissed ?? []).filter((x) => x !== hit);
+  if (!hit?.row) return false;
+  enqueue(d, [hit.row]);
+  return true;
 }

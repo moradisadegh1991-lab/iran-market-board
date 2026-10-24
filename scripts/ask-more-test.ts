@@ -9,6 +9,7 @@ import { answerQuestion, parseQuestion } from '../lib/assistant/ask';
 import { answerMore, parseMore } from '../lib/assistant/ask-more';
 import { emptyData, type FinanceData } from '../lib/finance/model';
 import { lendStart } from '../lib/finance/voice-lend';
+import { addItem } from '../lib/finance/shopping';
 import { colloquial, speakable } from '../lib/voice-io';
 
 let n = 0;
@@ -49,6 +50,8 @@ ok('opening a page: by its menu name or an everyday word; asked, not done («…
     ['سرمایه‌ها رو باز کن', '/assets'],
     ['دارایی هام رو باز کن', '/assets'],
     ['حساب ها رو باز کن', '/accounts'],
+    ['لیست خرید رو باز کن', '/shopping'],
+    ['آبان تتر رو باز کن', '/aban'],
   ] as const) {
     const q = more(d, s);
     assert.equal(q?.type, 'nav', s);
@@ -131,6 +134,22 @@ ok('spoken: the short «ثبت شد / ثبت کنم؟» said as a person says th
   assert.match(say('دو تا لاته، کارت. ثبت کنم؟'), /کارت\. ثبتش کنم؟$/);
   assert.equal(say('چه تراکنشی ثبت کنم؟'), 'چه تراکنشی ثبت کنم؟', 'the object stays');
   assert.equal(say('قسط ثبت شد.'), 'قسط ثبت شد.');
+});
+
+ok('the shopping list: add by voice (offered, done on «بله»), read it back; «خریدم» with an amount is still a purchase', () => {
+  const d = emptyData(T);
+  const add = parseQuestion(d, 'شیر و نون رو به لیست خرید اضافه کن', T);
+  assert.deepEqual(add, { type: 'more', q: { type: 'shopAdd', names: ['شیر', 'نون'] } });
+  assert.deepEqual(parseQuestion(d, 'به لیست خرید تخم مرغ هم اضافه کن', T), { type: 'more', q: { type: 'shopAdd', names: ['تخم مرغ'] } });
+  const r = answerMore(d, [], T, { type: 'shopAdd', names: ['شیر', 'نون'] }, 0);
+  assert.equal(r.action?.type, 'shopAdd', 'only offered: the screen asks «بله» first');
+  assert.equal(d.shopping!.length, 0);
+  assert.deepEqual(parseQuestion(d, 'چی باید بخرم؟', T), { type: 'more', q: { type: 'shopList' } });
+  assert.match(answerMore(d, [], T, { type: 'shopList' }, 0).text, /خالی/);
+  addItem(d, { name: 'شیر', qty: '۲ لیتر' });
+  addItem(d, { name: 'نان' });
+  assert.equal(answerMore(d, [], T, { type: 'shopList' }, 0).text, '۲ قلم مانده: شیر (۲ لیتر)، نان.');
+  assert.equal(parseQuestion(d, 'صد هزار تومن نون خریدم', T), null, 'a purchase told with its amount stays a transaction');
 });
 
 console.log(`\n${n} ✓ — ask-more`);

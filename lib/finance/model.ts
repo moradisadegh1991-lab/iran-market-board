@@ -134,7 +134,58 @@ export interface Staged {
   accountId?: string | null;
   /** SMS: the message itself (smsKeyOf), the same whichever way it was read */
   smsKey?: string;
+  /** a balance announcement, not a transaction (SmsResult.balances; never queued) */
+  balanceOnly?: boolean;
   importedAt: number;
+}
+
+/**
+ * A bank SMS that only announces a balance («مانده حساب: …»، «اعلام موجودی») — no money moved, so it is
+ * never a transaction to record (sms-parser.js balanceReport). It updates the linked account's balance.
+ */
+export interface BalanceSms {
+  id: string;
+  smsKey: string;
+  at: number | null;
+  date: Iso | null;
+  time: string | null;
+  balanceRial: number;
+  card: string | null;
+  accountNo: string | null;
+  bank: string | null;
+  raw: string;
+  importedAt: number;
+}
+
+/** A queued SMS the user chose to ignore: never queued again, whichever way it is read (rule 99). */
+export interface DismissedSms {
+  smsKey: string;
+  at: number | null;
+  date: Iso | null;
+  amountRial: number;
+  /** a short line to show in «نادیده‌گرفته‌ها» */
+  label: string;
+  dismissedAt: number;
+  /** the queued row itself, so «برگرداندن» can put it back (kept on the newest ones only) */
+  row?: Staged;
+}
+
+/** لیست خرید روزمره — one thing to buy; ticked when bought, booked into the book as one purchase (shopping.ts). */
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  /** free text: «۲ کیلو»، «یک بسته» */
+  qty?: string;
+  /** what the user expects to pay (rial), optional */
+  estRial?: number | null;
+  /** ticked: bought */
+  done?: boolean;
+  /** what it actually cost (rial), entered when ticking; optional */
+  priceRial?: number | null;
+  doneAt?: number | null;
+  addedAt: number;
+  /** the transaction it was booked in; booked items leave the list */
+  txnId?: string | null;
 }
 
 export interface Budget {
@@ -285,6 +336,14 @@ export interface FinanceData {
   biz?: Business | null;
   /** دفترچه شماره کارت و شبا — other people's card, شبا and account numbers (payees.ts, rule 92); device only, never to the advisor */
   payees?: Payee[];
+  /** balance-only bank SMS, newest last (BalanceSms) */
+  balanceSms?: BalanceSms[];
+  /** SMS the user ignored in the queue; they never come back (rule 99) */
+  smsDismissed?: DismissedSms[];
+  /** لیست خرید روزمره (shopping.ts) */
+  shopping?: ShoppingItem[];
+  /** item name → how many times it was bought: suggestions when adding */
+  shoppingFreq?: Record<string, number>;
 }
 
 export interface PayeeNumber {
@@ -477,6 +536,10 @@ export function emptyData(today: Iso): FinanceData {
     splitGroups: [],
     biz: null,
     payees: [],
+    balanceSms: [],
+    smsDismissed: [],
+    shopping: [],
+    shoppingFreq: {},
   };
 }
 
@@ -520,6 +583,10 @@ export function normalizeData(raw: unknown, today: Iso): FinanceData {
     payees: arr<Payee>(raw.payees)
       .filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string')
       .map((p) => ({ ...p, numbers: arr<PayeeNumber>(p.numbers).filter((x) => x && typeof x.value === 'string' && (x.kind === 'card' || x.kind === 'sheba' || x.kind === 'account')) })),
+    balanceSms: arr<BalanceSms>(raw.balanceSms).filter((x) => x && typeof x.smsKey === 'string' && typeof x.balanceRial === 'number'),
+    smsDismissed: arr<DismissedSms>(raw.smsDismissed).filter((x) => x && typeof x.smsKey === 'string'),
+    shopping: arr<ShoppingItem>(raw.shopping).filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string'),
+    shoppingFreq: isObj(raw.shoppingFreq) ? (raw.shoppingFreq as Record<string, number>) : {},
     settings: {
       inflationPct: finite(s.inflationPct, DEFAULT_SETTINGS.inflationPct),
       safeYieldPct: finite(s.safeYieldPct, DEFAULT_SETTINGS.safeYieldPct),

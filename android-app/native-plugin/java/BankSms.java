@@ -53,6 +53,15 @@ public final class BankSms {
     private static final Pattern BARE_CODE = Pattern.compile("(?:^|" + S + ")(?:کد|رمز)" + S + "*:?" + S + "*" + D + "{4,8}(?:" + S + "|\\z)");
     private static final Pattern SEPAH = Pattern.compile("سپه");
 
+    // sms-parser.js balanceReport(): a balance announcement is not a transaction
+    private static final Pattern BALANCE_KW = Pattern.compile("مانده|موجودی");
+    private static final Pattern AMOUNT_BEFORE = Pattern.compile("مبلغ|[0-9,،]{4,}" + S + "*(?:ریال|ريال|تومان)");
+    private static final Pattern NOT_ACCOUNT_BALANCE = Pattern.compile("وام|تسهیلات|قسط|اقساط|بدهی|اعتباری|باقیمانده|باقی مانده");
+    private static final Pattern MASKED_CARD = Pattern.compile(D + "{4,6}[*.x]{2,}" + D + "{4}");
+    private static final Pattern ID_NUMBER = Pattern.compile("(?:حساب|کارت|شماره)" + S + "*:?" + S + "*\\*?[0-9*\\-xX×]{4,}(?!" + S + "*[0-9,،]*" + S + "*(?:ریال|ريال|تومان))");
+    private static final Pattern DATE_LIKE = Pattern.compile(D + "{2,4}[/\\-]" + D + "{1,2}[/\\-]" + D + "{1,4}");
+    private static final Pattern TIME_LIKE = Pattern.compile(D + "{1,2}:" + D + "{2}(?::" + D + "{2})?");
+
     private static final String[] FINANCIAL_HINTS = { "ریال", "ريال", "تومان", "مانده", "موجودی", "حساب", "کارت",
         "برداشت", "واریز", "واريز", "خرید", "انتقال", "تراکنش", "بانک" };
     private static final String[] SPAM_HINTS = { "رمز یکبار", "رمز پویا", "رمز دوم", "کد تایید", "کد تأیید", "کد فعالسازی", "کد فعال‌سازی",
@@ -99,6 +108,13 @@ public final class BankSms {
         public String bank;
         public Long balanceRial;
         public boolean uncertainAmount;
+    }
+
+    /** What sms-parser.js balanceReport() returns: a balance announcement, not a transaction. */
+    public static final class Balance {
+        public long balance;
+        public String cardLast4;
+        public String accountNo;
     }
 
     // ── helpers with JS semantics ──
@@ -287,6 +303,31 @@ public final class BankSms {
         return (s.length() == 12 && s.startsWith("989")) || amount > 20_000_000_000L;
     }
 
+    /** sms-parser.js balanceReport(), line for line. */
+    public static Balance balanceReport(String body) {
+        String n = normalize(body);
+        if (hasBankVerb(n)) return null;
+        if (RESALAT.matcher(n).find()) return null;
+        if (NOT_ACCOUNT_BALANCE.matcher(n).find()) return null;
+        Matcher m = BALANCE_KW.matcher(n);
+        if (!m.find()) return null;
+        if (AMOUNT_BEFORE.matcher(n.substring(0, m.start())).find()) return null;
+        String after = n.substring(m.end());
+        after = MASKED_CARD.matcher(after).replaceAll(" ");
+        after = ID_NUMBER.matcher(after).replaceAll(" ");
+        after = DATE_LIKE.matcher(after).replaceAll(" ");
+        after = TIME_LIKE.matcher(after).replaceAll(" ");
+        Matcher num = NUM4.matcher(after);
+        Long bal = num.find() ? toCleanLong(num.group()) : null;
+        if (bal == null) return null;
+        Balance b = new Balance();
+        b.balance = bal;
+        Matcher cm = CARD.matcher(n);
+        b.cardLast4 = cm.find() ? (cm.group(1) != null ? cm.group(1) : cm.group(2)) : null;
+        b.accountNo = firstGroup(ACCOUNT, n, 1);
+        return b;
+    }
+
     public static Result classify(String body) {
         String lower0 = body.toLowerCase(Locale.ROOT);
         if (containsAny(lower0, SPAM_HINTS)) return Result.not();
@@ -342,6 +383,8 @@ public final class BankSms {
         Row r = new Row();
         r.bank = sender.isEmpty() ? null : sender;
         if (c.kind.equals("not")) return null;
+        // a balance announcement updates the account's balance in the app; nothing to ask about
+        if (balanceReport(body) != null) return null;
         if (c.kind.equals("ambiguous")) {
             if (c.guessedAmount == null || c.guessedAmount == 0) return null;
             r.amountRial = c.guessedAmount * k;
