@@ -201,4 +201,28 @@ console.log('\nfull card numbers (Mellat shape) and the other side\'s card:');
   console.log('  ✓ last four of a full number, stated amount wins, payer card not taken, short forms intact');
 }
 
+console.log('\nbalance announcements are not transactions:');
+{
+  // these reached the queue as «transactions» whose amount was the balance — or the account number
+  const B = (t) => P.balanceReport(t);
+  assert.equal(B('بانک ملت\nمانده حساب: 12,300,000 ریال\n1403/07/05').balance, 12300000);
+  const acc = B('موجودی حساب 0123456 : 45,600,000 ریال');
+  assert.equal(acc.balance, 45600000, 'the balance, not the account number');
+  assert.equal(acc.accountNo, '0123456');
+  assert.equal(B('بانک سامان\nمانده حساب شما در تاریخ 1405/07/30 مبلغ 8,500,000 ریال می باشد').balance, 8500000, 'the date is not the balance');
+  const card = B('اعلام موجودی\nکارت 603799******4417\nموجودی: ۹,۰۰۰,۰۰۰\n۱۴۰۵/۰۷/۳۰ ۱۲:۳۰');
+  assert.equal(card.balance, 9000000);
+  assert.equal(card.cardLast4, '4417');
+  assert.equal(B('مانده حساب: 12300000 ریال').balance, 12300000, 'an unseparated balance is not an account number');
+  // money moved, or not an account balance: not a balance report
+  assert.equal(B('برداشت 1,250,000 ریال\nمانده: 12,300,000'), null, 'a withdrawal with its balance is a transaction');
+  assert.equal(B('افزایش موجودی 1,000,000 ریال'), null);
+  assert.equal(B('مبلغ 450,000 ریال کارت 1234 مانده 9,100,000'), null, 'an amount before the balance: an unclear transaction');
+  assert.equal(B('تراکنش کارت شما به مبلغ 2,400,000 ریال ثبت شد'), null);
+  assert.equal(B('مانده وام شما: 50,000,000 ریال'), null, 'a loan statement is not an account balance');
+  assert.equal(B('-2,000,000\n123.456.789\nمانده: 7,500,000'), null, 'a signed Resalat line is a transaction');
+  assert.equal(B('مانده حساب شما'), null, 'no number, nothing to report');
+  console.log('  ✓ balance read past dates, times and account numbers; transactions and loan statements left alone');
+}
+
 console.log('\nSMS PARSER OK');

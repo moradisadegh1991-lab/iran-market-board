@@ -9,8 +9,8 @@
 //    book disagrees with it, the user is asked why (monthCheck), the app does not pick a reason.
 import { attachSmsToLend } from './lending';
 import { addReported } from './balance';
-import { enqueue } from './importers';
-import { newId, type Account, type FinanceData, type Iso, type SmsSource, type Staged, type Txn } from './model';
+import { enqueue, wasDismissed, type SmsApi, type SmsResult } from './importers';
+import { newId, type Account, type BalanceSms, type FinanceData, type Iso, type SmsSource, type Staged, type Txn } from './model';
 
 const TEHRAN = '+03:30'; // Iran has had no DST since 2022
 
@@ -105,12 +105,81 @@ export function seenSms(d: FinanceData, r: Pick<Staged, 'smsKey' | 'at' | 'date'
   return booked ? { booked } : null;
 }
 
-/** SMS rows into the queue: learn the cards first so rows of a linked card arrive with their account. */
+/**
+ * SMS rows into the queue: learn the cards first so rows of a linked card arrive with their account.
+ * An SMS the user ignored before never comes back (rule 99); a balance-only row goes to noteBalanceSms.
+ */
 export function queueSms(d: FinanceData, rows: Staged[], now: number): { added: number; newSources: number } {
-  const fresh = rows.filter((r) => !seenSms(d, r));
+  const bal = rows.filter((r) => r.balanceOnly);
+  const fresh = rows.filter((r) => !r.balanceOnly && !seenSms(d, r) && !wasDismissed(d, r));
+  if (bal.length) noteBalanceSms(d, bal, now);
   const newSources = learnSources(d, fresh, now);
   // the SMS of a loan already told by voice or typed is that loan's, not a new row (rule 88)
   return { added: enqueue(d, fresh.filter((r) => !attachSmsToLend(d, r))), newSources };
+}
+
+/** how many balance-only SMS are kept (the oldest go) */
+export const MAX_BALANCE_SMS = 300;
+
+/**
+ * Balance-only SMS («مانده حساب: …»): kept in their own list, never in the queue (rule 99). The card or
+ * account they name learns the balance, and a linked one passes it to its account (rule 76). One with no
+ * card/account number cannot be placed: the app does not guess which account it is (rule 45).
+ * Returns how many were new.
+ */
+export function noteBalanceSms(d: FinanceData, rows: Staged[], now: number): number {
+  d.balanceSms ??= [];
+  const fresh = rows.filter((r) => r.balanceOnly && typeof r.balanceRial === 'number' && r.smsKey && !d.balanceSms!.some((x) => sameSms(x, r)));
+  if (!fresh.length) return 0;
+  learnSources(d, fresh, now);
+  for (const r of fresh)
+    d.balanceSms.push({
+      id: r.id, smsKey: r.smsKey!, at: r.at ?? null, date: r.date, time: r.time ?? null, balanceRial: r.balanceRial!,
+      card: r.card ?? null, accountNo: r.accountNo ?? null, bank: r.bank ?? null, raw: r.raw, importedAt: now,
+    });
+  d.balanceSms.sort((a, b) => (stagedAt(a) ?? a.importedAt) - (stagedAt(b) ?? b.importedAt));
+  if (d.balanceSms.length > MAX_BALANCE_SMS) d.balanceSms.splice(0, d.balanceSms.length - MAX_BALANCE_SMS);
+  return fresh.length;
+}
+
+/**
+ * Rows queued before balance announcements were recognised (rule 99): an SMS row whose text is only a
+ * balance leaves the queue for the balance list. `api` is the SMS parser (lib/finance/sms.ts).
+ * Returns how many moved.
+ */
+export function moveQueuedBalances(d: FinanceData, api: Pick<SmsApi, 'balanceReport'>, now: number): number {
+  if (!api.balanceReport) return 0;
+  const moved: Staged[] = [];
+  for (const r of d.inbox) {
+    if (r.source !== 'sms' || !r.raw) continue;
+    const b = api.balanceReport(r.raw.trim());
+    if (!b) continue;
+    const k = /تومان/.test(r.raw) && !/ریال|ريال/.test(r.raw) ? 10 : 1;
+    moved.push({ ...r, balanceOnly: true, amountRial: 0, direction: null, balanceRial: b.balance * k, card: b.cardLast4, accountNo: b.accountNo });
+  }
+  if (!moved.length) return 0;
+  const ids = new Set(moved.map((r) => r.id));
+  d.inbox = d.inbox.filter((r) => !ids.has(r.id));
+  noteBalanceSms(d, moved.filter((r) => r.smsKey), now);
+  return moved.length;
+}
+
+/** The account a balance SMS belongs to: only through a card/account the user linked (rule 45). */
+export function balanceSmsAccount(d: FinanceData, b: Pick<BalanceSms, 'card' | 'accountNo'>): string | null {
+  for (const key of sourceKeys(b)) {
+    const src = (d.smsSources ?? []).find((x) => x.key === key);
+    if (src?.accountId && d.accounts.some((a) => a.id === src.accountId)) return src.accountId;
+  }
+  return null;
+}
+
+/** queueSms + noteBalanceSms for one read of the phone or one paste. */
+export function queueSmsResult(d: FinanceData, r: Pick<SmsResult, 'rows' | 'balances'>, now: number): { added: number; newSources: number; balances: number; dismissed: number } {
+  const before = (d.smsSources ?? []).length;
+  const dismissed = r.rows.filter((x) => wasDismissed(d, x)).length;
+  const balances = noteBalanceSms(d, r.balances ?? [], now);
+  const q = queueSms(d, r.rows, now);
+  return { added: q.added, newSources: (d.smsSources ?? []).length - before, balances, dismissed };
 }
 
 /** Links a card/account to one of the user's accounts (or unlinks with null) and applies it to the queue. */

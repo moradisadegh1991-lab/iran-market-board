@@ -305,4 +305,12 @@ public class SmsAskTest {
         assertNull(r.direction);
         assertTrue(SmsAsk.title(r), SmsAsk.title(r).startsWith("تراکنش حدود "));
     }
+
+    @Test
+    public void aBalanceAnnouncementIsNotAskedAbout() {
+        // «مانده حساب» moved no money: no «نوعش چیست؟» (sms-parser.js balanceReport, rule 99)
+        assertNull(BankSms.row("بانک ملت\nکارت 603799******4417\nمانده حساب: 12,300,000 ریال", "+98700717"));
+        assertNull(BankSms.row("موجودی حساب 0123456 : 45,600,000 ریال", ""));
+        assertNotNull(BankSms.row("برداشت: 1,250,000 ریال کارت: *4417 مانده: 9,000,000", ""));
+    }
 }

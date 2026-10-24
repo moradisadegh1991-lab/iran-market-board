@@ -85,17 +85,30 @@ export function setAutoRead(on: boolean) {
  * the parsed rows; the caller queues them with `enqueue` inside its own book update.
  * `ask` = false never shows the permission dialog (used on app start).
  */
-export async function readInbox(plugin: SmsPlugin, today: Iso, accountId: string | null, ask: boolean): Promise<SmsResult | null> {
+export async function readInbox(
+  plugin: SmsPlugin,
+  today: Iso,
+  accountId: string | null,
+  ask: boolean,
+  /** a chosen time range (sms-filter.ts readWindow); without it, everything since the last read */
+  win?: { sinceMs: number; untilMs: number | null },
+): Promise<SmsResult | null> {
   const perm = ask ? await plugin.requestPermission() : await plugin.checkPermission();
   if (!perm?.granted) {
     if (ask) throw new Error('اجازه خواندن پیامک داده نشد. از تنظیمات اندروید، مجوز «پیامک» را برای این اپ روشن کنید.');
     return null;
   }
-  const since = lastPhoneRead() ?? Date.now() - FIRST_READ_DAYS * 86_400_000;
-  const res = await plugin.read({ sinceMs: since, limit: 1000 });
-  const msgs = (res?.messages ?? []).map((m) => ({ body: String(m.body ?? ''), at: Number(m.date) || undefined, address: m.address ? String(m.address) : undefined }));
+  const last = lastPhoneRead();
+  const since = win?.sinceMs ?? last ?? Date.now() - FIRST_READ_DAYS * 86_400_000;
+  const res = await plugin.read({ sinceMs: since, limit: win ? 3000 : 1000 });
+  const msgs = (res?.messages ?? [])
+    .map((m) => ({ body: String(m.body ?? ''), at: Number(m.date) || undefined, address: m.address ? String(m.address) : undefined }))
+    .filter((m) => !win?.untilMs || !m.at || m.at <= win.untilMs);
   const out = rowsFromMessages(msgs, smsParser, today, { accountId });
+  // the «since last read» mark moves only over a stretch read without a gap: reading the last 7 days
+  // after a month away must not make the automatic read skip the three weeks before them
   const newest = Math.max(since, ...msgs.map((m) => m.at ?? 0));
+  if (last !== null && (since > last || newest <= last)) return out;
   try {
     localStorage.setItem(PHONE_READ_KEY, String(newest));
   } catch {

@@ -11,6 +11,7 @@ import type { Txn } from '@/lib/finance/model';
 import { answer, choose, commitVoice, draftRows, edit, startVoice, type Ask, type VoiceState } from '@/lib/finance/voice';
 import { setVoicePref, SPEEDS, VOICE_INFO, VOICE_SPEAK_KEY, VoiceError, voiceIO, voicePref, wakeIO, type AppCrash, type VoiceErr, type VoiceIO, type WakeSensitivity, type WakeState } from '@/lib/voice-io';
 import { useFinance } from '../finance/FinanceProvider';
+import { addItem } from '@/lib/finance/shopping';
 import { useNotify } from '../NotifyProvider';
 import AskChart from './AskChart';
 
@@ -300,6 +301,14 @@ export default function Assistant({
       const t = `هشدار گذاشته شد: ${a.label}. وقتی اپ باز است و قیمت به آن برسد خبرتان می‌کنم.`;
       push(...(said ? [{ who: 'me' as const, text: said }] : []), { who: 'bot', text: t, link: { href: '/alerts', label: 'هشدارها' } });
       void say('هشدار رو گذاشتم.');
+      return;
+    }
+    if (a.type === 'shopAdd') {
+      update((dd) => {
+        for (const name of a.names) addItem(dd, { name });
+      });
+      push(...(said ? [{ who: 'me' as const, text: said }] : []), { who: 'bot', text: `به لیست خرید اضافه شد: ${a.label}.`, link: { href: '/shopping', label: 'لیست خرید' } });
+      void say('اضافه‌شون کردم.');
       return;
     }
     push(...(said ? [{ who: 'me' as const, text: said }] : []));
@@ -593,7 +602,7 @@ export default function Assistant({
         {pending && !dlg ? (
           <div className="voice-opts" role="group" aria-label="گزینه‌ها">
             <button type="button" className="btn" onClick={() => (quiet(), act(true, null))}>
-              {pending.type === 'alert' ? 'بله، هشدار را بگذار' : `بله، «${pending.label}» را باز کن`}
+              {pending.type === 'alert' ? 'بله، هشدار را بگذار' : pending.type === 'shopAdd' ? 'بله، به لیست خرید اضافه کن' : `بله، «${pending.label}» را باز کن`}
             </button>
             <button type="button" className="voice-opt" onClick={() => (quiet(), act(false, null))}>
               نه

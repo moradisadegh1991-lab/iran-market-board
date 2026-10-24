@@ -192,6 +192,41 @@
     return !hasAccountEvidence;
   }
 
+  /*
+   * A balance announcement — «مانده حساب: ۱۲٬۳۰۰٬۰۰۰ ریال»، «اعلام موجودی … موجودی: ۹٬۰۰۰٬۰۰۰» — states
+   * no movement of money. classify() reads it as a transaction whose amount is the balance (or, in
+   * «موجودی حساب 0123456 : …», the account number), so it reached the queue as a phantom row. It is a
+   * balance report when: no withdrawal/deposit verb and no signed Resalat line; a مانده/موجودی word;
+   * nothing amount-like before that word (no «مبلغ», no «N ریال»); not a loan/credit statement; and a
+   * number after the word once dates, times and card/account numbers are taken out.
+   * Mirrored in BankSms.java balanceReport() (scripts/native-sms-test.ts compares them).
+   */
+  var balanceKwRx = /مانده|موجودی/;
+  var amountBeforeRx = /مبلغ|[\d,،]{4,}\s*(?:ریال|ريال|تومان)/;
+  var notAccountBalanceRx = /وام|تسهیلات|قسط|اقساط|بدهی|اعتباری|باقیمانده|باقی مانده/;
+  var maskedCardRx = /\d{4,6}[*.x]{2,}\d{4}/g;
+  var idNumberRx = /(?:حساب|کارت|شماره)\s*:?\s*\*?[\d*\-xX×]{4,}(?!\s*[\d,،]*\s*(?:ریال|ريال|تومان))/g;
+  var dateLikeRx = /\d{2,4}[\/\-]\d{1,2}[\/\-]\d{1,4}/g;
+  var timeLikeRx = /\d{1,2}:\d{2}(?::\d{2})?/g;
+  var firstNumberRx = /[\d,،]{4,}/;
+
+  function balanceReport(body) {
+    var n = normalize(body);
+    if (withdrawKeys.concat(depositKeys).some(function (k) { return n.indexOf(k) >= 0; })) return null;
+    if (resalatRx.test(n)) return null;
+    if (notAccountBalanceRx.test(n)) return null;
+    var m = balanceKwRx.exec(n);
+    if (!m) return null;
+    if (amountBeforeRx.test(n.slice(0, m.index))) return null;
+    var after = n.slice(m.index + m[0].length)
+      .replace(maskedCardRx, ' ').replace(idNumberRx, ' ').replace(dateLikeRx, ' ').replace(timeLikeRx, ' ');
+    var num = firstNumberRx.exec(after);
+    var bal = num ? toCleanLong(num[0]) : null;
+    if (bal === null) return null;
+    var cm = cardRx.exec(n);
+    return { balance: bal, cardLast4: cm ? (cm[1] || cm[2] || null) : null, accountNo: firstGroup(accountRx, n, 1) };
+  }
+
   function parse(body) {
     var n = normalize(body);
     if (resalatRx.test(n)) return parseResalat(n);
@@ -263,7 +298,7 @@
     return { kind: 'not' };
   }
 
-  var api = { parse: parse, classify: classify, normalize: normalize, isAbnormalAmount: isAbnormalAmount, isOperatorMessage: isOperatorMessage, isFeeText: isFeeText };
+  var api = { parse: parse, classify: classify, balanceReport: balanceReport, normalize: normalize, isAbnormalAmount: isAbnormalAmount, isOperatorMessage: isOperatorMessage, isFeeText: isFeeText };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.SmsParser = api;
 })();

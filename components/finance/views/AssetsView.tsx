@@ -12,7 +12,7 @@ import { Glyph, AssetIcon } from '../../icons';
 import { Empty, Pct, PageHead, Select } from '../../ui';
 import { useFinance, WithBook } from '../FinanceProvider';
 import { AssetEdit, AssetForm, PerfLine, priceOn, usdFa } from '../asset-parts';
-import { Card, confirmDelete, fmtDateFa, fmtPctFa, Money } from '../kit';
+import { Card, confirmDelete, fmtDateFa, fmtPctFa, Modal, Money } from '../kit';
 
 const fa = (n: number, d = 6) => n.toLocaleString('fa-IR', { maximumFractionDigits: d });
 
@@ -136,35 +136,6 @@ function Lot({ g, lot, perf, d, open, editing, onToggle, onEdit }: { g: AssetGro
         </div>
       ) : null}
     </li>
-  );
-}
-
-/** a sheet over the page (the «بیشتر» sheet is hidden on wide screens, this one is not) */
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    document.body.classList.add('sheet-open');
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.classList.remove('sheet-open');
-    };
-  }, [onClose]);
-  return (
-    <div className="fin-modal-wrap" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="fin-modal" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="sheet-handle" aria-hidden="true" />
-        <div className="sheet-head">
-          <b>{title}</b>
-          <button className="sheet-close" onClick={onClose} aria-label="بستن">
-            <Glyph.Close size={18} aria-hidden="true" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
   );
 }
 

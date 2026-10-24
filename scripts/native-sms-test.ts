@@ -49,6 +49,15 @@ for (const m of src.matchAll(/'((?:[^'\\\n]|\\.)*)'/g)) {
   'برداشت 989121234567 ریال',
   'واریز 99,000,000,000 ریال',
   'پرداخت قبض برق 1,200,000 ریال موجودی: 3,400,000',
+  // balance announcements (no movement of money) — sms-parser.js balanceReport
+  'بانک ملت\nمانده حساب: 12,300,000 ریال\n1403/07/05',
+  'موجودی حساب 0123456 : 45,600,000 ریال',
+  'بانک سامان\nمانده حساب شما در تاریخ 1405/07/30 مبلغ 8,500,000 ریال می باشد',
+  'اعلام موجودی\nحساب: 1234\nموجودی: ۹,۰۰۰,۰۰۰\n۱۴۰۵/۰۷/۳۰ ۱۲:۳۰',
+  'کارت 603799******4417\nموجودی: 2,000,000 ریال',
+  'مانده حساب: 12300000 ریال',
+  'مانده وام شما: 50,000,000 ریال',
+  'مبلغ 450,000 ریال کارت 1234 مانده 9,100,000',
 ].forEach((b, i) => add(b, i % 3 ? '+98700717' : ''));
 
 // 3) generated: fragments in random order with random separators and digit scripts
@@ -73,6 +82,7 @@ const frags: (() => string)[] = [
   () => pick([`کارت: *${number(4, 4).replace(/\D/g, '').slice(0, 4)}`, `603799******${String(1000 + Math.floor(rnd() * 9000))}`, `6104.33xx${String(1000 + Math.floor(rnd() * 9000))}`, `کارت ${String(1000 + Math.floor(rnd() * 9000))}`]),
   () => `حساب${pick([': ', ' ', ':'])}${String(Math.floor(rnd() * 1e10)).padStart(pick([5, 8, 10, 13]), '0')}`,
   () => `${pick(['مانده', 'موجودی'])}${pick([': ', ' ', ':'])}${number(4)}`,
+  () => pick(['مانده حساب', 'موجودی حساب', 'اعلام موجودی', 'مانده حساب شما در تاریخ 1405/07/30', 'مانده وام', 'شماره حساب 0123456789', 'کارت 603799******4417']),
   () => pick(['از طریق اینترنت بانک', 'از طريق موبایل‌بانک ملت', 'کانال: خودپرداز شعبه ۱۲', 'از طریق پایا و ساتنا و چیزهای بیشتر که از چهل حرف بلندتر است']),
   () => pick(['عنوان بانک ملت', 'عنوان بانک Resalat', 'بانک سپه', 'بانک ملی', 'Bank Mellat']),
   () => pick(['123.456.789', '1.2.3', '12.34']),
@@ -105,6 +115,7 @@ const jsRecord = ({ body, address }: { body: string; address: string }) => {
     c.kind === 'ambiguous' ? v(c.guessedWithdrawal) : '~',
     t ? [t.amount, t.isWithdrawal, t.cardLast4, t.balance, t.channel, t.accountNo, t.isFee, t.bankNameInSms, t.directionClear].map(v).join('|') : '~',
     r ? [r.amountRial, r.direction, r.card, r.accountNo, r.bank, r.balanceRial, !!r.uncertainAmount].map(v).join('|') : '~',
+    ((b) => (b ? [b.balance, b.cardLast4, b.accountNo].map(v).join('|') : '~'))((rawParser as unknown as { balanceReport(b: string): { balance: number; cardLast4: string | null; accountNo: string | null } | null }).balanceReport(body.trim())),
   ].join('\u0001');
 };
 
@@ -130,8 +141,9 @@ try {
     console.error(`${diffs.length} of ${corpus.length} messages differ; first ones:\n` + diffs.slice(0, 8).join('\n'));
     process.exit(1);
   }
-  const rows = corpus.filter((m) => !jsRecord(m).endsWith('\u0001~')).length;
-  console.log(`✓ Java and JS agree on all ${corpus.length} messages (${Object.entries(kinds).map(([k, n]) => `${k} ${n}`).join(', ')}; ${rows} would be queued)`);
+  const rows = corpus.filter((m) => jsRecord(m).split('\u0001')[4] !== '~').length;
+  const balances = corpus.filter((m) => jsRecord(m).split('\u0001')[5] !== '~').length;
+  console.log(`✓ Java and JS agree on all ${corpus.length} messages (${Object.entries(kinds).map(([k, n]) => `${k} ${n}`).join(', ')}; ${rows} would be queued, ${balances} are balance announcements)`);
   console.log('NATIVE SMS PARSER OK');
 } finally {
   rmSync(dir, { recursive: true, force: true });

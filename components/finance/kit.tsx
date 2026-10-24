@@ -1,7 +1,8 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { JALALI_MONTHS, isoToJalali, jalaliMonthLength, jalaliToIso } from '@/lib/jalali';
 import { isNum } from '@/lib/num';
+import { Glyph } from '../icons';
 
 // ── formatting ─────────────────────────────────────────────────────────────
 
@@ -240,4 +241,33 @@ export function Tabs<T extends string>({ label, tabs, value, onChange, idPrefix 
 
 export function confirmDelete(what: string): boolean {
   return typeof window !== 'undefined' && window.confirm(`${what} حذف شود؟ این کار برگشت‌پذیر نیست.`);
+}
+
+/** a sheet over the page (the «بیشتر» sheet is hidden on wide screens, this one is not) */
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    document.body.classList.add('sheet-open');
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.classList.remove('sheet-open');
+    };
+  }, [onClose]);
+  return (
+    <div className="fin-modal-wrap" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="fin-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="sheet-handle" aria-hidden="true" />
+        <div className="sheet-head">
+          <b>{title}</b>
+          <button className="sheet-close" onClick={onClose} aria-label="بستن">
+            <Glyph.Close size={18} aria-hidden="true" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
 }

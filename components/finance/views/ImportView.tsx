@@ -10,6 +10,7 @@ import {
   commitStaged,
   dismissStaged,
   enqueue,
+  undismissSms,
   isDuplicate,
   rowsFromSms,
   rowsFromTable,
@@ -21,7 +22,8 @@ import {
 import { readStatement, ReadError } from '@/lib/finance/readers';
 import { smsParser } from '@/lib/finance/sms';
 import { LEND_LABEL, people, type LendKind } from '@/lib/finance/lending';
-import { learnFromCommit, queueSms, reportBalance, stagedAt, unlinkedSources } from '@/lib/finance/sources';
+import { balanceSmsAccount, learnFromCommit, queueSmsResult, reportBalance, sourceKeys, sourceLabel, stagedAt, unlinkedSources } from '@/lib/finance/sources';
+import { inRange, RANGE_LABEL, rangeBounds, readWindow, type RangeKind, type TimeRange } from '@/lib/finance/sms-filter';
 import { partiesNote, suggestParties, type PartySuggestion } from '@/lib/finance/sms-parties';
 import { askOn, autoReadOn, FIRST_READ_DAYS, lastPhoneRead, readInbox, setAskOn, setAutoRead, useSmsPlugin } from '@/lib/finance/phone-sms';
 import { tomanToRial, type FinanceData, type Staged } from '@/lib/finance/model';
@@ -214,12 +216,45 @@ function StatementCard({ d }: { d: FinanceData }) {
 
 // ── SMS ────────────────────────────────────────────────────────────────────
 
+/** «امروز»، «۱ مهر تا ۲۰ مهر» — what a range covers, in words. */
+function rangeText(r: TimeRange, today: string): string {
+  const b = rangeBounds(r, today);
+  if (!b.from && !b.to) return 'همه زمان‌ها';
+  if (b.from && b.from === b.to) return fmtDateFa(b.from);
+  if (b.from && b.to) return `${fmtDateFa(b.from)} تا ${fmtDateFa(b.to)}`;
+  return b.from ? `از ${fmtDateFa(b.from)}` : `تا ${fmtDateFa(b.to!)}`;
+}
+
+/** A time range: quick choices, and two dates for «بازه دلخواه». */
+function RangePicker({ label, value, onChange, kinds, allLabel, testId }: { label: string; value: TimeRange; onChange: (r: TimeRange) => void; kinds: RangeKind[]; allLabel?: string; testId?: string }) {
+  const { today } = useFinance();
+  return (
+    <div className="fin-range" data-testid={testId}>
+      <Chips<RangeKind>
+        label={label}
+        options={kinds.map((k) => ({ key: k, label: k === 'all' && allLabel ? allLabel : RANGE_LABEL[k] }))}
+        value={value.kind}
+        onChange={(k) => onChange(k === 'custom' ? { kind: k, from: value.from ?? rangeBounds({ kind: 'd30' }, today).from, to: value.to ?? today } : { kind: k })}
+      />
+      {value.kind === 'custom' ? (
+        <div className="fin-grid">
+          <JalaliDate label="از" value={value.from ?? today} onChange={(iso) => onChange({ ...value, from: iso })} yearsBack={2} yearsAhead={0} />
+          <JalaliDate label="تا" value={value.to ?? today} onChange={(iso) => onChange({ ...value, to: iso })} yearsBack={2} yearsAhead={0} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function SmsCard({ d }: { d: FinanceData }) {
   const { update, today } = useFinance();
   const accounts = useAccounts(d);
   const [accountId, setAccountId] = useState(() => (accounts.find((a) => a.kind === 'bank' && !a.bizId) ?? accounts.find((a) => a.kind === 'bank'))?.id ?? '');
   const [text, setText] = useState('');
-  const [result, setResult] = useState<{ added: number; read: number; ignored: { text: string; reason: string }[]; ignoredCount: number; newSources: number } | null>(null);
+  const [result, setResult] = useState<{ added: number; read: number; ignored: { text: string; reason: string }[]; ignoredCount: number; newSources: number; balances: number; dismissed: number } | null>(
+    null,
+  );
+  const [readRange, setReadRange] = useState<TimeRange>({ kind: 'all' });
 
   const plugin = useSmsPlugin();
   const [phoneBusy, setPhoneBusy] = useState(false);
@@ -232,13 +267,12 @@ function SmsCard({ d }: { d: FinanceData }) {
   }, []);
 
   function queue(r: SmsResult, listIgnored: boolean) {
-    let added = 0;
-    let newSources = 0;
+    let res = { added: 0, newSources: 0, balances: 0, dismissed: 0 };
     update((dr) => {
-      ({ added, newSources } = queueSms(dr, r.rows, Date.now()));
+      res = queueSmsResult(dr, r, Date.now());
     });
     // from the phone inbox, "ignored" is every personal SMS too — count them, never list them
-    setResult({ added, read: r.rows.length, ignored: listIgnored ? r.ignored : [], ignoredCount: r.ignored.length, newSources });
+    setResult({ ...res, read: r.rows.length, ignored: listIgnored ? r.ignored : [], ignoredCount: r.ignored.length });
   }
 
   function read() {
@@ -253,7 +287,8 @@ function SmsCard({ d }: { d: FinanceData }) {
     setResult(null);
     setPhoneBusy(true);
     try {
-      const r = await readInbox(plugin, today, accountId || null, true);
+      const win = readRange.kind === 'all' ? undefined : readWindow(readRange, today, lastPhoneRead(), FIRST_READ_DAYS, Date.now());
+      const r = await readInbox(plugin, today, accountId || null, true, win);
       if (r) queue(r, false);
     } catch (e) {
       setPhoneErr(e instanceof Error ? e.message : String(e));
@@ -272,14 +307,22 @@ function SmsCard({ d }: { d: FinanceData }) {
         <AccountSelect d={d} label="حساب این پیامک‌ها" value={accountId} onChange={setAccountId} allowNone="— بعداً انتخاب می‌کنم —" />
       </div>
       {plugin ? (
-        <div className="fin-actions" style={{ margin: '10px 0 14px' }}>
-          <button className="fin-upload" onClick={readPhone} disabled={phoneBusy}>
-            {phoneBusy ? 'در حال خواندن صندوق پیامک…' : 'خواندن پیامک‌های بانکی گوشی'}
-          </button>
-          <span className="muted small">
-            {lastPhoneRead() ? `از آخرین خواندن (${fmtDateFa(new Date(lastPhoneRead()!).toISOString().slice(0, 10))}) به بعد` : `پیامک‌های ${faN(FIRST_READ_DAYS)} روز اخیر`}؛ پیامک‌ها از گوشی بیرون نمی‌روند.
-          </span>
-        </div>
+        <>
+          <RangePicker label="کدام پیامک‌ها خوانده شود" value={readRange} onChange={setReadRange} allLabel="از آخرین خواندن" kinds={['all', 'today', 'd7', 'd30', 'd90', 'month', 'custom']} testId="read-range" />
+          <div className="fin-actions" style={{ margin: '10px 0 14px' }}>
+            <button className="fin-upload" onClick={readPhone} disabled={phoneBusy}>
+              {phoneBusy ? 'در حال خواندن صندوق پیامک…' : 'خواندن پیامک‌های بانکی گوشی'}
+            </button>
+            <span className="muted small">
+              {readRange.kind !== 'all'
+                ? `پیامک‌های ${rangeText(readRange, today)}`
+                : lastPhoneRead()
+                  ? `از آخرین خواندن (${fmtDateFa(new Date(lastPhoneRead()!).toISOString().slice(0, 10))}) به بعد`
+                  : `پیامک‌های ${faN(FIRST_READ_DAYS)} روز اخیر`}
+              ؛ آن‌چه قبلاً ثبت یا نادیده گرفته‌اید دوباره نمی‌آید. پیامک‌ها از گوشی بیرون نمی‌روند.
+            </span>
+          </div>
+        </>
       ) : null}
       {plugin ? (
         <Toggle
@@ -325,7 +368,11 @@ function SmsCard({ d }: { d: FinanceData }) {
       {result ? (
         <div className="fin-report" role="status">
           <p>
-            {faN(result.read)} تراکنش خوانده شد؛ {faN(result.added)} ردیف تازه به صف بررسی رفت{result.read > result.added ? ` (${faN(result.read - result.added)} تا قبلاً در صف بود)` : ''}.
+            {faN(result.read)} تراکنش خوانده شد؛ {faN(result.added)} ردیف تازه به صف بررسی رفت
+            {result.read > result.added
+              ? ` (${[result.dismissed ? `${faN(result.dismissed)} تا را قبلاً نادیده گرفته بودید` : '', result.read - result.added - result.dismissed > 0 ? `${faN(result.read - result.added - result.dismissed)} تا قبلاً در صف یا دفتر بود` : ''].filter(Boolean).join('، ')})`
+              : ''}
+            .{result.balances ? ` ${faN(result.balances)} پیامک فقط مانده حساب را گفته بود (تراکنش نیست؛ در «پیامک‌های مانده حساب» پایین صفحه).` : ''}
             {result.ignoredCount ? ` ${faN(result.ignoredCount)} پیام تراکنش بانکی نبود.` : ''}
           </p>
           {result.newSources ? (
@@ -426,6 +473,8 @@ function Queue({ d }: { d: FinanceData }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<QueueFilter>('all');
+  const [range, setRange] = useState<TimeRange>({ kind: 'all' });
+  const [withBalance, setWithBalance] = useState(false);
   const [limit, setLimit] = useState(40);
   const [note, setNote] = useState<string | null>(null);
   const accounts = useAccounts(d);
@@ -462,8 +511,16 @@ function Queue({ d }: { d: FinanceData }) {
     return !r.dup && !!v.choice && !v.choice.startsWith('transfer') && !v.choice.startsWith('lend') && !!v.accountId && !!(r.s.date || drafts[r.s.id]?.date) && !r.s.uncertainAmount;
   };
 
-  const shown = rows.filter((r) => (filter === 'decide' ? !resolve(r.s, r.suggested).choice || !r.s.date : filter === 'dup' ? r.dup : true));
-  const readyRows = rows.filter(ready);
+  const bounds = rangeBounds(range, today);
+  const shown = rows.filter(
+    (r) =>
+      (filter === 'decide' ? !resolve(r.s, r.suggested).choice || !r.s.date : filter === 'dup' ? r.dup : true) &&
+      inRange(r.s.date, bounds) &&
+      (!withBalance || typeof r.s.balanceRial === 'number'),
+  );
+  const narrowed = shown.length !== rows.length;
+  // bulk buttons act on what is shown: a time filter means «these»
+  const readyRows = shown.filter(ready);
 
   const setDraft = (id: string, patch: Draft) => setDrafts((x) => ({ ...x, [id]: { ...x[id], ...patch } }));
 
@@ -525,7 +582,7 @@ function Queue({ d }: { d: FinanceData }) {
     <Card title={`صف بررسی (${faN(rows.length)})`}>
       <p className="muted small">
         هیچ ردیفی بدون تأیید شما ثبت نمی‌شود. جهت (برداشت/واریز) فقط وقتی از پیش پر است که بانک خودش گفته باشد؛ وگرنه شما تعیین می‌کنید. ردیف‌های «احتمالاً تکراری» با تراکنشی که
-        قبلاً ثبت کرده‌اید هم‌روز و هم‌مبلغ‌اند.
+        قبلاً ثبت کرده‌اید هم‌روز و هم‌مبلغ‌اند. «نادیده بگیر» پیامک را برای همیشه کنار می‌گذارد — خواندن دوباره گوشی آن را برنمی‌گرداند؛ از «نادیده‌گرفته‌ها» پایین صفحه برمی‌گردد.
       </p>
       <div className="filterbar">
         <Chips<QueueFilter>
@@ -538,16 +595,29 @@ function Queue({ d }: { d: FinanceData }) {
           value={filter}
           onChange={setFilter}
         />
+        <Toggle checked={withBalance} onChange={setWithBalance}>
+          فقط پیامک‌هایی که مانده حساب دارند
+        </Toggle>
+      </div>
+      <RangePicker label="زمان" value={range} onChange={setRange} kinds={['all', 'today', 'd7', 'd30', 'month', 'custom']} testId="queue-range" />
+      {narrowed ? (
+        <p className="muted small" role="status" data-testid="queue-shown">
+          {faN(shown.length)} ردیف از {faN(rows.length)} نشان داده می‌شود{range.kind !== 'all' ? ` (${rangeText(range, today)}؛ ردیف بی‌تاریخ فقط در «همه»)` : ''}.
+        </p>
+      ) : null}
+      <div className="filterbar">
         <button className="fin-mini" disabled={!readyRows.length} onClick={() => commit(readyRows.map((r) => r.s.id))}>
-          ثبت {faN(readyRows.length)} ردیف آماده
+          ثبت {faN(readyRows.length)} ردیف آماده{narrowed ? ' (از همین‌ها)' : ''}
         </button>
         <button
           className="fin-mini ghost"
+          disabled={!shown.length}
           onClick={() => {
-            if (confirmDelete(`همه ${faN(rows.length)} ردیف صف (بدون ثبت)`)) update((dr) => dismissStaged(dr, rows.map((r) => r.s.id)));
+            if (confirmDelete(`${narrowed ? `${faN(shown.length)} ردیف نمایش‌داده‌شده` : `همه ${faN(rows.length)} ردیف صف`} (بدون ثبت؛ این پیامک‌ها دیگر به صف برنمی‌گردند مگر از «نادیده‌گرفته‌ها» برگردانید)`))
+              update((dr) => dismissStaged(dr, shown.map((r) => r.s.id)));
           }}
         >
-          خالی کردن صف
+          {narrowed ? `نادیده گرفتن ${faN(shown.length)} ردیف نمایش‌داده‌شده` : 'خالی کردن صف'}
         </button>
       </div>
       <p className="muted small">«آماده» یعنی نوع، تاریخ و حساب معلوم است، انتقال نیست و تکراری به نظر نمی‌رسد؛ انتقال‌ها و بقیه را تک‌تک ثبت کنید.</p>
@@ -556,6 +626,7 @@ function Queue({ d }: { d: FinanceData }) {
           {note}
         </p>
       ) : null}
+      {!shown.length ? <p className="muted">در این بازه ردیفی در صف نیست.</p> : null}
       <ul className="fin-list fin-queue">
         {shown.slice(0, limit).map(({ s, dup, suggested }) => {
           const v = resolve(s, suggested);
@@ -583,6 +654,11 @@ function Queue({ d }: { d: FinanceData }) {
                 <span className={`fin-tag${s.direction ? '' : ' warn'}`}>{s.why}</span>
                 {dup ? <span className="fin-tag warn">احتمالاً تکراری</span> : null}
                 {s.fee ? <span className="fin-tag">کارمزد</span> : null}
+                {typeof s.balanceRial === 'number' ? (
+                  <span className="fin-tag" data-testid="staged-balance">
+                    مانده بعدش: <Money rial={s.balanceRial} />
+                  </span>
+                ) : null}
               </div>
               {(() => {
                 const p = partiesFor(d, s, v.choice);
@@ -723,7 +799,110 @@ function Import({ d }: { d: FinanceData }) {
         <SmsCard d={d} />
       </div>
       <Queue d={d} />
+      <BalanceSmsCard d={d} />
+      <DismissedCard d={d} />
     </>
+  );
+}
+
+// ── balance-only SMS and ignored SMS ───────────────────────────────────────
+
+/**
+ * «مانده حساب: …» SMS: not transactions, so never in the queue (rule 99). Listed here with the account
+ * they belong to — only through a card/account the user linked; the app does not guess one (rule 45).
+ */
+function BalanceSmsCard({ d }: { d: FinanceData }) {
+  const { today } = useFinance();
+  const [range, setRange] = useState<TimeRange>({ kind: 'all' });
+  const [limit, setLimit] = useState(20);
+  const all = useMemo(() => [...(d.balanceSms ?? [])].reverse(), [d.balanceSms]);
+  if (!all.length) return null;
+  const b = rangeBounds(range, today);
+  const shown = all.filter((x) => inRange(x.date, b));
+  return (
+    <Card title={`پیامک‌های مانده حساب (${faN(all.length)})`}>
+      <p className="muted small">
+        این پیامک‌ها فقط موجودی را گفته‌اند و پولی جابه‌جا نکرده‌اند، پس تراکنش نیستند و به صف نمی‌روند. اگر کارت یا حسابشان به یکی از حساب‌هایتان وصل است، موجودی همان حساب با آن‌ها
+        به‌روز شده است.
+      </p>
+      <RangePicker label="زمان" value={range} onChange={setRange} kinds={['all', 'today', 'd7', 'd30', 'month', 'custom']} testId="balance-range" />
+      {!shown.length ? <p className="muted">در این بازه پیامک مانده‌ای نیست.</p> : null}
+      <ul className="fin-list" data-testid="balance-sms">
+        {shown.slice(0, limit).map((x) => {
+          const accId = balanceSmsAccount(d, x);
+          const acc = accId ? d.accounts.find((a) => a.id === accId) : null;
+          const src = sourceKeys(x)
+            .map((k) => (d.smsSources ?? []).find((s) => s.key === k))
+            .find(Boolean);
+          return (
+            <li key={x.id} data-testid="balance-sms-row">
+              <span className="fin-list-main">
+                <b>{acc ? acc.name : src ? sourceLabel(src) : x.bank && !/^\+?\d+$/.test(x.bank) ? x.bank : 'حساب نامعلوم'}</b>
+                <small>
+                  {x.date ? fmtDateFa(x.date) : 'بدون تاریخ'}
+                  {x.time ? ` · ${x.time}` : ''}
+                  {acc ? '' : src ? ' · کارت/حساب هنوز به حسابی وصل نیست' : ' · پیامک کارت یا شماره حساب نداشت'}
+                </small>
+              </span>
+              <span className="fin-list-nums">
+                <Money rial={x.balanceRial} />
+                <small>مانده</small>
+              </span>
+              <details className="fin-details">
+                <summary>متن</summary>
+                <pre className="fin-raw">{x.raw}</pre>
+              </details>
+            </li>
+          );
+        })}
+      </ul>
+      {shown.length > limit ? (
+        <button className="fin-mini" onClick={() => setLimit((n) => n + 20)}>
+          نمایش {faN(Math.min(20, shown.length - limit))} پیامک دیگر
+        </button>
+      ) : null}
+      {all.some((x) => !balanceSmsAccount(d, x) && sourceKeys(x).length) ? (
+        <p className="small">
+          <Link href="/accounts?tab=cards">کارت‌ها را به حساب‌هایتان وصل کنید</Link> تا مانده این پیامک‌ها موجودی همان حساب شود.
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
+/** SMS the user ignored: they never come back by themselves; «برگرداندن به صف» does it (rule 99). */
+function DismissedCard({ d }: { d: FinanceData }) {
+  const { update } = useFinance();
+  const [limit, setLimit] = useState(20);
+  const all = useMemo(() => [...(d.smsDismissed ?? [])].reverse(), [d.smsDismissed]);
+  if (!all.length) return null;
+  return (
+    <Card title={`نادیده‌گرفته‌ها (${faN(all.length)})`}>
+      <details className="fin-details" data-testid="dismissed">
+        <summary>پیامک‌هایی که «نادیده بگیر» زده‌اید — دیگر به صف برنمی‌گردند</summary>
+        <ul className="fin-list">
+          {all.slice(0, limit).map((x) => (
+            <li key={`${x.smsKey}-${x.at ?? x.date}`} data-testid="dismissed-row">
+              <span className="fin-list-main">
+                <b>{x.label || 'پیامک بانکی'}</b>
+                <small>{x.date ? fmtDateFa(x.date) : 'بدون تاریخ'}</small>
+              </span>
+              <span className="fin-list-nums">
+                <Money rial={x.amountRial} />
+              </span>
+              <button className="fin-mini ghost" onClick={() => update((dr) => void undismissSms(dr, x.smsKey, x.at))}>
+                {x.row ? 'برگرداندن به صف' : 'فراموش کن (با خواندن بعدی برمی‌گردد)'}
+              </button>
+            </li>
+          ))}
+        </ul>
+        {all.length > limit ? (
+          <button className="fin-mini" onClick={() => setLimit((n) => n + 20)}>
+            نمایش {faN(Math.min(20, all.length - limit))} مورد دیگر
+          </button>
+        ) : null}
+      </details>
+    </Card>
   );
 }
 

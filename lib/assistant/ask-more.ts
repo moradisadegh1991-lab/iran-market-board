@@ -7,6 +7,7 @@ import { NAV_GROUPS } from '@/components/nav';
 import { creditBalance } from '../biz/ops';
 import { accountBalances, budgetStatus, daysBetween, goalPlan, loanState, monthOf, netWorth, unitPrice, upcoming, type PriceItem } from '../finance/calc';
 import { lendingSummary } from '../finance/lending';
+import { listItems } from '../finance/shopping';
 import { isMoneyAccount, type FinanceData, type Iso } from '../finance/model';
 import { assetPerformance, portfolioPerformance } from '../finance/performance';
 import { amountIn, amountWords, clean, dateWords, numToWords, tokens } from '../finance/voice';
@@ -19,14 +20,19 @@ export type MoreQ =
   | { type: 'goals'; goalId: string | null }
   | { type: 'assetsPerf'; assetId: string | null }
   | { type: 'alert'; asset: AssetInfo; dir: 'above' | 'below'; value: number }
-  | { type: 'nav'; href: string; label: string };
+  | { type: 'nav'; href: string; label: string }
+  | { type: 'shopAdd'; names: string[] }
+  | { type: 'shopList' };
 
 export interface MoreReply {
   text: string;
   speech: string;
   link?: { href: string; label: string };
   /** offered, done only after «بله» (the screen holds it) */
-  action?: { type: 'alert'; asset: string; dir: 'above' | 'below'; value: number; label: string } | { type: 'nav'; href: string; label: string };
+  action?:
+    | { type: 'alert'; asset: string; dir: 'above' | 'below'; value: number; label: string }
+    | { type: 'nav'; href: string; label: string }
+    | { type: 'shopAdd'; names: string[]; label: string };
 }
 
 const fa = (n: number, digits = 0) => n.toLocaleString('fa-IR', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
@@ -42,6 +48,8 @@ const PAGE_ALIAS: [RegExp, string][] = [
   [/(^| )(حساب|کارت)/, '/accounts'],
   [/(^| )(دارایی|سرمایه)/, '/assets'],
   [/(^| )(بودجه)/, '/budget'],
+  [/(^| )(لیست خرید|فهرست خرید)/, '/shopping'],
+  [/(^| )(آبان ?تتر|ابان ?تتر)/, '/aban'],
   [/(^| )(وام|قسط|چک|قبض|بدهی|قرض)/, '/debts'],
   [/(^| )(صندوق خانگی)/, '/fund'],
   [/(^| )(دنگ)/, '/split'],
@@ -70,9 +78,37 @@ function navTarget(c: string): { href: string; label: string } | null {
   return null;
 }
 
+const LIST = /(لیست|فهرست) ?(ی )?خرید(م)?/;
+const ADD = /(اضافه کن|اضافش کن|بنویس|یادداشت کن|بذار|بزار|اضافه)( |$)/;
+// what is left of «شیر و دو تا نون رو هم به لیست خرید اضافه کن» once the command words go
+const FILLER = /(^| )(رو|را|به|توی|تو|در|هم|لطفا|لطفاً|برام|واسم|یه|یک|لیست|فهرست|خرید|خریدم|اضافه|کن|بنویس|یادداشت|بذار|بزار|اضافش|ی)(?= |$)/g;
+
+function shoppingQ(c: string, asked: boolean): MoreQ | null {
+  if (LIST.test(c)) {
+    if (OPEN.test(c)) return { type: 'nav', href: '/shopping', label: 'لیست خرید' };
+    if (ADD.test(c)) {
+      const names = c
+        .replace(LIST, ' ')
+        .replace(ADD, ' ')
+        .replace(FILLER, ' ')
+        .split(/ و |،|,/)
+        .map((x) => x.replace(/\s+/g, ' ').trim())
+        .filter((x) => x.length > 1);
+      return names.length ? { type: 'shopAdd', names } : { type: 'nav', href: '/shopping', label: 'لیست خرید' };
+    }
+    return { type: 'shopList' };
+  }
+  if (asked && /(چی|چیا|چه چیزی|چه چیزهایی) (باید )?بخرم/.test(c)) return { type: 'shopList' };
+  return null;
+}
+
 export function parseMore(d: FinanceData, raw: string, today: Iso): MoreQ | null {
   const c = clean(raw);
   const asked = ASKED.test(raw) || ASKED.test(c);
+
+  // the shopping list (shopping.ts, rule 100): «شیر و نون رو به لیست خرید اضافه کن», «چی باید بخرم؟»
+  const shop = shoppingQ(c, asked);
+  if (shop) return shop;
 
   // opening a page: «بودجه رو باز کن», «برو به صندوق فروش»
   if (OPEN.test(c) && !/(قرض|خرید|فروختم|خریدم)/.test(c)) {
@@ -162,6 +198,34 @@ export function answerMore(d: FinanceData, items: PriceItem[], today: Iso, q: Mo
   switch (q.type) {
     case 'nav':
       return { text: `«${q.label}» را باز کنم؟`, speech: `${q.label} رو باز کنم؟`, action: { type: 'nav', href: q.href, label: q.label } };
+
+    case 'shopAdd': {
+      const list = q.names.join('، ');
+      return {
+        text: `به لیست خرید اضافه کنم: ${list}؟`,
+        speech: `${q.names.join(' و ')} رو به لیست خرید اضافه کنم؟`,
+        action: { type: 'shopAdd', names: q.names, label: list },
+      };
+    }
+
+    case 'shopList': {
+      const link = { href: '/shopping', label: 'لیست خرید' };
+      const left = listItems(d).filter((x) => !x.done);
+      const inBasket = listItems(d).filter((x) => x.done).length;
+      if (!left.length)
+        return {
+          text: inBasket ? `همه را خریده‌اید؛ ${fa(inBasket)} قلم در سبد منتظر ثبت در دفتر است.` : 'لیست خرید خالی است.',
+          speech: inBasket ? 'همه رو خریدی؛ فقط مونده ثبتش کنی.' : 'لیست خریدت خالیه.',
+          link,
+        };
+      const names = left.map((x) => (x.qty ? `${x.name} (${x.qty})` : x.name));
+      const shown = names.slice(0, 12);
+      return {
+        text: `${fa(left.length)} قلم مانده: ${shown.join('، ')}${names.length > shown.length ? '، …' : ''}.`,
+        speech: `${numToWords(left.length)} تا چیز مونده: ${left.slice(0, 6).map((x) => x.name).join('، ')}${left.length > 6 ? ' و چند تا دیگه' : ''}.`,
+        link,
+      };
+    }
 
     case 'alert': {
       const unit = ['ons', 'silverOns', 'btc', 'eth'].includes(q.asset.key) ? 'دلار' : 'تومان';
