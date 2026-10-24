@@ -10,7 +10,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { simulate, type SimAsset, type SimInput, type SimProfile, type SimSeries } from '@/lib/engine/simulator';
+import { SIM_ASSETS, simulate, type SimAsset, type SimInput, type SimProfile, type SimSeries } from '@/lib/engine/simulator';
+
+// CRYPTO_COST=0.0071: crypto at Abantether's cost per side (0.38% fee + half its USDT spread, rule 102)
+if (process.env.CRYPTO_COST) for (const a of SIM_ASSETS) if (a.crypto) a.cost = Number(process.env.CRYPTO_COST);
 import { CACHE } from './fetch-real';
 
 const DAY = 86_400_000;

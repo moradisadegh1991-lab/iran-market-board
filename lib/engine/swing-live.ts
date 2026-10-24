@@ -25,6 +25,8 @@ export interface SwingLiveConfig {
   usdtRial: number | null;
   /** absent on sessions started before v2 existed — those keep running on v1 */
   engine?: SwingEngine;
+  /** what the fee and USDT rate came from (rule 102): Abantether's prices, or the board's defaults */
+  priceBasis?: 'aban' | 'board';
 }
 
 export interface SwingLiveFill extends SwingTrade {

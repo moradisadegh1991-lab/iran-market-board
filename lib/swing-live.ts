@@ -95,7 +95,8 @@ export function validateSwingConfig(body: any, usdtRial: number | null, maxHours
   const feePct = isNum(Number(body?.feePct)) ? Math.max(0, Math.min(2, Number(body.feePct))) : 0.4;
 
   const engine: SwingEngine = body?.engine === 'v1' && preset !== 'trend' ? 'v1' : 'v2';
-  return { coins: unique, capitalToman, preset, feePct, hours, usdtRial, engine };
+  const priceBasis = body?.priceBasis === 'aban' ? 'aban' : body?.priceBasis === 'board' ? 'board' : undefined;
+  return { coins: unique, capitalToman, preset, feePct, hours, usdtRial, engine, ...(priceBasis ? { priceBasis } : {}) };
 }
 
 /** Bars plus a spot price for each coin in the session (and BTC context for v2). */

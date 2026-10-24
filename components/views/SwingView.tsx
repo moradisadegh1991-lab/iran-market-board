@@ -23,7 +23,7 @@ interface Menu {
   maxDays: number;
   presets: { key: string; label: string; note: string }[];
   engines?: { key: 'v1' | 'v2'; label: string; note: string }[];
-  evidence?: { key: string; label: string; bear: number; bull: number; dd: number; tradesPer90d: number }[];
+  evidence?: { key: string; label: string; bear: number; bull: number; dd: number; tradesPer90d: number; abanBear?: number; abanBull?: number }[];
   error?: string;
 }
 
@@ -42,6 +42,8 @@ function Evidence({ rows, current }: { rows: NonNullable<Menu['evidence']>; curr
               <th>دو سال صعودی (۱۴۰۲–۱۴۰۴؛ نگه‌داری +۲۱٪)</th>
               <th>افت سرمایه</th>
               <th>معامله در ۹۰ روز</th>
+              <th>با هزینه آبان‌تتر: نزولی</th>
+              <th>با هزینه آبان‌تتر: صعودی</th>
             </tr>
           </thead>
           <tbody>
@@ -52,6 +54,8 @@ function Evidence({ rows, current }: { rows: NonNullable<Menu['evidence']>; curr
                 <td><Pct v={r.bull} /></td>
                 <td><Pct v={r.dd} /></td>
                 <td className="num">{fmtInt(r.tradesPer90d)}</td>
+                <td>{r.abanBear !== undefined ? <Pct v={r.abanBear} /> : '—'}</td>
+                <td>{r.abanBull !== undefined ? <Pct v={r.abanBull} /> : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -63,6 +67,10 @@ function Evidence({ rows, current }: { rows: NonNullable<Menu['evidence']>; curr
         با کارمزد ۰٫۱٪ هر طرف هم نوسان‌گیری ساعتی فقط سربه‌سر شد. شاخص ترس و طمع، نرخ فاندینگ، امتیاز اخبار و چرخش بین ارزهای قوی‌تر هم آزمون شدند و
         هیچ‌کدام اثر پایدار نداشتند؛ بهبودهای پذیرفته‌شده: کوچک‌کردن موقعیت روندسوار در زمان نوسان بالا، و انتخاب ارزهای آرام‌تر (بالای همین صفحه) که روی ۴۰ ارز، در سال‌های
         طراحی و آزمون، از معامله روی همه ارزها بهتر بود.
+      </p>
+      <p className="note">
+        دو ستون آخر همان بازه‌ها با هزینه واقعی آبان‌تتر است: ۰٫۳۸٪ کارمزد به‌علاوه نصف اختلاف خرید و فروش تتر، حدود ۰٫۷۱٪ هر طرف. روندسوار در بازار صعودی از ‎+۱۱٫۴٪ به ‎+۹٫۵٪
+        می‌رسد و ترتیب سبک‌ها عوض نمی‌شود. جلسه‌های «نوسان‌گیری برخط من» با «مبنای آبان‌تتر» همین هزینه را می‌پردازند.
       </p>
     </details>
   );

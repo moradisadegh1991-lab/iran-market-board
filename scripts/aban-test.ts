@@ -1,13 +1,14 @@
 /**
- * آبان‌تتر (lib/aban, rule 101): reading the exchange's answers in the shapes they plausibly take, the order body and
- * its warnings, balances into the book's assets, and — the part that matters for real money — that a request is sent
- * again ONLY when the first one was rejected before doing anything (404 no such path, 401/403 refused key), never
- * after any other answer. The key never goes anywhere but api.abantether.com. A fake fetch plays the exchange.
+ * آبان‌تتر (lib/aban, rule 101), against the examples of the API reference (docs.abantether.com), copied as they are:
+ * the ticker's markets with buy = what the user pays, the coin list with its boxes (FUND), coin-info fees and limits,
+ * balances, orders whose volume is an object and whose BUY volume is in the quote, statuses, the order body and its
+ * warnings, balances into the book's assets — and, for real money, that a request is sent exactly once, with the
+ * key as the docs say («Authorization: <key>») and nowhere but api.abantether.com. A fake fetch plays the exchange.
  * Run: npx tsx scripts/aban-test.ts
  */
 import assert from 'node:assert';
-import { abanApi, call, loadKey, saveKey } from '../lib/aban/client';
-import { assetsFromBalances, num, orderBody, orderChecks, parseBalances, parseOrders, parseTicker, isOpenOrder } from '../lib/aban/parse';
+import { abanApi, loadKey, saveKey } from '../lib/aban/client';
+import { assetsFromBalances, isOpenOrder, num, orderBody, orderChecks, parseBalances, parseCoinInfo, parseCoins, parseOrders, parseTicker } from '../lib/aban/parse';
 
 let n = 0;
 const ok = async (name: string, fn: () => void | Promise<void>) => {
@@ -16,7 +17,15 @@ const ok = async (name: string, fn: () => void | Promise<void>) => {
   console.log(`✓ ${name}`);
 };
 
-// a browser-ish environment
+// ── the docs' examples ──
+const TICKER = { data: { markets: { XRPIRT: { symbol: 'XRP', buy_price: '262625.792000', sell_price: '260477.474400', buy_max: '10000.00', sell_max: '10000.00', active: true }, BTCIRT: { symbol: 'BTC', buy_price: '11717760000.000000000', sell_price: '11621907000.000000000', buy_max: '65000.00', sell_max: '65000.00', active: true }, CAKEIRT: { symbol: 'CAKE', buy_price: '292236.800000000', sell_price: '289846.260000000', buy_max: '6000.00', sell_max: '6000.00', active: true } } } };
+const COINS = { data: [{ id: 1, name: 'Tether USDt', symbol: 'USDT', persian_name: 'تتر', is_active: true, is_withdrawal_active: true, is_deposit_active: true, is_buy_active: true, is_sell_active: true, min_trade: '1.00', max_trade: '100000.00', tether_price: '1', price_buy: '126170.0', price_sell: '125350.0', percent_change_24h: '-0.00', coin_type: 'COIN', exchange_type: 'fake' }, { id: 2, name: 'Bitcoin', symbol: 'BTC', persian_name: 'بیت کوین', is_active: true, is_buy_active: true, is_sell_active: true, tether_price: '91474.68000000', price_buy: '11541360375.600000000', price_sell: '11466351138.000000000', percent_change_24h: '2.87', coin_type: 'COIN', exchange_type: 'binance' }] };
+const COIN_INFO = { data: { symbol: 'LINK', persian_name: 'چین لینک', exchange_fee: '0.0800', usdt_min_trade: '11.00', usdt_max_trade: '5000.00', irt_min_trade: '913000.000', irt_max_trade: '415000000.000', irt_fee: '0.300', tether_fee: '0.300', usdt: { quantity: { universal_price_coefficient: '1', exchange_fee_coefficient: '0.0008', aban_fee_coefficient: '0.003', total: '0.9962' } }, irt: { quantity: { universal_price_coefficient: '1', exchange_fee_coefficient: '0.0008', aban_fee_coefficient: '0.003', total: '0.9962' } } } };
+const BALANCES = { data: [{ asset: { symbol: 'USDT', asset_type: 'COIN' }, symbol: 'USDT', balance: '188.000994', available: '188.000994', blocked: '-0.00000000000000000000', debit: '0.0', banned: '0.0' }, { asset: { symbol: 'XRP', asset_type: 'COIN' }, symbol: 'XRP', balance: '36.0', available: '36.0', blocked: '-0.00000000000000000000', debit: '0.0', banned: '0.0' }] };
+const ORDER = { id: '6720a893239459d8b5b6b8cd', code: '23120148686', base_symbol: 'TON', quote_symbol: 'IRT', side: 'buy', type: 'market', status: 'new', volume: { base: '0.0', quote: '1200000.00' }, filled_volume: { base: '0.0', quote: '0.0' }, created_at: '2024-10-29 09:19:15', finalized_at: null, price: null, coin_price: '5.018', usdt_price: '68530.00' };
+const ORDERS = { data: [{ ...ORDER, status: 'rejected' }, { ...ORDER, id: '67209b20520dc40c8e91dddc', type: 'limit', status: 'open', price: '10.00' }], page: 1, per_page: 10, page_count: 1, total: 2 };
+
+// a browser-ish environment and a fake exchange
 const store = new Map<string, string>();
 (globalThis as Record<string, unknown>).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
 type Req = { url: string; method: string; auth: string | null; body: string | null };
@@ -31,130 +40,141 @@ let route: (r: Req) => { status: number; body: unknown } = () => ({ status: 500,
 };
 
 (async () => {
-  await ok('numbers: strings with separators, Persian digits; junk is not a number', () => {
+  await ok('numbers: strings with separators, Persian digits, «-0.000…» is zero; junk is not a number', () => {
     assert.equal(num('1,234,500'), 1234500);
     assert.equal(num('۱۲۳٫۵'), 123.5);
-    assert.equal(num(0.5), 0.5);
+    assert.equal(num('-0.00000000000000000000'), 0);
+    assert.ok(!Object.is(num('-0.0'), -0));
     assert.equal(num('abc'), null);
-    assert.equal(num(null), null);
   });
 
-  await ok('ticker: rows, or an object keyed by symbol, wrapped or not', () => {
-    const a = parseTicker({ data: [{ symbol: 'btc', buy_price: '6,100,000,000', sell_price: '6,150,000,000' }, { coin: 'USDT', buy: 99_500, sell: 100_100 }] });
-    assert.deepEqual(a, [
-      { symbol: 'BTC', buy: 6_100_000_000, sell: 6_150_000_000, quote: null },
-      { symbol: 'USDT', buy: 99_500, sell: 100_100, quote: null },
-    ]);
-    const b = parseTicker({ result: { TON: { irt: { buy: '310000', sell: '315000' } }, ETH: { price: 230_000_000 } } });
-    assert.deepEqual(b, [
-      { symbol: 'ETH', buy: 230_000_000, sell: 230_000_000, quote: null },
-      { symbol: 'TON', buy: 310_000, sell: 315_000, quote: 'IRT' },
-    ]);
+  await ok('ticker (docs): data.markets keyed BTCIRT; «buy» is what the user pays — the higher of the two', () => {
+    const t = parseTicker(TICKER);
+    assert.deepEqual(t.map((x) => x.symbol), ['BTC', 'CAKE', 'XRP']);
+    const xrp = t.find((x) => x.symbol === 'XRP')!;
+    assert.equal(xrp.quote, 'IRT');
+    assert.equal(xrp.buy, 262625.792);
+    assert.equal(xrp.sell, 260477.4744);
+    assert.ok(xrp.buy! > xrp.sell!);
     assert.deepEqual(parseTicker('<html>'), []);
   });
 
-  await ok('balances: the documented rows (symbol, balance, available, blocked); zero balances dropped', () => {
-    const b = parseBalances([{ symbol: 'USDT', balance: '120.5', available: '100.5', blocked: '20', debit: '0' }, { symbol: 'BTC', balance: '0', available: '0' }, { symbol: 'IRT', balance: 5_000_000 }]);
-    assert.deepEqual(b, [
-      { symbol: 'IRT', balance: 5_000_000, available: null, blocked: null },
-      { symbol: 'USDT', balance: 120.5, available: 100.5, blocked: 20 },
+  await ok('coin list (docs): a coin\'s toman price = its USDT price × the USDT toman price, buy and sell', () => {
+    const c = parseCoins(COINS);
+    const usdt = c.find((x) => x.symbol === 'USDT')!;
+    const btc = c.find((x) => x.symbol === 'BTC')!;
+    assert.equal(btc.type, 'COIN');
+    assert.equal(btc.change24h, 2.87);
+    // the relation the bots' Aban basis rests on (lib/aban/basis.ts)
+    assert.ok(Math.abs(btc.usdt! * usdt.buy! - btc.buy!) < 1);
+    assert.ok(Math.abs(btc.usdt! * usdt.sell! - btc.sell!) < 1);
+  });
+
+  await ok('coin-info (docs): fee 0.08% + 0.3% = 0.38% (= 1 − 0.9962), limits in toman and tether', () => {
+    const i = parseCoinInfo(COIN_INFO)!;
+    assert.ok(Math.abs(i.feePct - 0.38) < 1e-9);
+    assert.deepEqual([i.minIrt, i.maxIrt, i.minUsdt, i.maxUsdt], [913000, 415000000, 11, 5000]);
+    // without the percent fields, the coefficient says the same
+    const j = parseCoinInfo({ data: { symbol: 'X', irt: { quantity: { total: '0.9962' } } } })!;
+    assert.ok(Math.abs(j.feePct - 0.38) < 1e-9);
+  });
+
+  await ok('balances (docs): symbol, balance, available, blocked «-0.000…»', () => {
+    assert.deepEqual(parseBalances(BALANCES), [
+      { symbol: 'USDT', balance: 188.000994, available: 188.000994, blocked: 0 },
+      { symbol: 'XRP', balance: 36, available: 36, blocked: 0 },
     ]);
-    assert.deepEqual(parseBalances({ data: { ETH: { available: 1, blocked: 0.5 } } }), [{ symbol: 'ETH', balance: 1.5, available: 1, blocked: 0.5 }]);
   });
 
-  await ok('orders: fields under their likely names; open ones can be cancelled', () => {
-    const o = parseOrders({ data: { results: [{ id: 17, side: 'sell', base_symbol: 'ton', quote_symbol: 'irt', volume: '2', price: '315000', status: 'pending', created_at: '2026-10-24T10:00:00' }] } });
-    assert.deepEqual(o[0], { id: '17', side: 'sell', base: 'TON', quote: 'IRT', volume: 2, price: 315_000, status: 'pending', type: null, at: '2026-10-24T10:00:00' });
-    assert.ok(isOpenOrder(o[0]));
-    assert.ok(!isOpenOrder({ ...o[0], status: 'done' }));
+  await ok('orders (docs): volume and filled volume are {base, quote}; only open states can be cancelled', () => {
+    const o = parseOrders(ORDERS);
+    assert.equal(o.length, 2);
+    assert.deepEqual([o[0].id, o[0].side, o[0].base, o[0].quote, o[0].type, o[0].volBase, o[0].volQuote, o[0].price], ['6720a893239459d8b5b6b8cd', 'buy', 'TON', 'IRT', 'market', 0, 1200000, null]);
+    assert.equal(o[1].price, 10);
+    assert.ok(!isOpenOrder(o[0]), 'rejected');
+    assert.ok(isOpenOrder(o[1]), 'open');
+    for (const s of ['new', 'processing', 'fee_calculated', 'accounting_blocked']) assert.ok(isOpenOrder({ status: s }));
+    for (const s of ['filled', 'canceled', 'canceled_and_unblock_requested', 'failed']) assert.ok(!isOpenOrder({ status: s }));
+    assert.equal(parseOrders({ data: ORDER })[0].code, '23120148686', 'one order (details) reads the same');
   });
 
-  await ok('order body: the documented fields; missing pieces refused', () => {
-    assert.deepEqual(orderBody({ kind: 'market', side: 'buy', base: 'ton', quote: 'IRT', volume: 2.5 }), { side: 'buy', base_symbol: 'TON', quote_symbol: 'IRT', volume: '2.5' });
+  await ok('order body (docs): a BUY volume is toman/tether to spend, a SELL volume is the coin', () => {
+    assert.deepEqual(orderBody({ kind: 'market', side: 'buy', base: 'ton', quote: 'IRT', volume: 1200000 }), { side: 'buy', base_symbol: 'TON', quote_symbol: 'IRT', volume: '1200000' });
     assert.deepEqual(orderBody({ kind: 'limit', side: 'sell', base: 'BTC', quote: 'USDT', volume: 0.00012345, price: 65000 }), { side: 'sell', base_symbol: 'BTC', quote_symbol: 'USDT', volume: '0.00012345', price: '65000' });
+    assert.deepEqual(orderBody({ kind: 'market', side: 'buy', base: 'GOLDBOX', quote: 'IRT', volume: 5e6, account: 'investment' }), { side: 'buy', base_symbol: 'GOLDBOX', quote_symbol: 'IRT', volume: '5000000', account_type: 'investment' });
     assert.equal(typeof orderBody({ kind: 'limit', side: 'sell', base: 'BTC', quote: 'USDT', volume: 1 }), 'string', 'a limit order needs its price');
     assert.equal(typeof orderBody({ kind: 'market', side: 'buy', base: 'TON', quote: 'IRT', volume: 0 }), 'string');
     assert.equal(typeof orderBody({ kind: 'market', side: 'buy', base: 'USDT', quote: 'USDT', volume: 1 }), 'string');
   });
 
-  await ok('warnings, not blocks: more than the free balance; a limit price far from the market', () => {
-    const t = [{ symbol: 'TON', buy: 300_000, sell: 310_000, quote: 'IRT' as const }];
-    const bal = [{ symbol: 'TON', balance: 3, available: 2, blocked: 1 }, { symbol: 'IRT', balance: 500_000, available: 500_000, blocked: 0 }];
-    const s = orderChecks({ kind: 'market', side: 'sell', base: 'TON', quote: 'IRT', volume: 2.5 }, t, bal);
-    assert.equal(s.marketPrice, 300_000, 'a seller gets the exchange\'s buy price');
-    assert.equal(s.value, 750_000);
-    assert.equal(s.warnings.length, 1);
-    const b = orderChecks({ kind: 'limit', side: 'buy', base: 'TON', quote: 'IRT', volume: 2, price: 400_000 }, t, bal);
-    assert.equal(b.value, 800_000);
-    assert.equal(b.warnings.length, 3, 'over the toman balance, 29% above, fills at once');
-    assert.deepEqual(orderChecks({ kind: 'market', side: 'buy', base: 'TON', quote: 'USDT', volume: 1 }, t, bal).value, null, 'a toman price is never shown as a tether value');
+  await ok('checks: what a buy gets and a sell brings after the 0.38% fee; min/max, balance and far-limit warnings', () => {
+    const t = parseTicker(TICKER);
+    const info = parseCoinInfo(COIN_INFO)!;
+    const bal = [{ symbol: 'XRP', balance: 36, available: 30, blocked: 6 }, { symbol: 'IRT', balance: 5e6, available: 5e6, blocked: 0 }];
+    const b = orderChecks({ kind: 'market', side: 'buy', base: 'XRP', quote: 'IRT', volume: 2_626_257.92 }, t, bal, info);
+    assert.equal(b.price, 262625.792, 'a buyer pays the buy price');
+    assert.ok(Math.abs(b.coinQty! - 10 * 0.9962) < 1e-9);
+    assert.deepEqual(b.warnings, []);
+    const s = orderChecks({ kind: 'market', side: 'sell', base: 'XRP', quote: 'IRT', volume: 2 }, t, bal, info);
+    assert.equal(s.price, 260477.4744, 'a seller gets the sell price');
+    assert.ok(Math.abs(s.quoteValue! - 2 * 260477.4744 * 0.9962) < 1e-6);
+    assert.equal(s.warnings.length, 1, 'below the 913,000 toman minimum');
+    const big = orderChecks({ kind: 'market', side: 'sell', base: 'XRP', quote: 'IRT', volume: 35 }, t, bal, info);
+    assert.equal(big.warnings.length, 1, 'more than the 30 free');
+    const far = orderChecks({ kind: 'limit', side: 'buy', base: 'XRP', quote: 'IRT', volume: 4e6, price: 300000 }, t, bal, info);
+    assert.equal(far.warnings.length, 2, 'above the market by 14%, fills at once');
+    assert.equal(orderChecks({ kind: 'market', side: 'buy', base: 'XRP', quote: 'USDT', volume: 10 }, t, bal, info).coinQty, null, 'a toman price is never used for a tether order');
   });
 
-  await ok('balances into assets: board coins as market assets, others at the exchange price; a second sync updates', () => {
+  await ok('balances into assets: board coins as market assets, others at the exchange\'s sell price; a second sync updates', () => {
     let i = 0;
     const id = () => `x${++i}`;
-    const bal = [{ symbol: 'USDT', balance: 120.5, available: 120.5, blocked: 0 }, { symbol: 'TON', balance: 2, available: 2, blocked: 0 }, { symbol: 'IRT', balance: 5_000_000, available: null, blocked: null }, { symbol: 'XYZ', balance: 9, available: 9, blocked: 0 }];
-    const t = [{ symbol: 'TON', buy: 300_000, sell: 310_000, quote: 'IRT' as const }];
-    const r = assetsFromBalances([], bal, t, id);
+    const bal = [...parseBalances(BALANCES), { symbol: 'IRT', balance: 5e6, available: null, blocked: null }, { symbol: 'ZZZ', balance: 9, available: 9, blocked: 0 }];
+    const r = assetsFromBalances([], bal, parseTicker(TICKER), id);
     assert.deepEqual(r.upsert.map((a) => [a.name, a.kind, a.key ?? null, a.qty ?? null, a.valueRial ?? null]), [
-      ['آبان‌تتر — USDT', 'market', 'usdt', 120.5, null],
-      ['آبان‌تتر — TON', 'manual', null, null, 6_000_000],
+      ['آبان‌تتر — USDT', 'market', 'usdt', 188.000994, null],
+      ['آبان‌تتر — XRP', 'manual', null, null, Math.round(260477.4744 * 36 * 10)],
     ]);
-    assert.deepEqual(r.skipped, ['XYZ'], 'no price: not valued at zero, named');
-    const again = assetsFromBalances(r.upsert.map((a) => ({ ...a, costRial: 1_000_000 })), [{ ...bal[0], balance: 200 }], t, id);
+    assert.deepEqual(r.skipped, ['ZZZ'], 'no price: not valued at zero, named');
+    const again = assetsFromBalances(r.upsert.map((a) => ({ ...a, costRial: 1_000_000 })), [{ symbol: 'USDT', balance: 200, available: 200, blocked: 0 }], [], id);
     assert.equal(again.upsert[0].id, r.upsert[0].id, 'the same asset, updated');
     assert.equal(again.upsert[0].qty, 200);
     assert.equal(again.upsert[0].costRial, 1_000_000, 'what the user wrote about it stays');
   });
 
-  await ok('the key: stored on the device only, sent only to api.abantether.com, as «Token …» first', async () => {
+  await ok('the key: on the device only, sent bare as the docs say, only to api.abantether.com; none on the public ticker', async () => {
     saveKey('  secret-key  ');
     assert.equal(loadKey(), 'secret-key');
     log = [];
-    route = () => ({ status: 200, body: [{ symbol: 'USDT', balance: '1' }] });
-    const r = await abanApi.balances();
-    assert.ok(r.ok);
-    assert.deepEqual(log.map((x) => [x.url, x.auth]), [['https://api.abantether.com/api/v1/accounting/balances?type=spot', 'Token secret-key']]);
+    route = () => ({ status: 200, body: BALANCES });
+    assert.ok((await abanApi.balances()).ok);
+    assert.deepEqual(log.map((x) => [x.url, x.auth]), [['https://api.abantether.com/api/v1/accounting/balances?type=spot', 'secret-key']]);
     log = [];
     await abanApi.ticker();
-    assert.equal(log[0].auth, null, 'a public price list goes without the key');
+    assert.equal(log[0].auth, null);
+    assert.equal(log[0].url, 'https://api.abantether.com/api/v1/manager/otc/ticker');
     saveKey('');
-    assert.equal(loadKey(), '');
-    const none = await abanApi.orders();
-    assert.equal(none.ok, false);
+    assert.equal((await abanApi.orders()).ok, false);
     assert.equal(log.length, 1, 'no key: nothing sent');
     saveKey('secret-key');
   });
 
-  await ok('retries only after a rejection that did nothing: 404 → the SDK path; 401 → the bare key, remembered', async () => {
-    log = [];
-    route = (r) => (r.url.includes('/api/v1/') ? { status: 404, body: { detail: 'Not found.' } } : r.auth === 'secret-key' ? { status: 200, body: { data: { id: 9 } } } : { status: 401, body: { detail: 'Invalid token' } });
-    const r = await abanApi.place('market', { side: 'buy', base_symbol: 'TON', quote_symbol: 'IRT', volume: '1' });
-    assert.ok(r.ok);
-    assert.deepEqual(log.map((x) => [x.url.replace('https://api.abantether.com', ''), x.auth]), [
-      ['/api/v1/order_handler/orders/otc/market', 'Token secret-key'],
-      ['/order_handler/orders/otc/market', 'Token secret-key'],
-      ['/order_handler/orders/otc/market', 'secret-key'],
-    ]);
-    assert.ok(log.every((x) => x.url.startsWith('https://api.abantether.com/')));
-    // the bare form is now tried first
-    log = [];
-    route = () => ({ status: 200, body: [] });
-    await abanApi.orders();
-    assert.equal(log[0].auth, 'secret-key');
-  });
-
-  await ok('an order is never sent twice: 400, 422, 429, 500 and a lost connection each stop at the first request', async () => {
-    for (const status of [400, 422, 429, 500, -1]) {
+  await ok('an order is sent exactly once, whatever comes back (401, 404, 400, 429, 500, lost connection)', async () => {
+    for (const status of [201, 401, 404, 400, 429, 500, -1]) {
       log = [];
-      route = () => ({ status, body: { message: 'موجودی کافی نیست' } });
-      const r = await call(['/api/v1/order_handler/orders/otc/market', '/order_handler/orders/otc/market'], 'POST', { auth: true, body: { side: 'buy' } });
-      assert.equal(r.ok, false);
+      route = () => ({ status, body: status === 201 ? { data: ORDER } : { message: 'موجودی کافی نیست' } });
+      const r = await abanApi.place('market', { side: 'buy', base_symbol: 'TON', quote_symbol: 'IRT', volume: '1200000' });
       assert.equal(log.length, 1, `status ${status}: one request`);
-      assert.ok(r.error && r.error.length > 5);
+      assert.equal(log[0].url, 'https://api.abantether.com/api/v1/order_handler/orders/otc/market');
+      assert.equal(log[0].auth, 'secret-key');
+      assert.equal(r.ok, status === 201);
       if (status === 400) assert.match(r.error!, /موجودی کافی نیست/, 'the exchange\'s own message is shown');
       if (status === -1) assert.match(r.error!, /اپ اندروید/, 'a browser is told why');
     }
+    log = [];
+    route = () => ({ status: 200, body: { data: { order_id: 'abc' } } });
+    await abanApi.cancel('abc');
+    assert.deepEqual([log[0].method, log[0].url, log[0].body], ['POST', 'https://api.abantether.com/api/v1/order_handler/orders/otc/abc/cancel', null]);
   });
 
   console.log(`\n${n} aban checks passed`);

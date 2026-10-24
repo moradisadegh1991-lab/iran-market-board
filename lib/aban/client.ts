@@ -3,13 +3,11 @@
 // (the exchange may refuse it — the page says so). Our server never sees the key or the orders (rule 7), and the key
 // is kept in this device's storage only, outside the book and its backups.
 //
-// Paths: the docs' (/api/v1/…) first; a 404 — no such path, so nothing was done — tries the SDK's older path.
-// Auth: «Authorization: Token <key>» (docs); a 401/403 — refused, nothing was done — tries the bare key (SDK).
-// Neither retry can place an order twice: both mean the first request was rejected before it did anything.
+// Endpoints, headers and bodies follow the API reference (docs.abantether.com): «Authorization: <api key>», no prefix.
+// A request is never sent twice: an answer of any kind, or a lost connection, ends the call.
 
 export const ABAN_API = 'https://api.abantether.com';
 const KEY_STORE = 'imf.aban.key.v1';
-const AUTH_STORE = 'imf.aban.auth.v1';
 
 export interface AbanResult {
   ok: boolean;
@@ -47,30 +45,16 @@ export function saveKey(k: string) {
   try {
     if (k.trim()) localStorage.setItem(KEY_STORE, k.trim());
     else localStorage.removeItem(KEY_STORE);
-    localStorage.removeItem(AUTH_STORE);
   } catch {
     // without storage the key lives only while the page is open
   }
 }
-const authStyle = (): 'token' | 'bare' => {
-  try {
-    return localStorage.getItem(AUTH_STORE) === 'bare' ? 'bare' : 'token';
-  } catch {
-    return 'token';
-  }
-};
-const setAuthStyle = (s: 'token' | 'bare') => {
-  try {
-    localStorage.setItem(AUTH_STORE, s);
-  } catch {
-    /* re-learned next time */
-  }
-};
 
 async function send(url: string, method: 'GET' | 'POST', headers: Record<string, string>, body?: unknown): Promise<{ status: number; json: unknown }> {
   const h = nativeHttp();
+  const all = { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers };
   if (h) {
-    const r = await h.request({ url, method, headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers }, data: body, responseType: 'json', connectTimeout: 15_000, readTimeout: 20_000 });
+    const r = await h.request({ url, method, headers: all, data: body, responseType: 'json', connectTimeout: 15_000, readTimeout: 20_000 });
     let json = r.data;
     if (typeof json === 'string') {
       try {
@@ -84,7 +68,7 @@ async function send(url: string, method: 'GET' | 'POST', headers: Record<string,
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 20_000);
   try {
-    const r = await fetch(url, { method, headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined, signal: ctl.signal });
+    const r = await fetch(url, { method, headers: all, body: body ? JSON.stringify(body) : undefined, signal: ctl.signal });
     const text = await r.text();
     let json: unknown = text;
     try {
@@ -117,63 +101,54 @@ function errorText(status: number, json: unknown): string {
           ? 'تعداد درخواست‌ها زیاد بود؛ کمی بعد دوباره امتحان کنید.'
           : status >= 500
             ? 'صرافی خطای داخلی داد.'
-            : status === 0
-              ? 'به صرافی وصل نشد.'
-              : `صرافی درخواست را نپذیرفت (کد ${status}).`;
+            : `صرافی درخواست را نپذیرفت (کد ${status}).`;
   return msg ? `${what} پیام صرافی: ${msg}` : what;
 }
 
 /**
- * One call. `paths` are tried in order, moving on only after a 404; `auth` adds the key (and its 401/403 fallback).
- * Network failures (no connection, the exchange refusing a browser, a foreign address) come back as status 0.
+ * One request, sent once. `auth` 'required' refuses to send without a key; 'optional' sends it when there is one
+ * (the docs show the header on public lists too). Network failures (no connection, a browser refused, a foreign
+ * address) come back as status 0.
  */
-export async function call(paths: string[], method: 'GET' | 'POST', opts: { auth: boolean; body?: unknown; key?: string } = { auth: true }): Promise<AbanResult> {
+export async function call(path: string, method: 'GET' | 'POST', opts: { auth: 'required' | 'optional' | 'none'; body?: unknown; key?: string } = { auth: 'required' }): Promise<AbanResult> {
   const key = opts.key ?? loadKey();
-  if (opts.auth && !key) return { ok: false, status: 0, url: '', json: null, error: 'اول کلید API آبان‌تتر را وارد کنید.' };
-  let last: AbanResult = { ok: false, status: 0, url: '', json: null, error: 'به صرافی وصل نشد.' };
-  for (const p of paths) {
-    const url = p.startsWith('http') ? p : `${ABAN_API}${p}`;
-    const styles: ('token' | 'bare' | 'none')[] = !opts.auth ? ['none'] : authStyle() === 'bare' ? ['bare', 'token'] : ['token', 'bare'];
-    let notFound = false;
-    for (const st of styles) {
-      const headers: Record<string, string> = st === 'token' ? { Authorization: `Token ${key}` } : st === 'bare' ? { Authorization: key } : {};
-      let r: { status: number; json: unknown };
-      try {
-        r = await send(url, method, headers, opts.body);
-      } catch (e) {
-        const why = e instanceof Error ? e.message : String(e);
-        return {
-          ok: false,
-          status: 0,
-          url,
-          json: null,
-          error: nativeHttp()
-            ? `به صرافی وصل نشد (${why}). اینترنت را بررسی کنید؛ آبان‌تتر ممکن است اتصال از بیرون ایران (VPN) را نپذیرد.`
-            : `مرورگر نتوانست به صرافی وصل شود (${why}). معمولاً صرافی اجازه درخواست از سایت دیگری را نمی‌دهد — از اپ اندروید «مالی من» استفاده کنید.`,
-        };
-      }
-      last = { ok: r.status >= 200 && r.status < 300, status: r.status, url, json: r.json };
-      if (last.ok) {
-        if (st !== 'none') setAuthStyle(st);
-        return last;
-      }
-      if (r.status === 404) {
-        notFound = true;
-        break; // this path does not exist: the next one, the same auth
-      }
-      if (r.status !== 401 && r.status !== 403) break; // a real answer: no other auth form will change it
-    }
-    if (!notFound) break;
+  const url = path.startsWith('http') ? path : `${ABAN_API}${path}`;
+  if (opts.auth === 'required' && !key) return { ok: false, status: 0, url, json: null, error: 'اول کلید API آبان‌تتر را وارد کنید.' };
+  const headers: Record<string, string> = opts.auth !== 'none' && key ? { Authorization: key } : {};
+  try {
+    const r = await send(url, method, headers, opts.body);
+    const ok = r.status >= 200 && r.status < 300;
+    return ok ? { ok, status: r.status, url, json: r.json } : { ok, status: r.status, url, json: r.json, error: errorText(r.status, r.json) };
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      status: 0,
+      url,
+      json: null,
+      error: nativeHttp()
+        ? `به صرافی وصل نشد (${why}). اینترنت را بررسی کنید؛ آبان‌تتر ممکن است اتصال از بیرون ایران (VPN) را نپذیرد.`
+        : `مرورگر نتوانست به صرافی وصل شود (${why}). معمولاً صرافی اجازه درخواست از سایت دیگری را نمی‌دهد — از اپ اندروید «مالی من» استفاده کنید.`,
+    };
   }
-  return { ...last, error: errorText(last.status, last.json) };
 }
 
+const q = encodeURIComponent;
+export type WalletType = 'spot' | 'credit' | 'collateral';
+export type AccountType = 'spot' | 'credit' | 'collateral' | 'investment';
+
 export const abanApi = {
-  ticker: () => call(['/api/v1/manager/otc/ticker'], 'GET', { auth: false }),
-  coinInfo: (symbol: string, side: 'buy' | 'sell') => call([`/api/v1/feecalculator/coin-info?symbol=${encodeURIComponent(symbol)}&side=${side}`], 'GET', { auth: false }),
-  balances: (key?: string) => call(['/api/v1/accounting/balances?type=spot', 'https://mono.abantether.com/portfolio/portfolio-balance/'], 'GET', { auth: true, key }),
-  orders: () => call(['/api/v1/order_handler/orders/otc?per_page=20&page=1', '/order_handler/orders/otc?per_page=20&page=1'], 'GET', { auth: true }),
-  place: (kind: 'market' | 'limit', body: Record<string, string>) =>
-    call([`/api/v1/order_handler/orders/otc/${kind}`, `/order_handler/orders/otc/${kind}`], 'POST', { auth: true, body }),
-  cancel: (id: string) => call([`/api/v1/order_handler/orders/otc/${encodeURIComponent(id)}/cancel`, '/otc/orders/cancel'], 'POST', { auth: true, body: { id } }),
+  /** public: buy/sell price of every coin against IRT ({data:{markets:{BTCIRT:{…}}}}) */
+  ticker: (coin?: string) => call(`/api/v1/manager/otc/ticker${coin ? `?coin=${q(coin)}` : ''}`, 'GET', { auth: 'none' }),
+  /** every coin with its USDT price, buy/sell and type (COIN, or FUND — the investment boxes) */
+  coins: () => call('/api/v2/manager/coins', 'GET', { auth: 'optional' }),
+  /** min/max trade and fees of one coin for one side */
+  coinInfo: (symbol: string, side: 'buy' | 'sell') => call(`/api/v1/feecalculator/coin-info?side=${side}&symbol=${q(symbol)}`, 'GET', { auth: 'optional' }),
+  balances: (type: WalletType = 'spot', key?: string) => call(`/api/v1/accounting/balances?type=${type}`, 'GET', { auth: 'required', key }),
+  orders: (page = 1, perPage = 20) => call(`/api/v1/order_handler/orders/otc?page=${page}&per_page=${perPage}`, 'GET', { auth: 'required' }),
+  order: (id: string) => call(`/api/v1/order_handler/orders/otc/${q(id)}/`, 'GET', { auth: 'required' }),
+  place: (kind: 'market' | 'limit', body: Record<string, string>) => call(`/api/v1/order_handler/orders/otc/${kind}`, 'POST', { auth: 'required', body }),
+  cancel: (id: string) => call(`/api/v1/order_handler/orders/otc/${q(id)}/cancel`, 'POST', { auth: 'required' }),
+  /** read-only: deposits or withdrawals on the blockchain */
+  transfers: (type: 'DEPOSIT' | 'WITHDRAWAL', page = 1) => call(`/transaction_bc/list?type=${type}&category=BLOCKCHAIN&per_page=20&page=${page}`, 'GET', { auth: 'required' }),
 };

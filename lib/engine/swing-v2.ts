@@ -483,11 +483,13 @@ export function runSwingV2(bars: SwingBar[], coin: SwingResult['coin'], config: 
  * 90-day window in USD terms after a 0.4% fee each way, 14 coins tradable in Iran. `bear` = Oct 2025
  * → Sep 2026 (buy & hold averaged −15%), `bull` = Oct 2023 → Sep 2025 (buy & hold +21%), the latter
  * never used while designing v2. Shown in the UI so a style is chosen on evidence, not on its name.
+ * `abanBear`/`abanBull`: the same windows at Abantether's cost, 0.71% each way (0.38% fee + half its
+ * USDT spread; rule 102; FEE=0.71 swing-eval.ts v2 all / swing-final.ts, measured 2026-10-24).
  */
-export const SWING_EVIDENCE: { key: SwingPreset | 'v1'; label: string; bear: number; bull: number; dd: number; tradesPer90d: number }[] = [
-  { key: 'trend', label: 'روندسوار', bear: -2.0, bull: 11.4, dd: -19.1, tradesPer90d: 3.6 },
-  { key: 'calm', label: 'کم‌تحرک (نسخه ۲)', bear: -1.5, bull: -0.7, dd: -6.6, tradesPer90d: 4.4 },
-  { key: 'normal', label: 'متعادل (نسخه ۲)', bear: -2.1, bull: -1.3, dd: -8.6, tradesPer90d: 5.6 },
-  { key: 'aggressive', label: 'پرتحرک (نسخه ۲)', bear: -3.4, bull: -2.6, dd: -11.7, tradesPer90d: 7.5 },
-  { key: 'v1', label: 'نسخه ۱، متعادل (قدیمی)', bear: -11.6, bull: -5.9, dd: -15.3, tradesPer90d: 24 },
+export const SWING_EVIDENCE: { key: SwingPreset | 'v1'; label: string; bear: number; bull: number; dd: number; tradesPer90d: number; abanBear: number; abanBull: number }[] = [
+  { key: 'trend', label: 'روندسوار', bear: -2.0, bull: 11.4, dd: -19.1, tradesPer90d: 3.6, abanBear: -3.5, abanBull: 9.5 },
+  { key: 'calm', label: 'کم‌تحرک (نسخه ۲)', bear: -1.5, bull: -0.7, dd: -6.6, tradesPer90d: 4.4, abanBear: -2.1, abanBull: -1.5 },
+  { key: 'normal', label: 'متعادل (نسخه ۲)', bear: -2.1, bull: -1.3, dd: -8.6, tradesPer90d: 5.6, abanBear: -2.8, abanBull: -2.8 },
+  { key: 'aggressive', label: 'پرتحرک (نسخه ۲)', bear: -3.4, bull: -2.6, dd: -11.7, tradesPer90d: 7.5, abanBear: -4.2, abanBull: -4.5 },
+  { key: 'v1', label: 'نسخه ۱، متعادل (قدیمی)', bear: -11.6, bull: -5.9, dd: -15.3, tradesPer90d: 24, abanBear: -17.7, abanBull: -12.7 },
 ];

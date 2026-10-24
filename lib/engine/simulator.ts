@@ -736,9 +736,12 @@ export interface Fill {
   hold: number | null;
 }
 
-/** Applies an order at market price `mkt` (rial). Mutates account, positions and cooldown. Returns null when nothing traded. */
-export function executeOrder(o: Order, mkt: number, date: string, acct: Account, pos: Map<SimAsset, Position>, cooldown: Map<SimAsset, string>, prof: EffectiveProfile, eqNow: number): Fill | null {
-  const cost = META[o.asset].cost;
+/**
+ * Applies an order at market price `mkt` (rial). Mutates account, positions and cooldown. Returns null when nothing traded.
+ * `costOverride` replaces the asset's own cost per side (the Abantether basis, rule 102); without it, nothing changes.
+ */
+export function executeOrder(o: Order, mkt: number, date: string, acct: Account, pos: Map<SimAsset, Position>, cooldown: Map<SimAsset, string>, prof: EffectiveProfile, eqNow: number, costOverride?: number): Fill | null {
+  const cost = isNum(costOverride) && costOverride >= 0 && costOverride < 0.05 ? costOverride : META[o.asset].cost;
   if (o.side === 'buy') {
     const budget = Math.min(o.valueRial ?? 0, acct.cash);
     if (budget < eqNow * 0.01) return null;
