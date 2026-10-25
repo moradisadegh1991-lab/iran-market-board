@@ -528,11 +528,26 @@ button.asset-card:focus-visible, .asset-lot-row:focus-visible, .asset-back:focus
 .shop-price { width: 120px; flex: none; padding: 6px 8px; }
 .shop-est { flex: none; white-space: nowrap; }
 .shop-del { flex: none; padding: 4px 6px; }
+.shop-item { flex-wrap: wrap; }
+.shop-dkbtn { flex: none; padding: 4px 6px; }
+.shop-dk { flex-basis: 100%; display: grid; gap: 2px; padding-inline-start: 32px; font-size: 13px; min-width: 0; }
+.shop-dk .dk-title { color: var(--muted); overflow-wrap: anywhere; }
+.shop-dk-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dk-search { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; margin-bottom: 8px; }
+.dk-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 8px; }
+.dk-item { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: var(--r-m); padding: 8px; min-width: 0; }
+.dk-item.off { opacity: 0.6; }
+.dk-item img, .dk-noimg { width: 56px; height: 56px; object-fit: contain; border-radius: var(--r-s); flex: none; background: #fff; }
+.dk-main { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.dk-title { font-size: 13.5px; overflow-wrap: anywhere; }
+.dk-price small { color: var(--muted); }
+.dk-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+a.fin-mini { text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
 .shop-match { border: 1px solid var(--line); border-radius: var(--r-m); padding: 8px 12px; margin: 10px 0; display: grid; gap: 6px; }
 .shop-match legend { font-size: 14px; padding: 0 4px; }
 .fin-radio { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; line-height: 1.7; }
 .fin-radio input { margin-top: 6px; flex: none; }
-@media (max-width: 380px) { .shop-price { width: 96px; } }
+@media (max-width: 380px) { .shop-price { width: 96px; } .dk-search { grid-template-columns: 1fr auto; } .dk-search select { grid-column: 1 / -1; grid-row: 2; } }
 /* آبان‌تتر (AbanView) */
 .aban-steps { margin: 0 0 10px; padding-inline-start: 20px; line-height: 1.9; }
 .aban-quote { display: grid; gap: 2px; text-align: left; }

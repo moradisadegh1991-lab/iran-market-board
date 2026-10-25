@@ -49,7 +49,7 @@ ok('ticking: bought with or without a price; unticking clears the price', () => 
   setBought(d, milk, true, 450_000);
   setBought(d, bread, true);
   assert.deepEqual(boughtItems(d).map((x) => x.priceRial ?? null), [450_000, null]);
-  assert.deepEqual(listTotals(d), { left: 0, leftEstRial: 0, leftUnpriced: 0, bought: 2, boughtRial: 450_000, boughtUnpriced: 1 });
+  assert.deepEqual(listTotals(d), { left: 0, leftEstRial: 0, leftUnpriced: 0, leftDk: 0, bought: 2, boughtRial: 450_000, boughtUnpriced: 1 });
   setBought(d, milk, false);
   assert.equal(listItems(d).find((x) => x.id === milk)!.priceRial, null);
 });
