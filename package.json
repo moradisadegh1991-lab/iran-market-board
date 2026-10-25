@@ -31,7 +31,7 @@
     "test:biz": "tsx scripts/biz-test.ts && tsx scripts/biz-voice-test.ts && tsx scripts/biz-online-test.ts && tsx scripts/biz-telegram-test.ts",
     "test:smsask": "tsx scripts/sms-ask-test.ts",
     "test:smsqueue": "tsx scripts/sms-queue-test.ts",
-    "test:shopping": "tsx scripts/shopping-test.ts",
+    "test:shopping": "tsx scripts/shopping-test.ts && tsx scripts/digikala-test.ts",
     "test:aban": "tsx scripts/aban-test.ts && tsx scripts/aban-basis-test.ts",
     "test:nativesms": "tsx scripts/native-sms-test.ts",
     "test:financeplus": "tsx scripts/finance-plus-test.ts",

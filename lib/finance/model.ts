@@ -186,6 +186,8 @@ export interface ShoppingItem {
   addedAt: number;
   /** the transaction it was booked in; booked items leave the list */
   txnId?: string | null;
+  /** the Digikala product the user picked for it (rule 103): its price then (rial, one unit) and its page */
+  dk?: { id: number; title: string; priceRial: number | null; url: string; at: number } | null;
 }
 
 export interface Budget {

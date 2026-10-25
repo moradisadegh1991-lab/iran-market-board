@@ -5,6 +5,7 @@
 // SMS of that payment is already booked (the «نوعش چیست؟» notification) or waiting in the queue, the trip
 // becomes that transaction instead of a second one (the pattern of دنگ and قرض, rules 78 and 88). Booked
 // items leave the list; what was bought is remembered for quick adding next time.
+import { qtyCount, type DkProduct } from '../digikala/parse';
 import { addDays } from './calc';
 import { commitStaged, norm } from './importers';
 import { newId, type FinanceData, type Iso, type ShoppingItem, type Staged, type Txn } from './model';
@@ -58,12 +59,41 @@ export function editItem(d: FinanceData, id: string, patch: Partial<Pick<Shoppin
   if (patch.priceRial !== undefined) it.priceRial = patch.priceRial && patch.priceRial > 0 ? Math.round(patch.priceRial) : null;
 }
 
+/**
+ * «انتخاب» a Digikala product for an item (rule 103): the item keeps the product and its price, and its estimate
+ * becomes that price times the count its quantity states («۳ تا» → ×۳; «۲ کیلو» → ×۱, the user adjusts). A product
+ * with no price now keeps the item's own estimate.
+ */
+export function linkProduct(d: FinanceData, id: string, p: DkProduct, now = Date.now()): void {
+  const it = listItems(d).find((x) => x.id === id);
+  if (!it) return;
+  it.dk = { id: p.id, title: p.title.slice(0, 140), priceRial: p.priceRial, url: p.url, at: now };
+  if (p.priceRial) it.estRial = p.priceRial * qtyCount(it.qty);
+}
+
+/** «به‌روزرسانی قیمت»: the same product read again; the estimate follows only if it still came from that product */
+export function refreshProduct(d: FinanceData, id: string, p: DkProduct, now = Date.now()): void {
+  const it = listItems(d).find((x) => x.id === id);
+  if (!it?.dk || it.dk.id !== p.id) return;
+  const fromDk = !!it.dk.priceRial && it.estRial === it.dk.priceRial * qtyCount(it.qty);
+  it.dk = { ...it.dk, title: p.title.slice(0, 140), priceRial: p.priceRial, url: p.url, at: now };
+  if (fromDk) it.estRial = p.priceRial ? p.priceRial * qtyCount(it.qty) : null;
+}
+
+/** forgets the product; an estimate that came from it goes too, one the user typed stays */
+export function unlinkProduct(d: FinanceData, id: string): void {
+  const it = listItems(d).find((x) => x.id === id);
+  if (!it?.dk) return;
+  if (it.dk.priceRial && it.estRial === it.dk.priceRial * qtyCount(it.qty)) it.estRial = null;
+  it.dk = null;
+}
+
 export function removeItem(d: FinanceData, id: string): void {
   d.shopping = (d.shopping ?? []).filter((x) => x.id !== id);
 }
 
 /** What the list adds up to: estimates of what is left, prices of what is in the basket. */
-export function listTotals(d: FinanceData): { left: number; leftEstRial: number; leftUnpriced: number; bought: number; boughtRial: number; boughtUnpriced: number } {
+export function listTotals(d: FinanceData): { left: number; leftEstRial: number; leftUnpriced: number; leftDk: number; bought: number; boughtRial: number; boughtUnpriced: number } {
   const items = listItems(d);
   const left = items.filter((x) => !x.done);
   const bought = items.filter((x) => x.done);
@@ -71,6 +101,8 @@ export function listTotals(d: FinanceData): { left: number; leftEstRial: number;
     left: left.length,
     leftEstRial: left.reduce((s, x) => s + (x.estRial ?? 0), 0),
     leftUnpriced: left.filter((x) => !x.estRial).length,
+    /** estimates that are a Digikala price */
+    leftDk: left.filter((x) => x.dk?.priceRial && x.estRial === x.dk.priceRial * qtyCount(x.qty)).length,
     bought: bought.length,
     boughtRial: bought.reduce((s, x) => s + (x.priceRial ?? 0), 0),
     boughtUnpriced: bought.filter((x) => !x.priceRial).length,

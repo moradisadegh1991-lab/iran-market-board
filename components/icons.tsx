@@ -10,6 +10,9 @@ import {
   ArrowUp,
   X,
   ArrowUpDown,
+  ExternalLink,
+  RefreshCw,
+  Search,
   TrendingDown,
   Plus,
   ChevronLeft,
@@ -149,7 +152,7 @@ export const CATEGORY_ICON: Record<string, LucideIcon> = {
 };
 
 /** small glyphs the pages draw themselves (buttons, arrows) — still chosen here, with the rest */
-export const Glyph = { Plus, Chevron: ChevronLeft, Back: ChevronRight, Up: ArrowUp, Down: ArrowDown, TrendUp: TrendingUp, TrendDown: TrendingDown, Sort: ArrowUpDown, Close: X };
+export const Glyph = { Plus, Chevron: ChevronLeft, Back: ChevronRight, Up: ArrowUp, Down: ArrowDown, TrendUp: TrendingUp, TrendDown: TrendingDown, Sort: ArrowUpDown, Close: X, Search, External: ExternalLink, Refresh: RefreshCw };
 
 /** one mark per kind of asset on the «سرمایه‌ها» page (key of MARKET_ASSETS, or 'manual'), with the tone its tile is drawn in */
 export const ASSET_ICON: Record<string, { icon: LucideIcon; tone: 'gold' | 'silver' | 'green' | 'orange' | 'indigo' | 'lapis' }> = {
