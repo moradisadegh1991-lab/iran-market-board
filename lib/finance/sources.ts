@@ -216,7 +216,7 @@ export interface Reconcile {
   reportedRial: number;
   date: Iso;
   time: string | null;
-  via: 'sms' | 'statement' | 'manual';
+  via: 'sms' | 'statement' | 'manual' | 'exchange';
   /** what the book says the balance was at that same moment */
   bookRial: number;
   /** bank − book; positive means the book is short */

@@ -1,6 +1,8 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef } from 'react';
+import { dkProduct } from '@/lib/digikala/client';
+import { addGoalPrice, goalsDue, noteGoalTry } from '@/lib/finance/goal-price';
 import { AUTO_TICK_MS, callLocal, loadLocalSession, tradeNote } from '@/lib/live-local';
 import { callSwingLocal, loadSwingSession, SWING_TICK_MS, swingFillNote } from '@/lib/swing-local';
 import { callFutures, futFillNote, FUT_TICK_MS, loadFutures } from '@/lib/futures-local';
@@ -63,6 +65,26 @@ export default function AppStartup() {
       update((d) => {
         moveQueuedBalances(d, smsParser, Date.now());
       });
+  }, [ready, data, update]);
+
+  // the goals' Digikala prices, twice a month (rule 105): read from this device when the app is opened, never in the background
+  const goalsRead = useRef(false);
+  useEffect(() => {
+    if (!ready || goalsRead.current) return;
+    goalsRead.current = true;
+    const due = goalsDue(data!.goals);
+    if (!due.length) return;
+    void (async () => {
+      for (const g of due.slice(0, 5)) {
+        const r = await dkProduct(g.dk!.id);
+        update((d) => {
+          const x = d.goals.find((y) => y.id === g.id);
+          if (!x) return;
+          if (r.ok) addGoalPrice(x, r.value!);
+          else noteGoalTry(x);
+        });
+      }
+    })();
   }, [ready, data, update]);
 
   useEffect(() => {

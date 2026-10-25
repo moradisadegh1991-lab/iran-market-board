@@ -231,10 +231,16 @@ export interface OrderInput {
   account?: 'spot' | 'credit' | 'collateral' | 'investment';
 }
 
+/**
+ * A symbol the exchange can mean: letters and digits, and «_» inside — the boxes are AST_FIXBOX, AST_USDTBOX…
+ * (the first version allowed no «_», so a box could never be traded: «کدام ارز؟»).
+ */
+export const isAbanSymbol = (s: string) => /^[A-Z0-9](?:[A-Z0-9_]{0,30}[A-Z0-9])?$/.test(s) && s.length >= 2;
+
 /** The request body; an error message when something is missing. */
 export function orderBody(o: OrderInput): Record<string, string> | string {
   const base = o.base.trim().toUpperCase();
-  if (!/^[A-Z0-9]{2,15}$/.test(base)) return 'کدام ارز؟';
+  if (!isAbanSymbol(base)) return 'کدام ارز؟';
   if (base === o.quote) return 'ارز و واحد معامله یکی‌اند.';
   if (!(o.volume > 0)) return o.side === 'buy' ? `چقدر ${o.quote === 'IRT' ? 'تومان' : 'تتر'} خرج شود؟` : 'چه مقدار بفروشید؟';
   if (o.kind === 'limit' && !(o.price && o.price > 0)) return 'قیمت سفارش محدود را بنویسید.';
@@ -298,6 +304,34 @@ export function orderChecks(o: OrderInput, ticker: TickerRow[], balances: Balanc
 export const BOARD_KEY: Record<string, MarketKey> = { USDT: 'usdt', BTC: 'btc', ETH: 'eth' };
 export const ABAN_TAG = 'آبان‌تتر';
 
+/** the toman wallet's symbol at the exchange (IRT = toman, as every price on Abantether) */
+export const isTomanSymbol = (s: string) => ['IRT', 'IRR', 'TOMAN'].includes(s);
+
+/**
+ * Each wallet row with what it is worth in toman now — the toman balance as is, a coin at what the exchange would pay for
+ * it (its sell price, from the ticker or the coin list) — and the wallet's total. A coin with no toman price is named,
+ * not counted as 0 (rule 18).
+ */
+export function walletValues(balances: BalanceRow[], ticker: TickerRow[], coins: CoinRow[] = []): { rows: (BalanceRow & { toman: number | null; unitToman: number | null })[]; totalToman: number; unpriced: string[] } {
+  const rows = balances.map((b) => {
+    if (isTomanSymbol(b.symbol)) return { ...b, toman: b.balance, unitToman: 1 };
+    const t = ticker.find((x) => x.symbol === b.symbol && x.quote === 'IRT');
+    const p = t?.sell ?? coins.find((c) => c.symbol === b.symbol)?.sell ?? null;
+    return { ...b, toman: p ? p * b.balance : null, unitToman: p };
+  });
+  return {
+    rows,
+    totalToman: rows.reduce((s, r) => s + (r.toman ?? 0), 0),
+    unpriced: rows.filter((r) => r.toman === null).map((r) => r.symbol),
+  };
+}
+
+/** a coin amount for reading: whole tomans, a few decimals for big amounts, up to 8 for small ones; never «۱۲۳٫۴۵۶۷۸۹۰۱» noise */
+export function coinDigits(n: number): number {
+  const a = Math.abs(n);
+  return a >= 1000 ? 2 : a >= 1 ? 4 : 8;
+}
+
 /**
  * Exchange balances → the book's assets, one per coin, named «آبان‌تتر — …» so a later sync updates the same asset
  * instead of adding another. USDT/BTC/ETH become market assets the board prices; any other coin (and the boxes) a
@@ -309,7 +343,7 @@ export function assetsFromBalances(existing: Asset[], balances: BalanceRow[], ti
   const upsert: Asset[] = [];
   const skipped: string[] = [];
   for (const b of balances) {
-    if (b.balance <= 0 || ['IRT', 'IRR', 'TOMAN'].includes(b.symbol)) continue;
+    if (b.balance <= 0 || isTomanSymbol(b.symbol)) continue;
     const name = `${ABAN_TAG} — ${b.symbol}`;
     const prev = existing.find((a) => a.name === name);
     const key = BOARD_KEY[b.symbol];
