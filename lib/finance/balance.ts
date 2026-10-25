@@ -136,7 +136,9 @@ const checkKey = (R: Reported) => `${R.date} ${R.time ?? ''} ${R.rial}`;
 export function monthCheck(d: FinanceData, accountId: string): BalanceCheck | null {
   const a = d.accounts.find((x) => x.id === accountId);
   const R = a?.reported;
-  if (!a || !R) return null;
+  // an exchange wallet changes with every trade inside the exchange, which the book does not hold as transactions: its
+  // balance is simply what the exchange states (rule 104), never a «does not agree» question
+  if (!a || !R || a.exchange) return null;
   const monthStart = monthStartOf(R.date);
   const beforeMonth = (t: Pick<Txn, 'date'>) => t.date < monthStart;
   // the bank's last word before the month began, if any

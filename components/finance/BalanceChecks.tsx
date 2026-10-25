@@ -9,7 +9,7 @@ import { fmtDateFa, Money } from './kit';
 
 const faDigits = (s: string) => s.replace(/\d/g, (x) => '۰۱۲۳۴۵۶۷۸۹'[+x]);
 const whenFa = (date: string, time?: string | null) => `${fmtDateFa(date)}${time ? `، ${faDigits(time)}` : ''}`;
-const VIA: Record<string, string> = { sms: 'پیامک بانک', statement: 'گردش حساب', manual: 'موجودی‌ای که خودتان نوشتید' };
+const VIA: Record<string, string> = { sms: 'پیامک بانک', statement: 'گردش حساب', manual: 'موجودی‌ای که خودتان نوشتید', exchange: 'کیف پول صرافی' };
 
 /** Where an account's balance comes from (rule 76): the bank's last word, and whether the book agrees with it. */
 export function BalanceSource({ d, accountId }: { d: FinanceData; accountId: string }) {

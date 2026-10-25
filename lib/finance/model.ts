@@ -33,7 +33,8 @@ export interface Reported {
   rial: number;
   date: Iso;
   time?: string | null;
-  via: 'sms' | 'statement' | 'manual';
+  /** 'exchange': read from the exchange's own wallet (Abantether, rule 104) */
+  via: 'sms' | 'statement' | 'manual' | 'exchange';
 }
 
 export interface Account {
@@ -57,6 +58,8 @@ export interface Account {
   bizId?: string | null;
   /** a person (kind 'person') only: the day the loan is to be repaid — by them or by the user — reminded before (rule 90) */
   dueOn?: Iso | null;
+  /** the toman wallet at an exchange (rule 104): its balance is the one the exchange states, read on every wallet refresh */
+  exchange?: 'aban' | null;
 }
 
 export type CategoryKind = 'expense' | 'income';
@@ -263,6 +266,22 @@ export interface Goal {
   targetDate: Iso;
   savedRial: number;
   inflationAdjust: boolean;
+  /** the Digikala product this goal is for (rule 105): its price read twice a month, kept as a history */
+  dk?: GoalProduct | null;
+  /** the target follows the product's latest price × qty */
+  followPrice?: boolean;
+}
+
+export interface GoalProduct {
+  id: number;
+  title: string;
+  url: string;
+  /** how many of it (the target is price × qty) */
+  qty: number;
+  /** every price read, oldest first (null = not for sale then) */
+  history: { at: number; priceRial: number | null }[];
+  /** the last attempt that failed (no connection, a refused browser): the next automatic try waits a day */
+  triedAt?: number | null;
 }
 
 /** Market-priced keys come straight from the snapshot board (`snap.live.items`). */

@@ -552,3 +552,10 @@ a.fin-mini { text-decoration: none; display: inline-flex; align-items: center; g
 .aban-steps { margin: 0 0 10px; padding-inline-start: 20px; line-height: 1.9; }
 .aban-quote { display: grid; gap: 2px; text-align: left; }
 .aban-quote small { color: var(--muted); margin-inline-end: 4px; }
+.aban-total { margin: 4px 0 8px; font-size: 15px; }
+.aban-book { border-top: 1px solid var(--line-soft); margin-top: 10px; padding-top: 10px; display: grid; gap: 8px; }
+.goal-dk { display: grid; gap: 4px; margin: 8px 0; font-size: 13px; min-width: 0; }
+.goal-dk .dk-title { color: var(--muted); overflow-wrap: anywhere; }
+.goal-qty { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.goal-qty .fin-input { width: 56px; padding: 3px 6px; }
+.goal-loan { display: grid; gap: 8px; }

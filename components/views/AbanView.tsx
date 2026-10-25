@@ -10,7 +10,11 @@ import { basisOn, cachedBasis, currentBasis, setBasisOn } from '@/lib/aban/basis
 import {
   ABAN_TAG,
   assetsFromBalances,
+  coinDigits,
+  isAbanSymbol,
   isOpenOrder,
+  isTomanSymbol,
+  walletValues,
   orderBody,
   orderChecks,
   parseBalances,
@@ -28,10 +32,11 @@ import {
   type Side,
   type TickerRow,
 } from '@/lib/aban/parse';
-import { newId, tomanToRial, type FinanceData } from '@/lib/finance/model';
+import { abanAccount, abanTransferMatches, bookAbanTransfer, linkAbanAccount, syncAban, tomanBalance, undoAbanTransfer, type AbanFlow, type AbanTransferReceipt } from '@/lib/aban/book';
+import { isMoneyAccount, newId, tomanToRial, type FinanceData } from '@/lib/finance/model';
 import { PageHead, Toggle } from '../ui';
 import { useFinance, WithBook } from '../finance/FinanceProvider';
-import { Card, confirmDelete, Field, fmtDateFa, JalaliDate, Modal, Money, parseAmount, Tabs, TomanInput } from '../finance/kit';
+import { Card, confirmDelete, Disclosure, Field, fmtDateFa, JalaliDate, Modal, Money, parseAmount, Tabs, TomanInput } from '../finance/kit';
 
 type Tab = 'connect' | 'prices' | 'wallet' | 'trade' | 'orders' | 'boxes' | 'transfers';
 const faN = (n: number, d = 8) => n.toLocaleString('fa-IR', { maximumFractionDigits: d });
@@ -224,6 +229,17 @@ function Wallet({ d, ticker, coins }: { d: FinanceData; ticker: TickerRow[]; coi
     load();
   }, [load]);
   const balances = useMemo(() => (res?.ok ? parseBalances(res.json) : []), [res]);
+  const wv = useMemo(() => walletValues(balances, ticker, coins), [balances, ticker, coins]);
+  const linked = abanAccount(d);
+  // the book follows the spot wallet on every refresh once it is linked (rule 104)
+  useEffect(() => {
+    if (type !== 'spot' || !res?.ok || !linked) return;
+    update((dr) => {
+      syncAban(dr, balances, ticker, coins);
+    });
+    // linked.id: only whether it is linked matters here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [res, ticker, coins, type, linked?.id]);
   const sync = () => {
     let msg = '';
     update((dr) => {
@@ -238,6 +254,7 @@ function Wallet({ d, ticker, coins }: { d: FinanceData; ticker: TickerRow[]; coi
     setNote(msg);
   };
   const synced = d.assets.filter((a) => a.name.startsWith(ABAN_TAG)).length;
+  const coinFa = (n: number) => faN(n, coinDigits(n));
   return (
     <Card title="کیف پول آبان‌تتر" action={<button className="fin-mini ghost" onClick={load}>به‌روزرسانی</button>}>
       <Field label="کدام کیف پول">
@@ -252,31 +269,56 @@ function Wallet({ d, ticker, coins }: { d: FinanceData; ticker: TickerRow[]; coi
       <Err r={res} />
       {balances.length ? (
         <>
+          <p className="aban-total" data-testid="aban-total">
+            ارزش کل این کیف پول: <Money rial={Math.round(wv.totalToman * 10)} />
+            {wv.unpriced.length ? <small className="muted"> (بدون {wv.unpriced.join('، ')} که قیمت تومانی ندارد)</small> : null}
+          </p>
           <ul className="fin-list" data-testid="aban-balances">
-            {balances.map((b) => (
-              <li key={b.symbol}>
-                <span className="fin-list-main">
-                  <b>{ltr(b.symbol)}</b>
-                  <small>
-                    {b.available !== null ? `آزاد ${faN(b.available)}` : ''}
-                    {b.blocked ? `، در سفارش ${faN(b.blocked)}` : ''}
-                  </small>
-                </span>
-                <span className="fin-list-nums">
-                  <b className="num">{faN(b.balance)}</b>
-                </span>
-              </li>
-            ))}
+            {wv.rows.map((b) => {
+              const toman = isTomanSymbol(b.symbol);
+              return (
+                <li key={b.symbol}>
+                  <span className="fin-list-main">
+                    <b>{toman ? 'تومان' : ltr(b.symbol)}</b>
+                    <small>
+                      {b.available !== null ? <>آزاد {toman ? <Money rial={Math.round(b.available * 10)} /> : coinFa(b.available)}</> : null}
+                      {b.blocked ? <>، در سفارش {toman ? <Money rial={Math.round(b.blocked * 10)} /> : coinFa(b.blocked)}</> : null}
+                    </small>
+                  </span>
+                  <span className="fin-list-nums">
+                    {toman ? (
+                      <b>
+                        <Money rial={Math.round(b.balance * 10)} />
+                      </b>
+                    ) : (
+                      <>
+                        <b className="num">{coinFa(b.balance)}</b>
+                        {b.toman !== null ? (
+                          <small>
+                            ≈ <Money rial={Math.round(b.toman * 10)} short />
+                          </small>
+                        ) : (
+                          <small className="muted">بی قیمت تومانی</small>
+                        )}
+                      </>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
-          <div className="fin-actions">
-            <button className="fin-mini" onClick={sync} data-testid="aban-sync">
-              افزودن به «سرمایه‌ها»
-            </button>
-          </div>
+          {type === 'spot' ? <BookLink d={d} balances={balances} onBooked={load} /> : <p className="muted small">کیف پول اعتباری و وثیقه وارد دفتر نمی‌شوند (پول قرضی صرافی یا وثیقه آن است). فقط کیف اصلی به حساب‌ها و سرمایه‌ها وصل می‌شود.</p>}
+          {!linked ? (
+            <div className="fin-actions">
+              <button className="fin-mini ghost" onClick={sync} data-testid="aban-sync">
+                فقط ارزها را به «سرمایه‌ها» بیفزا
+              </button>
+            </div>
+          ) : null}
           <p className="muted small">
-            تتر، بیت‌کوین و اتریوم با قیمت تابلو ارزش‌گذاری می‌شوند؛ ارزهای دیگر و باکس‌ها با قیمت فروش خود آبان‌تتر، همان لحظه. موجودی تومانی کیف پول را اگر خواستید به‌عنوان یک
-            حساب در «حساب‌ها و کارت‌ها» بسازید. هزینه خریدشان معلوم نیست، پس سودشان «نامشخص» می‌ماند تا خودتان در <Link href="/assets">سرمایه‌ها</Link> بنویسید.
-            {synced ? ` (${faN(synced, 0)} دارایی از آبان‌تتر در دفتر هست؛ دوباره زدن همان‌ها را به‌روز می‌کند.)` : ''}
+            تتر، بیت‌کوین و اتریوم در سرمایه‌ها با قیمت تابلو ارزش‌گذاری می‌شوند؛ ارزهای دیگر و باکس‌ها با قیمت فروش خود آبان‌تتر، همان لحظه. هزینه خریدشان معلوم نیست، پس سودشان
+            «نامشخص» می‌ماند تا خودتان در <Link href="/assets">سرمایه‌ها</Link> بنویسید.
+            {synced ? ` (${faN(synced, 0)} دارایی از آبان‌تتر در دفتر هست.)` : ''}
           </p>
         </>
       ) : res?.ok ? (
@@ -289,6 +331,131 @@ function Wallet({ d, ticker, coins }: { d: FinanceData; ticker: TickerRow[]; coi
       ) : null}
       <Raw r={res} />
     </Card>
+  );
+}
+
+/**
+ * The spot wallet in the book (rule 104): the toman balance as an account that follows the exchange, the coins as assets,
+ * and money between a bank and the exchange booked as a transfer — from the bank's own SMS when it is already here.
+ */
+function BookLink({ d, balances, onBooked }: { d: FinanceData; balances: BalanceRow[]; onBooked: () => void }) {
+  const { update, today } = useFinance();
+  const ex = abanAccount(d);
+  const banks = d.accounts.filter((a) => isMoneyAccount(a) && !a.bizId && a.id !== ex?.id);
+  const [flow, setFlow] = useState<AbanFlow>('in');
+  const [bankId, setBankId] = useState(() => (banks.find((a) => a.kind === 'bank') ?? banks[0])?.id ?? '');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(today);
+  const [match, setMatch] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<AbanTransferReceipt | null>(null);
+  const irt = tomanBalance(balances);
+  if (!ex) {
+    return (
+      <div className="aban-book" data-testid="aban-book">
+        <p className="small">
+          کیف تومانی آبان‌تتر را به حساب‌هایتان اضافه کنید تا موجودی‌اش در دارایی خالص بیاید، هر بار که این صفحه باز شود با موجودی صرافی به‌روز شود، ارزها و باکس‌ها خودکار در
+          «سرمایه‌ها» بنشینند، و واریز و برداشت بین بانک و آبان‌تتر «انتقال» ثبت شود، نه هزینه یا درآمد.
+        </p>
+        <button className="fin-mini" data-testid="aban-link" disabled={irt === null} onClick={() => update((dr) => void linkAbanAccount(dr, irt ?? 0))}>
+          افزودن به حساب‌ها و سرمایه‌ها
+        </button>
+      </div>
+    );
+  }
+  const amountRial = amount ? tomanToRial(parseAmount(amount)) : 0;
+  const m = amountRial > 0 && bankId ? abanTransferMatches(d, flow, bankId, amountRial, date) : { txns: [], staged: [] };
+  const hasMatch = m.txns.length + m.staged.length > 0;
+  const chosen = hasMatch ? match : 'new';
+  const book = () => {
+    if (hasMatch && !chosen) return setErr('آیا این همان پیامک بانک است؟ یکی را انتخاب کنید.');
+    let r: AbanTransferReceipt | string = '';
+    update((dr) => {
+      r = bookAbanTransfer(dr, { flow, bankId, amountRial, date, linkTxnId: chosen.startsWith('t:') ? chosen.slice(2) : null, stagedId: chosen.startsWith('s:') ? chosen.slice(2) : null });
+    });
+    if (typeof r === 'string') return setErr(r);
+    setErr(null);
+    setAmount('');
+    setMatch('');
+    setReceipt(r);
+    onBooked();
+  };
+  return (
+    <div className="aban-book" data-testid="aban-book">
+      <p className="small">
+        در دفتر: حساب «{ex.name}» با موجودی همین کیف پول (هر بار که این صفحه باز شود به‌روز می‌شود) و ارزها در <Link href="/assets">سرمایه‌ها</Link>.
+      </p>
+      <Disclosure label="ثبت واریز یا برداشت تومانی بین بانک و آبان‌تتر">
+        {() => (
+          <div className="fin-grid">
+            <Field label="کدام">
+              <select className="fin-input" aria-label="واریز یا برداشت" value={flow} onChange={(e) => setFlow(e.target.value as AbanFlow)}>
+                <option value="in">واریز از حساب بانکی به آبان‌تتر</option>
+                <option value="out">برداشت از آبان‌تتر به حساب بانکی</option>
+              </select>
+            </Field>
+            <Field label="حساب بانکی">
+              <select className="fin-input" aria-label="حساب بانکی" value={bankId} onChange={(e) => setBankId(e.target.value)}>
+                {banks.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <TomanInput label="مبلغ (تومان)" value={amount} onChange={setAmount} />
+            <JalaliDate label="تاریخ" value={date} onChange={setDate} yearsBack={1} yearsAhead={0} />
+            {hasMatch ? (
+              <fieldset className="shop-match fin-span" data-testid="aban-match">
+                <legend>پرداختی با همین مبلغ در دفتر یا صف پیامک هست. همین است؟</legend>
+                {m.txns.map((t) => (
+                  <label key={t.id} className="fin-radio">
+                    <input type="radio" name="aban-match" checked={chosen === `t:${t.id}`} onChange={() => setMatch(`t:${t.id}`)} />
+                    بله، همین {t.kind === 'expense' ? 'هزینه' : 'درآمد'} ثبت‌شده: {fmtDateFa(t.date)}
+                    {t.time ? ` ساعت ${t.time}` : ''} — {t.note || 'بی‌توضیح'}
+                  </label>
+                ))}
+                {m.staged.map((s) => (
+                  <label key={s.id} className="fin-radio">
+                    <input type="radio" name="aban-match" checked={chosen === `s:${s.id}`} onChange={() => setMatch(`s:${s.id}`)} />
+                    بله، همین پیامک بانک در صف: {s.date ? fmtDateFa(s.date) : 'بی‌تاریخ'}
+                    {s.time ? ` ساعت ${s.time}` : ''} — {s.description}
+                  </label>
+                ))}
+                <label className="fin-radio">
+                  <input type="radio" name="aban-match" checked={chosen === 'new'} onChange={() => setMatch('new')} />
+                  نه، جداگانه است (انتقال تازه)
+                </label>
+              </fieldset>
+            ) : null}
+            <div className="fin-span fin-actions">
+              <button className="fin-mini" onClick={book} disabled={!(amountRial > 0) || !bankId} data-testid="aban-transfer-book">
+                ثبت انتقال
+              </button>
+            </div>
+          </div>
+        )}
+      </Disclosure>
+      {err ? (
+        <p className="fin-err" role="alert">
+          {err}
+        </p>
+      ) : null}
+      {receipt ? (
+        <p className="fin-ok" role="status" data-testid="aban-transfer-done">
+          ثبت شد ({receipt.how === 'new' ? 'انتقال تازه' : receipt.how === 'staged' ? 'از پیامک بانک در صف' : 'همان تراکنش پیامک بانک، حالا انتقال'}).{' '}
+          <button
+            className="fin-mini ghost"
+            onClick={() => {
+              update((dr) => undoAbanTransfer(dr, receipt));
+              setReceipt(null);
+            }}
+          >
+            برگرداندن
+          </button>
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -323,7 +490,7 @@ function Trade({ ticker, preset, onPlaced }: { ticker: TickerRow[]; preset: Trad
   // the exchange's limits and fee for this coin and side
   useEffect(() => {
     setInfo(null);
-    if (!/^[A-Z0-9]{2,15}$/.test(base)) return;
+    if (!isAbanSymbol(base)) return;
     const t = setTimeout(() => void abanApi.coinInfo(base, side).then((r) => setInfo(r.ok ? parseCoinInfo(r.json, quote) : null)), 400);
     return () => {
       clearTimeout(t);
@@ -561,8 +728,9 @@ function Orders() {
 }
 
 /**
- * The investment boxes: in the coin list they are the coins of type FUND (GET /api/v2/manager/coins), bought and sold
- * with the same OTC orders; the docs list «investment» among the order account types. Recording one by hand stays.
+ * The investment boxes: in the coin list they are the coins of type FUND (GET /api/v2/manager/coins: AST_FIXBOX,
+ * AST_USDTBOX…), bought and sold with the same OTC orders. What a user holds of them shows in the main (spot) wallet, so
+ * «معامله» starts from that wallet — the exchange's own default; «سرمایه‌گذاری» stays one choice away. Recording one by hand stays.
  */
 function Boxes({ d, coins, coinsRes, onTrade }: { d: FinanceData; coins: CoinRow[]; coinsRes: AbanResult | null; onTrade: (p: TradePreset) => void }) {
   const { update, today } = useFinance();
@@ -612,7 +780,7 @@ function Boxes({ d, coins, coinsRes, onTrade }: { d: FinanceData; coins: CoinRow
                   </span>
                 </span>
                 {c.canBuy || c.canSell ? (
-                  <button className="fin-mini ghost" onClick={() => onTrade({ base: c.symbol, account: 'investment' })}>
+                  <button className="fin-mini ghost" onClick={() => onTrade({ base: c.symbol, account: 'spot' })}>
                     معامله
                   </button>
                 ) : null}
