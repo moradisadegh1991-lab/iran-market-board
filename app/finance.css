@@ -559,3 +559,16 @@ a.fin-mini { text-decoration: none; display: inline-flex; align-items: center; g
 .goal-qty { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
 .goal-qty .fin-input { width: 56px; padding: 3px 6px; }
 .goal-loan { display: grid; gap: 8px; }
+
+/* شارژ، بسته و قبض (rule 106) */
+.fin-chip.on { border-color: var(--teal); background: var(--teal); color: #fff; }
+.pay-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pay-req { border: 1px solid var(--line); border-radius: var(--r-m); padding: 10px 12px; display: grid; gap: 6px; }
+.pay-req-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.pay-copy { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pay-copy b { overflow-wrap: anywhere; min-width: 0; }
+.pay-copy button { margin-inline-start: auto; }
+.pay-hist { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.pay-hist > span { min-width: 0; overflow-wrap: anywhere; }
+.pay-ussd { margin: 10px 0 4px; }
+.pay-ussd summary { cursor: pointer; }

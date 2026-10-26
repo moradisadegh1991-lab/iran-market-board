@@ -12,6 +12,10 @@ import {
   ArrowUpDown,
   ExternalLink,
   RefreshCw,
+  Check,
+  Copy,
+  Phone,
+  Smartphone,
   Search,
   TrendingDown,
   Plus,
@@ -88,6 +92,7 @@ export const PAGE_ICON: Record<string, LucideIcon> = {
   '/import': Import,
   '/budget': Target,
   '/shopping': ShoppingBasket,
+  '/pay': Smartphone,
   '/debts': Landmark,
   '/fund': HandCoins,
   '/split': Users,
@@ -152,7 +157,7 @@ export const CATEGORY_ICON: Record<string, LucideIcon> = {
 };
 
 /** small glyphs the pages draw themselves (buttons, arrows) — still chosen here, with the rest */
-export const Glyph = { Plus, Chevron: ChevronLeft, Back: ChevronRight, Up: ArrowUp, Down: ArrowDown, TrendUp: TrendingUp, TrendDown: TrendingDown, Sort: ArrowUpDown, Close: X, Search, External: ExternalLink, Refresh: RefreshCw };
+export const Glyph = { Plus, Chevron: ChevronLeft, Back: ChevronRight, Up: ArrowUp, Down: ArrowDown, TrendUp: TrendingUp, TrendDown: TrendingDown, Sort: ArrowUpDown, Close: X, Search, External: ExternalLink, Refresh: RefreshCw, Check, Copy, Phone };
 
 /** one mark per kind of asset on the «سرمایه‌ها» page (key of MARKET_ASSETS, or 'manual'), with the tone its tile is drawn in */
 export const ASSET_ICON: Record<string, { icon: LucideIcon; tone: 'gold' | 'silver' | 'green' | 'orange' | 'indigo' | 'lapis' }> = {
