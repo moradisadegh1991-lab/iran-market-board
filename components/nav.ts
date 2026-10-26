@@ -27,6 +27,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/import', label: 'ورود از بانک و پیامک', icon: '📥', hint: 'گردش حساب و پیامک' },
       { href: '/budget', label: 'بودجه', icon: '🎯' },
       { href: '/shopping', label: 'لیست خرید', icon: '🛒', hint: 'یادداشت خرید روزمره، تیک و ثبت یک‌جا' },
+      { href: '/pay', label: 'شارژ، بسته و قبض', icon: '📱', hint: 'شارژ و بسته اینترنت، قبض آب و برق و گاز و تلفن' },
     ],
   },
   {

@@ -173,6 +173,29 @@ export interface DismissedSms {
   row?: Staged;
 }
 
+/** A charge, an internet package or a bill the user asked to pay (pay.ts, rule 106). Paid outside the app (a bank code, a
+ *  payment app); once the user says it is done, one expense named after the request is booked. */
+export interface PayRequest {
+  id: string;
+  kind: 'charge' | 'package' | 'bill';
+  /** charge/package: 09xxxxxxxxx */
+  mobile?: string;
+  operator?: 'mci' | 'irancell' | 'rightel' | null;
+  /** package: what it is («۳۰ روزه ۲۰ گیگ») */
+  label?: string;
+  amountRial: number;
+  billId?: string;
+  paymentId?: string;
+  /** bill: the service the bill ID says (1 آب، 2 برق، 3 گاز، 4 تلفن ثابت…) */
+  billType?: number | null;
+  createdAt: number;
+  status: 'pending' | 'done' | 'cancelled';
+  doneAt?: number | null;
+  txnId?: string | null;
+  /** the payment's tracking code, if the user wrote it */
+  trackingCode?: string | null;
+}
+
 /** لیست خرید روزمره — one thing to buy; ticked when bought, booked into the book as one purchase (shopping.ts). */
 export interface ShoppingItem {
   id: string;
@@ -363,6 +386,8 @@ export interface FinanceData {
   smsDismissed?: DismissedSms[];
   /** لیست خرید روزمره (shopping.ts) */
   shopping?: ShoppingItem[];
+  /** شارژ، بسته و قبض (pay.ts, rule 106): what the user asked to pay, and how it ended */
+  payRequests?: PayRequest[];
   /** item name → how many times it was bought: suggestions when adding */
   shoppingFreq?: Record<string, number>;
 }
@@ -561,6 +586,7 @@ export function emptyData(today: Iso): FinanceData {
     smsDismissed: [],
     shopping: [],
     shoppingFreq: {},
+    payRequests: [],
   };
 }
 
@@ -608,6 +634,7 @@ export function normalizeData(raw: unknown, today: Iso): FinanceData {
     smsDismissed: arr<DismissedSms>(raw.smsDismissed).filter((x) => x && typeof x.smsKey === 'string'),
     shopping: arr<ShoppingItem>(raw.shopping).filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string'),
     shoppingFreq: isObj(raw.shoppingFreq) ? (raw.shoppingFreq as Record<string, number>) : {},
+    payRequests: arr<PayRequest>(raw.payRequests).filter((x) => x && typeof x.id === 'string' && typeof x.kind === 'string'),
     settings: {
       inflationPct: finite(s.inflationPct, DEFAULT_SETTINGS.inflationPct),
       safeYieldPct: finite(s.safeYieldPct, DEFAULT_SETTINGS.safeYieldPct),

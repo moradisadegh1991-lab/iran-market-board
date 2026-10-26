@@ -12,7 +12,7 @@ import { Card, confirmDelete, Disclosure, TextInput } from './kit';
 
 const KIND_LABEL: Record<BankIdKind, string> = { card: 'کارت', sheba: 'شبا', account: 'حساب' };
 
-async function copyText(text: string): Promise<boolean> {
+export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;
