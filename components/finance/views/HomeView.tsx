@@ -14,6 +14,8 @@ import { unlinkedSources } from '@/lib/finance/sources';
 import { whenText } from '@/lib/finance/reminders';
 import { CatIcon } from '../../icons';
 import { Art } from '../../icons';
+import CashPlan from '../CashPlan';
+import { goalGrowth } from '@/lib/finance/goal-price';
 
 export const QUICK_QUESTIONS = [
   'وضعیت مالی این ماهم را خلاصه کن؛ کجا باید خرجم را کم کنم؟',
@@ -31,11 +33,11 @@ interface Alert {
 function alerts(d: FinanceData, items: ReturnType<typeof useFinance>['items'], today: string): Alert[] {
   const out: Alert[] = [];
   const dues = upcoming(d, today, 30);
-  const overdue = dues.filter((x) => x.overdue);
+  const overdue = dues.filter((x) => x.overdue && x.rial < 0);
   if (overdue.length) out.push({ tone: 'bad', text: `${overdue.length.toLocaleString('fa-IR')} قسط/چک/قبض/قرض سررسید گذشته و ثبت‌نشده دارید.`, href: '/debts' });
   // reminders: what falls due within the lead the user set (rule 90) — expected income is not a duty
   const lead = d.settings.reminderDays;
-  const soon = dues.filter((x) => !x.overdue && x.type !== 'income' && daysBetween(today, x.date) <= lead);
+  const soon = dues.filter((x) => !x.overdue && x.rial < 0 && daysBetween(today, x.date) <= lead);
   if (soon.length)
     out.push({
       tone: 'warn',
@@ -107,6 +109,8 @@ function Home({ d }: { d: FinanceData }) {
       <BalanceChecks d={d} />
       {fresh ? <Onboarding /> : null}
 
+      <CashPlan d={d} />
+
       <dl className="fin-kpis">
         <Stat label="دارایی خالص" sub={nw.unpriced.length ? `بدون قیمت: ${nw.unpriced.join('، ')}` : nw.lastPriced.length ? `${nw.lastPriced.length.toLocaleString('fa-IR')} دارایی با آخرین قیمت (بازار بسته)` : 'دارایی‌ها + طلب − بدهی'}>
           <Money rial={nw.netRial} short />
@@ -174,7 +178,7 @@ function Home({ d }: { d: FinanceData }) {
           {d.goals.length ? (
             <ul className="fin-budget">
               {d.goals.slice(0, 4).map((g) => {
-                const p = goalPlan(g, today, d.settings.inflationPct, d.settings.safeYieldPct);
+                const p = goalPlan(g, today, goalGrowth(g, d.settings.inflationPct).pct, d.settings.safeYieldPct);
                 return (
                   <li key={g.id}>
                     <span>{g.name}</span>
