@@ -1,4 +1,5 @@
 'use client';
+import { subscribeBotSessions } from '@/lib/bot-session';
 // «نوسان‌گیری برخط من» (rule 97): a live swing session kept on this device. Start picks the coins (the calm
 // picks by default), capital, style and length; the session advances whenever the app is open (AppStartup)
 // or the refresh button is pressed, replaying every hour since its start, so nothing is lost while closed.
@@ -38,6 +39,7 @@ export default function MySwing({ basket }: { basket: { id: string; symbol: stri
   useEffect(() => {
     setS(loadSwingSession());
     setPrefs(loadSwingPrefs());
+    return subscribeBotSessions(() => setS(loadSwingSession()));
   }, []);
   const setP = (p: Partial<SwingPrefs>) => setPrefs((x) => {
     const n = { ...(x ?? loadSwingPrefs()), ...p };

@@ -13,6 +13,7 @@ import TradeEntry, { tomanWords } from '../TradeEntry';
 import { useNotify } from '../NotifyProvider';
 import { callLocal, loadLivePrefs, loadLocalSession, saveLivePrefs, tradeNote } from '@/lib/live-local';
 import type { EquityLine } from '../EquityChart';
+import { subscribeBotSessions } from '@/lib/bot-session';
 
 const EquityChart = dynamic(() => import('../EquityChart'), { ssr: false, loading: () => <div className="chart-host equity-host skeleton" /> });
 
@@ -74,6 +75,7 @@ export default function LiveView() {
     setDays(p.liveDays === 7 ? '7' : p.liveDays === 90 ? '90' : '30');
     setActivity(p.activity);
     setLocalLoaded(true);
+    return subscribeBotSessions(() => setLocal(loadLocalSession()));
   }, []);
 
   const load = useCallback(() => {

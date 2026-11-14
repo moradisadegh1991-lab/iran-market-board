@@ -1,3 +1,4 @@
+import { botSessionAction } from './bot-session';
 // «معامله برخط من»: a live paper-trading session that belongs to this device (CLAUDE.md rule 13).
 // The session lives in localStorage; `/api/live/local` is stateless — it takes the session,
 // applies live prices with the same engine the website uses, and hands it back. Two devices never
@@ -66,31 +67,34 @@ export interface LiveReply {
 
 /** `startHoldings`: start from the user's own holdings (paper only — the book is not touched). */
 export async function callLocal(action: 'start' | 'tick' | 'stop', prefs?: LivePrefs, session?: LiveSession | null, startHoldings?: { asset: string; qty: number }[]): Promise<LiveReply> {
-  const body =
-    action === 'start'
-      ? {
-          action,
-          config: {
-            capitalToman: prefs!.capital, profile: prefs!.profile, assets: prefs!.liveAssets, days: prefs!.liveDays, activity: prefs!.activity, useNews: true,
-            ...(startHoldings?.length ? { startHoldings } : {}),
-          },
-        }
-      : { action, session };
-  // crypto priced as Abantether would (rule 102): the device reads the exchange, the server prices with it
-  const basis = await currentBasis().catch(() => null);
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 70_000);
-  try {
-    const r = await fetch(api('/api/live/local'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, basis }), signal: ctl.signal });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
-    saveLocalSession(j.session);
-    return { session: j.session, newTrades: j.newTrades ?? [], finished: !!j.finished };
-  } catch (e) {
-    throw new Error((e as Error)?.name === 'AbortError' ? 'زمان انتظار تمام شد؛ دوباره تلاش کنید.' : (e as Error)?.message || 'خطای نامشخص');
-  } finally {
-    clearTimeout(timer);
-  }
+  return botSessionAction(LIVE_KEY, action === 'start' ? undefined : session, async (save) => {
+    const body =
+      action === 'start'
+        ? {
+            action,
+            config: {
+              capitalToman: prefs!.capital, profile: prefs!.profile, assets: prefs!.liveAssets, days: prefs!.liveDays, activity: prefs!.activity, useNews: true,
+              ...(startHoldings?.length ? { startHoldings } : {}),
+            },
+          }
+        : { action, session };
+    // crypto priced as Abantether would (rule 102): the device reads the exchange, the server prices with it
+    const basis = await currentBasis().catch(() => null);
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 70_000);
+    try {
+      const r = await fetch(api('/api/live/local'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, basis }), signal: ctl.signal });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+      if (!j.session?.id || !['running', 'finished'].includes(j.session.status) || !j.session.config || !Number.isFinite(j.session.lastTickAt)) throw new Error('پاسخ جلسه ربات معتبر نیست.');
+      save(j.session);
+      return { session: j.session, newTrades: j.newTrades ?? [], finished: !!j.finished };
+    } catch (e) {
+      throw new Error((e as Error)?.name === 'AbortError' ? 'زمان انتظار تمام شد؛ دوباره تلاش کنید.' : (e as Error)?.message || 'خطای نامشخص');
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 }
 
 /** Engine asset keys are English ('g18'); nobody wants to read that in a notification. */

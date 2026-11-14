@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { fmtInt } from '@/lib/num';
 import { WithSnapshot } from '../SnapshotProvider';
 import { AdminActions, PageHead } from '../ui';
+import BotControlCenter from '../BotControlCenter';
 
 const age = (s: number | null) => (s === null ? 'هرگز' : s < 90 ? 'همین حالا' : s < 3600 ? `${fmtInt(s / 60)} دقیقه پیش` : s < 86400 ? `${fmtInt(s / 3600)} ساعت پیش` : `${fmtInt(s / 86400)} روز پیش`);
 
@@ -25,7 +26,8 @@ export default function BotView({ botUsername }: { botUsername: string }) {
 
   return (
     <div className="wrap">
-      <PageHead title="ربات تلگرام و وضعیت منابع">همه بخش‌های سایت در ربات هم هست. با /start گزارش روزانه ساعت ۸ صبح برایتان فعال می‌شود.</PageHead>
+      <PageHead title="مرکز ربات‌ها">جلسات معاملاتی، گزارش تلگرام و وضعیت منابع بازار را از اینجا دنبال کنید.</PageHead>
+      <BotControlCenter />
       <div className="split">
         <section className="panel pad">
           <h2>دستورهای ربات</h2>

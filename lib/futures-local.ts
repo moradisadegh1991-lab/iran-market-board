@@ -1,3 +1,4 @@
+import { botSessionAction } from './bot-session';
 // «فیوچرز من»: the paper futures account of this device (rule 95). Kept in localStorage; every action goes
 // through the stateless /api/futures/local, which first walks the account up to now (liquidation, stop,
 // target, funding) and then applies the order. No order ever reaches an exchange.
@@ -34,19 +35,22 @@ export type FutAction =
   | { action: 'autoNow' };
 
 export async function callFutures(a: FuturesAccount | null, req: FutAction): Promise<{ account: FuturesAccount; newFills: FuturesFill[] }> {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 70_000);
-  try {
-    const r = await fetch(api('/api/futures/local'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...req, account: a }), signal: ctl.signal });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
-    saveFutures(j.account);
-    return { account: j.account, newFills: j.newFills ?? [] };
-  } catch (e) {
-    throw new Error((e as Error)?.name === 'AbortError' ? 'زمان انتظار تمام شد؛ دوباره تلاش کنید.' : (e as Error)?.message || 'خطای نامشخص');
-  } finally {
-    clearTimeout(timer);
-  }
+  return botSessionAction(FUT_KEY, req.action === 'create' ? undefined : a, async (save) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 70_000);
+    try {
+      const r = await fetch(api('/api/futures/local'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...req, account: a }), signal: ctl.signal });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+      if (j.account?.v !== 1 || !j.account.id || !Array.isArray(j.account.positions) || !Number.isFinite(j.account.wallet)) throw new Error('پاسخ حساب فیوچرز معتبر نیست.');
+      save(j.account);
+      return { account: j.account, newFills: j.newFills ?? [] };
+    } catch (e) {
+      throw new Error((e as Error)?.name === 'AbortError' ? 'زمان انتظار تمام شد؛ دوباره تلاش کنید.' : (e as Error)?.message || 'خطای نامشخص');
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 }
 
 export function futFillNote(f: FuturesFill): { title: string; body: string } {

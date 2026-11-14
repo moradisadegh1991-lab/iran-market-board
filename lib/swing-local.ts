@@ -1,3 +1,4 @@
+import { botSessionAction } from './bot-session';
 // «نوسان‌گیری برخط من»: a live swing session that belongs to this device (rule 97, the rule-13 pattern). The
 // session lives in localStorage; /api/swing-live/local advances it with the same engine as the shared server
 // session and hands it back. Because every tick replays the backtester from the session's anchor, a tick
@@ -54,34 +55,37 @@ export async function callSwingLocal(
   action: 'start' | 'tick' | 'stop',
   arg: { config?: { coins: { id: string; symbol: string; name: string }[]; capitalToman: number; preset: string; hours: number; feePct?: number }; session?: SwingLiveSession | null },
 ): Promise<{ session: SwingLiveSession; newFills: SwingLiveFill[] }> {
-  // the Abantether basis at the start (rule 102): its cost per side and USDT rate, unless the caller set a fee
-  const basis = action === 'start' ? await currentBasis().catch(() => null) : null;
-  const body =
-    action === 'start'
-      ? {
-          action,
-          config: {
-            ...arg.config,
-            feePct: arg.config?.feePct ?? (basis ? Math.round(perSidePct(basis) * 100) / 100 : 0.4),
-            ...(basis ? { usdtRial: Math.round(usdtMidToman(basis) * 10), priceBasis: 'aban' } : { priceBasis: 'board' }),
-            engine: 'v2',
-          },
-          basis,
-        }
-      : { action, session: arg.session };
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 70_000);
-  try {
-    const r = await fetch(api('/api/swing-live/local'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctl.signal });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
-    saveSwingSession(j.session);
-    return { session: j.session, newFills: j.newFills ?? [] };
-  } catch (e) {
-    throw new Error((e as Error)?.name === 'AbortError' ? 'زمان انتظار تمام شد؛ دوباره تلاش کنید.' : (e as Error)?.message || 'خطای نامشخص');
-  } finally {
-    clearTimeout(timer);
-  }
+  return botSessionAction(SWING_KEY, action === 'start' ? undefined : arg.session, async (save) => {
+    // the Abantether basis at the start (rule 102): its cost per side and USDT rate, unless the caller set a fee
+    const basis = action === 'start' ? await currentBasis().catch(() => null) : null;
+    const body =
+      action === 'start'
+        ? {
+            action,
+            config: {
+              ...arg.config,
+              feePct: arg.config?.feePct ?? (basis ? Math.round(perSidePct(basis) * 100) / 100 : 0.4),
+              ...(basis ? { usdtRial: Math.round(usdtMidToman(basis) * 10), priceBasis: 'aban' } : { priceBasis: 'board' }),
+              engine: 'v2',
+            },
+            basis,
+          }
+        : { action, session: arg.session };
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 70_000);
+    try {
+      const r = await fetch(api('/api/swing-live/local'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctl.signal });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+      if (!j.session?.id || !['running', 'finished'].includes(j.session.status) || !Array.isArray(j.session.equity) || !Number.isFinite(j.session.lastTickAt)) throw new Error('پاسخ جلسه ربات معتبر نیست.');
+      save(j.session);
+      return { session: j.session, newFills: j.newFills ?? [] };
+    } catch (e) {
+      throw new Error((e as Error)?.name === 'AbortError' ? 'زمان انتظار تمام شد؛ دوباره تلاش کنید.' : (e as Error)?.message || 'خطای نامشخص');
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 }
 
 export function swingFillNote(f: SwingLiveFill): { title: string; body: string } {

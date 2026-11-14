@@ -12,8 +12,10 @@ import { isMoneyAccount, type FinanceData, type Iso } from '../finance/model';
 import { assetPerformance, portfolioPerformance } from '../finance/performance';
 import { amountIn, amountWords, clean, dateWords, numToWords, tokens } from '../finance/voice';
 import { assetIn, type AssetInfo } from './ask';
+import { liquidityPlan } from '../finance/planning';
 
 export type MoreQ =
+  | { type: 'cashPlan'; days: 30 | 90 }
   | { type: 'people'; who: string | null; dir: 'owed' | 'owe' | 'both'; business: boolean }
   | { type: 'budget'; categoryId: string | null }
   | { type: 'dues'; days: number; kind: 'all' | 'loan' | 'cheque' | 'bill' | 'income'; next: boolean }
@@ -111,6 +113,10 @@ export function parseMore(d: FinanceData, raw: string, today: Iso): MoreQ | null
   const shop = shoppingQ(c, asked);
   if (shop) return shop;
 
+  if (/(پولم|پول من|نقدینگی|کسری|کم میارم|کم میاریم|کم می آورم)/.test(c) && /(تا کی|تا کجا|می ?رسه|می ?رسد|کافیه|کافی|چقدر|چقد|کسری|کم میار|کم می آور|وضعیت|برنامه)/.test(c)) {
+    return { type: 'cashPlan', days: /(سه ماه|۳ ماه|3 ماه|نود|۹۰|90)/.test(c) ? 90 : 30 };
+  }
+
   // opening a page: «بودجه رو باز کن», «برو به صندوق فروش»
   if (OPEN.test(c) && !/(قرض|خرید|فروختم|خریدم)/.test(c)) {
     const t = navTarget(c.replace(OPEN, ' '));
@@ -197,6 +203,16 @@ function otherClaims(d: FinanceData, today: Iso, business: boolean): { owed: { l
 
 export function answerMore(d: FinanceData, items: PriceItem[], today: Iso, q: MoreQ, now: number): MoreReply {
   switch (q.type) {
+    case 'cashPlan': {
+      const p = liquidityPlan(d, today, q.days);
+      const link = { href: '/', label: 'برنامه نقدینگی و جزئیات' };
+      if (!p.cashAccountCount || (!p.startRial && !d.txns.length && !p.obligationsRial)) return { text: 'برای بررسی نقدینگی، ابتدا موجودی حساب‌ها و هزینه‌هایتان را ثبت کنید.', speech: 'اول موجودی حساب و هزینه‌هات رو ثبت کن تا بتونم برآورد کنم.', link };
+      const result = p.firstShortfall
+        ? `در سناریوی بدون دریافت جدید، از ${dateWords(p.firstShortfall.date, today)} احتمال کسری دارید. برای پوشش کسری تا پایان ${fa(q.days)} روز، دست‌کم ${toman(-p.low.balanceRial)} لازم است.`
+        : `در سناریوی بدون دریافت جدید، تا ${fa(q.days)} روز آینده کسری دیده نمی‌شود؛ مانده پایان بازه ${toman(p.endRial)} است.`;
+      const caveat = p.basisDays < 30 ? ' سابقه هزینه کمتر از سی روز است؛ برآورد ممکن است خوش‌بینانه باشد.' : ' برآورد بر اساس هزینه‌های گذشته و تعهدات ثبت‌شده است؛ دریافت آینده قطعی فرض نشده.';
+      return { text: result + caveat, speech: result + caveat, link };
+    }
     case 'nav':
       return { text: `«${q.label}» را باز کنم؟`, speech: `${q.label} رو باز کنم؟`, action: { type: 'nav', href: q.href, label: q.label } };
 

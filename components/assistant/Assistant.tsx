@@ -14,6 +14,7 @@ import { useFinance } from '../finance/FinanceProvider';
 import { addItem } from '@/lib/finance/shopping';
 import { useNotify } from '../NotifyProvider';
 import AskChart from './AskChart';
+import { AudioLines, Mic, Send, Square, Sparkles } from 'lucide-react';
 
 const PROBLEM: Record<VoiceErr, string> = {
   permission: 'اجازه میکروفون داده نشد. از تنظیمات گوشی › برنامه‌ها › مالی من › مجوزها، میکروفون را روشن کنید؛ تا آن موقع می‌توانید بنویسید.',
@@ -98,6 +99,10 @@ export default function Assistant({
   // after the first tap on the mic, it listens again by itself while a transaction still needs answers
   const handsFree = useRef(false);
   const listening = useRef(false);
+  const listenEpoch = useRef(0);
+  const speechEpoch = useRef(0);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const bookReady = !!data;
   // `listen` counts the phone's requests for the assistant; the first one opened this sheet
   const assisted = useRef(listen > 0);
   const lastListen = useRef(listen);
@@ -106,6 +111,22 @@ export default function Assistant({
   const logRef = useRef<HTMLOListElement | null>(null);
   const started = useRef(false);
   const chartsSaid = useRef(new Set<number>());
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!bookReady || !dialog) return;
+    const previous = document.activeElement as HTMLElement | null;
+    dialog.querySelector<HTMLElement>('button')?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), summary, [tabindex="0"]')).filter((el) => el.getClientRects().length);
+      const first = controls[0], last = controls.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    };
+    dialog.addEventListener('keydown', trap);
+    return () => { dialog.removeEventListener('keydown', trap); previous?.focus(); };
+  }, [bookReady]);
 
   const push = useCallback((...xs: Omit<Item, 'id'>[]) => {
     setLog((l) => [...l, ...xs.map((x) => ({ ...x, id: nextId.current++ }))]);
@@ -197,9 +218,10 @@ export default function Assistant({
   async function say(text: string) {
     const x = ioRef.current;
     if (!x || !x.canSpeak || !speakRef.current || !text) return;
+    const epoch = ++speechEpoch.current;
     setPhase('speaking');
     await x.speak(text);
-    if (alive.current) setPhase('idle');
+    if (alive.current && epoch === speechEpoch.current) setPhase('idle');
   }
 
   function setTxnState(s: VoiceState | null) {
@@ -232,20 +254,24 @@ export default function Assistant({
 
   async function listenOnce(auto = false, retried = false) {
     const x = ioRef.current;
-    if (!x?.canListen) return;
+    if (!x?.canListen || listening.current) return;
+    const epoch = ++listenEpoch.current;
+    speechEpoch.current++;
     listening.current = true;
     x.hush();
     setProblem(null);
     setPartial('');
     setPhase('listening');
     try {
-      const alts = await x.listen((t) => alive.current && setPartial(t), flowRef.current?.st.say ?? txnRef.current?.say);
+      const alts = await x.listen((t) => alive.current && epoch === listenEpoch.current && setPartial(t), flowRef.current?.st.say ?? txnRef.current?.say);
+      if (epoch !== listenEpoch.current) return;
       listening.current = false;
       if (!alive.current) return;
       setPhase('idle');
       setPartial('');
       heard(alts);
     } catch (e) {
+      if (epoch !== listenEpoch.current) return;
       listening.current = false;
       if (!alive.current) return;
       setPhase('idle');
@@ -253,7 +279,7 @@ export default function Assistant({
       const code = e instanceof VoiceError ? e.code : 'client';
       if (auto && !retried && RETRY.includes(code)) {
         await new Promise((r) => setTimeout(r, 700));
-        if (alive.current) return listenOnce(true, true);
+        if (alive.current && epoch === listenEpoch.current && handsFree.current) return listenOnce(true, true);
         return;
       }
       handsFree.current = false;
@@ -432,9 +458,15 @@ export default function Assistant({
 
   /** Typing or tapping: the user left the mic, so stop listening by itself until it is tapped again. */
   function quiet() {
+    listenEpoch.current++;
+    speechEpoch.current++;
+    listening.current = false;
     handsFree.current = false;
     falseWake.current = false;
     ioRef.current?.cancel();
+    ioRef.current?.hush();
+    setPhase('idle');
+    setPartial('');
     setProblem(null);
   }
 
@@ -549,15 +581,18 @@ export default function Assistant({
 
   return (
     <div className="voice-wrap" role="presentation" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="voice-sheet" role="dialog" aria-modal="true" aria-label="دستیار صوتی" data-testid="voice">
+      <div ref={dialogRef} className="voice-sheet" role="dialog" aria-modal="true" aria-label="دستیار صوتی" data-testid="voice">
         <div className="sheet-head">
-          <b>🎙 دستیار</b>
+          <div className="assistant-brand"><span className="assistant-mark"><AudioLines size={24} aria-hidden="true" /></span><div><b>دستیار مالی من</b><small>بپرسید، برنامه بریزید، ثبت کنید</small></div></div>
           <button className="sheet-close" aria-label="بستن" onClick={onClose}>
             ✕
           </button>
         </div>
 
-        <ol className="voice-log" ref={logRef} aria-live="polite">
+        {!dlg && !pending && log.length <= 1 ? <div className="assistant-suggestions" aria-label="پیشنهادهای گفتگو">
+          {['پولم تا کی می‌رسه؟', 'این ماه چقدر خرج کردم؟', 'قسط بعدیم کیه؟', 'راهنما'].map((q) => <button key={q} type="button" onClick={() => { quiet(); heard([q]); }}><Sparkles size={14} aria-hidden="true" />{q}</button>)}
+        </div> : null}
+        <ol className="voice-log" ref={logRef} role="log" aria-label="گفتگو با دستیار" aria-live="polite">
           {log.map((t) => (
             <li key={t.id} className={`${t.who}${t.chart ? ' has-chart' : ''}`}>
               {t.text}
@@ -622,13 +657,13 @@ export default function Assistant({
         <div className="voice-input">
           {canListen ? (
             <button type="button" className={`voice-mic ${phase}`} onClick={mic} aria-pressed={phase === 'listening'} aria-label={phase === 'listening' ? 'تمام شد، بفهم' : 'صحبت کنید'}>
-              <span aria-hidden>🎙</span>
+              {phase === 'listening' ? <Square size={22} aria-hidden="true" /> : <Mic size={24} aria-hidden="true" />}
             </button>
           ) : null}
           <form className="voice-type" onSubmit={send}>
             <input className="fin-input" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={canListen ? 'یا بنویسید…' : 'بنویسید…'} aria-label="پیام را بنویسید" />
-            <button className="btn" type="submit">
-              بفرست
+            <button className="btn" type="submit" disabled={!typed.trim()} aria-label="ارسال پیام">
+              <Send size={18} aria-hidden="true" />
             </button>
           </form>
         </div>
@@ -643,6 +678,8 @@ export default function Assistant({
                   ? 'این دستگاه تشخیص گفتار ندارد؛ بنویسید یا گزینه‌ها را بزنید.'
                   : ' '}
         </p>
+
+        {phase !== 'idle' ? <button className="fin-mini ghost" type="button" onClick={quiet}>توقف {phase === 'listening' ? 'شنیدن' : 'خواندن'}</button> : null}
 
         <div className="voice-foot muted small">
           {io?.canSpeak ? (

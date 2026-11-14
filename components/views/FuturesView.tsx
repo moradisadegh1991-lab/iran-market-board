@@ -1,4 +1,5 @@
 'use client';
+import { subscribeBotSessions } from '@/lib/bot-session';
 // «فیوچرز (اهرم)» (rule 95): a calculator with the exchange's own liquidation formula, a paper futures account
 // on this device (manual long/short, or the trend rider at a chosen leverage), and what each leverage step did
 // to the trend rider on real data. No order ever reaches an exchange.
@@ -128,7 +129,10 @@ export default function FuturesView() {
   const [autoLev, setAutoLev] = useState('1');
   const [autoMode, setAutoMode] = useState<'long' | 'longshort'>('long');
 
-  useEffect(() => setAcct(loadFutures()), []);
+  useEffect(() => {
+    setAcct(loadFutures());
+    return subscribeBotSessions(() => setAcct(loadFutures()));
+  }, []);
 
   useEffect(() => {
     let off = false;
