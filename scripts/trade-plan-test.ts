@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import { tradePlan } from '../lib/engine/trade-plan';
+import { portfolioRisk } from '../lib/engine/portfolio-risk';
+const x = { capital: 100000, entry: 100, stop: 90, target: 120, fee: 1, slippage: 1, riskPct: 1, maxPositionPct: 100 };
+const p = tradePlan(x)!;
+assert.ok(Math.abs(p.loss - 1000) < 1e-8);
+assert.ok(p.breakEvenPrice > x.entry);
+assert.ok(p.rewardRisk > 0 && p.breakEvenWinRate! > 0);
+assert.ok(tradePlan({...x, target: 101})?.targetViable === false);
+assert.equal(tradePlan({...x, stop: 100}), null);
+assert.equal(tradePlan({...x, fee: -1}), null);
+const limited = tradePlan({...x, maxPositionPct: 5})!;
+assert.ok(limited.investment <= 5000.00001 && limited.loss < 1000);
+const dates = Array.from({length: 100}, (_, i) => new Date(Date.UTC(2025, 0, i + 1)).toISOString().slice(0, 10));
+const prices = dates.map((_, i) => 100 + i + (i % 2));
+const r = portfolioRisk([{key:'a',weight:0.5,series:{dates,prices}},{key:'b',weight:0.5,series:null}],30,{annualVolPct:25,varPct:12});
+assert.equal(r.basis,'assumed'); assert.equal(r.varPct,12);
+console.log('trade planning and missing-history risk checks passed');

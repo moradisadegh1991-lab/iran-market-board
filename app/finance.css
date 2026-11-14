@@ -688,3 +688,11 @@ a.fin-mini { text-decoration: none; display: inline-flex; align-items: center; g
   .voice-mic { height: 48px; width: 48px; }
 }
 @media (prefers-reduced-motion: reduce) { .finance-shortcuts > a { transition: none; } .finance-shortcuts > a:hover { transform: none; } }
+.trade-plan { margin-block: 24px; }
+.trade-plan-grid, .trade-plan-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.trade-plan-grid .field { min-width: 0; }
+.trade-plan-grid input { width: 100%; }
+.trade-plan-results { margin: 20px 0; }
+.trade-plan-results > div { padding: 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
+.trade-plan-results dt { color: var(--muted); font-size: 12px; }
+.trade-plan-results dd { margin: 8px 0 0; font-weight: 700; }

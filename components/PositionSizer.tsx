@@ -166,12 +166,12 @@ export default function PositionSizer({ assets }: { assets: AssetRisk[] }) {
                 {tomanWords(result.positionToman)} <small>({fmtPct(result.positionPct, 1, false)} سرمایه)</small>
               </dd>
             </div>
-            <div>
+            {asset.unit !== 'usd' && asset.unit !== 'point' ? <div>
               <dt>مقدار</dt>
               <dd className="num">
                 <bdi>{fmtNum(result.qty, result.qty < 10 ? 4 : result.qty < 1000 ? 2 : 0)}</bdi>
               </dd>
-            </div>
+            </div> : null}
             <div>
               <dt>اگر حد ضرر بخورد</dt>
               <dd className="num down">
@@ -216,6 +216,7 @@ export default function PositionSizer({ assets }: { assets: AssetRisk[] }) {
             این محاسبه فقط اندازه موقعیت را می‌گوید، نه اینکه معامله خوب است یا نه. قیمت اجرا در بازار واقعی — به‌خصوص
             در صف و در ساعت‌های کم‌عمق — می‌تواند با حد ضرر فاصله داشته باشد، پس زیان واقعی گاهی از این عدد بیشتر می‌شود.
           </p>
+          {asset.unit === 'usd' || asset.unit === 'point' ? <p className="note">تعداد واحد نمایش داده نمی‌شود؛ قیمت این ابزار هم‌واحد سرمایه تومانی نیست و تبدیل ارز یا ضریب قرارداد برای محاسبه تعداد لازم است.</p> : null}
         </>
       )}
     </section>
