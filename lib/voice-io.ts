@@ -314,87 +314,90 @@ function persianVoice(): Promise<SpeechSynthesisVoice | null> {
   if (now || ss.getVoices().length) return Promise.resolve(now);
   // Chrome fills the list a moment later
   return new Promise((res) => {
-    const t = setTimeout(() => res(pick()), 800);
-    ss.addEventListener?.('voiceschanged', () => {
+    const finish = () => {
       clearTimeout(t);
+      ss.removeEventListener?.('voiceschanged', finish);
       res(pick());
-    });
+    };
+    const t = setTimeout(finish, 800);
+    ss.addEventListener?.('voiceschanged', finish);
   });
 }
 
-function webIO(Rec: (new () => SR) | null, voice: SpeechSynthesisVoice | null): VoiceIO {
+export function webVoiceIO(Rec: (new () => SR) | null, voice: SpeechSynthesisVoice | null): VoiceIO {
   let rec: SR | null = null;
+  let cancelListen: (() => void) | null = null;
+  let finishSpeech: (() => void) | null = null;
+  const hush = () => {
+    finishSpeech?.();
+    window.speechSynthesis?.cancel();
+  };
   return {
-    kind: Rec ? 'web' : 'none',
-    canListen: !!Rec,
-    canSpeak: !!voice,
-    voice: voice ? 'browser' : null,
+    kind: Rec ? 'web' : 'none', canListen: !!Rec, canSpeak: !!voice, voice: voice ? 'browser' : null,
     listen(onPartial) {
+      cancelListen?.();
       return new Promise<string[]>((resolve, reject) => {
         if (!Rec) return reject(new VoiceError('unavailable'));
-        rec?.abort();
         const r = new Rec();
         rec = r;
-        r.lang = 'fa-IR';
-        r.interimResults = true;
-        r.maxAlternatives = 5;
-        r.continuous = false;
+        r.lang = 'fa-IR'; r.interimResults = true; r.maxAlternatives = 5; r.continuous = false;
         let done = false;
-        r.onresult = (e) => {
-          const last = e.results[e.results.length - 1];
-          if (!last) return;
-          if (!last.isFinal) return onPartial(last[0]?.transcript ?? '');
-          const alts = Array.from({ length: last.length }, (_, i) => last[i].transcript).filter((x) => x && x.trim());
+        let partial = '';
+        let stopping = false;
+        const finish = (alts: string[] | null, code: VoiceErr = 'no-match') => {
+          if (done) return;
           done = true;
-          if (alts.length) resolve(alts);
-          else reject(new VoiceError('no-match'));
+          clearTimeout(timer);
+          r.onresult = null; r.onerror = null; r.onend = null;
+          if (rec === r) { rec = null; cancelListen = null; }
+          try { r.abort(); } catch { /* already ended */ }
+          if (alts?.length) resolve(alts);
+          else reject(new VoiceError(code));
+        };
+        const timer = setTimeout(() => finish(null, 'no-match'), 25_000);
+        cancelListen = () => finish(null, 'cancelled');
+        r.onresult = (e) => {
+          if (done) return;
+          const results = Array.from(e.results);
+          const last = results.at(-1);
+          if (!last) return;
+          const prefix = results.slice(0, -1).map((x) => x[0]?.transcript ?? '').join(' ').trim();
+          partial = [prefix, last[0]?.transcript ?? ''].filter(Boolean).join(' ').trim();
+          if (!last.isFinal) { onPartial(partial); return; }
+          const alts = Array.from(last).map((x) => [prefix, x.transcript.trim()].filter(Boolean).join(' ')).filter(Boolean);
+          finish([...new Set(alts)]);
         };
         r.onerror = (e) => {
-          done = true;
-          const map: Record<string, VoiceErr> = {
-            'no-speech': 'no-match',
-            'not-allowed': 'permission',
-            'service-not-allowed': 'permission',
-            network: 'network',
-            'language-not-supported': 'language',
-            aborted: 'cancelled',
-            'audio-capture': 'audio',
-          };
-          reject(new VoiceError(map[e.error] ?? 'client'));
+          const map: Record<string, VoiceErr> = { 'no-speech': 'no-match', 'not-allowed': 'permission', 'service-not-allowed': 'permission', network: 'network', 'language-not-supported': 'language', aborted: 'cancelled', 'audio-capture': 'audio' };
+          finish(null, map[e.error] ?? 'client');
         };
-        r.onend = () => {
-          if (!done) reject(new VoiceError('no-match'));
-          if (rec === r) rec = null;
-        };
-        try {
-          r.start();
-        } catch {
-          reject(new VoiceError('busy'));
-        }
+        r.onend = () => finish(stopping && partial ? [partial] : null);
+        const originalStop = r.stop.bind(r);
+        r.stop = () => { stopping = true; originalStop(); };
+        try { r.start(); } catch { finish(null, 'busy'); }
       });
     },
-    stop() {
-      rec?.stop();
-    },
-    cancel() {
-      rec?.abort();
-    },
+    stop() { try { rec?.stop(); } catch { cancelListen?.(); } },
+    cancel() { cancelListen?.(); },
     speak(text) {
+      hush();
       if (!voice) return Promise.resolve();
-      return new Promise<void>((res) => {
+      return new Promise<void>((resolve) => {
         const u = new SpeechSynthesisUtterance(colloquial(speakable(text)));
-        u.voice = voice;
-        u.lang = voice.lang;
-        u.rate = voicePref().speed;
-        u.onend = () => res();
-        u.onerror = () => res();
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(u);
+        const finish = () => {
+          clearTimeout(timer);
+          u.onend = null; u.onerror = null;
+          if (finishSpeech === finish) finishSpeech = null;
+          resolve();
+        };
+        const timer = setTimeout(() => { finish(); window.speechSynthesis?.cancel(); }, 120_000);
+        finishSpeech = finish;
+        u.voice = voice; u.lang = voice.lang; u.rate = voicePref().speed;
+        u.onend = finish; u.onerror = finish;
+        try { window.speechSynthesis.speak(u); } catch { finish(); }
       });
     },
-    hush() {
-      window.speechSynthesis?.cancel();
-    },
+    hush,
   };
 }
 
@@ -486,7 +489,7 @@ export async function voiceIO(): Promise<VoiceIO> {
     }
   }
   const w = window as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR };
-  return webIO(w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null, await persianVoice().catch(() => null));
+  return webVoiceIO(w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null, await persianVoice().catch(() => null));
 }
 
 export const VOICE_SPEAK_KEY = 'imf.voice.speak.v1';

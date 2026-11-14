@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { budgetStatus, cashForecast, daysBetween, goalPlan, health, monthForecast, monthLabel, monthOf, monthTotals, netWorth, shiftMonth, upcoming } from '@/lib/finance/calc';
 import type { FinanceData } from '@/lib/finance/model';
 import { isNum } from '@/lib/num';
-import { PageHead } from '../../ui';
 import DueList from '../DueList';
 import { useFinance, WithBook } from '../FinanceProvider';
 import { Bar, Card, fmtDateFa, fmtPctFa, Money, Stat } from '../kit';
@@ -16,6 +15,7 @@ import { CatIcon } from '../../icons';
 import { Art } from '../../icons';
 import CashPlan from '../CashPlan';
 import { goalGrowth } from '@/lib/finance/goal-price';
+import FinanceHero from '../FinanceHero';
 
 export const QUICK_QUESTIONS = [
   'وضعیت مالی این ماهم را خلاصه کن؛ کجا باید خرجم را کم کنم؟',
@@ -101,20 +101,13 @@ function Home({ d }: { d: FinanceData }) {
 
   return (
     <>
-      <PageHead title="داشبورد مالی">
-        {fmtDateFa(today)} — همه مبالغ به تومان. قیمت طلا، سکه و ارزِ دارایی‌ها از تابلوی زنده بازار گرفته می‌شود.
-      </PageHead>
+      <FinanceHero today={today} worth={nw} />
 
       <ClassicMigrate d={d} />
       <BalanceChecks d={d} />
       {fresh ? <Onboarding /> : null}
 
-      <CashPlan d={d} />
-
-      <dl className="fin-kpis">
-        <Stat label="دارایی خالص" sub={nw.unpriced.length ? `بدون قیمت: ${nw.unpriced.join('، ')}` : nw.lastPriced.length ? `${nw.lastPriced.length.toLocaleString('fa-IR')} دارایی با آخرین قیمت (بازار بسته)` : 'دارایی‌ها + طلب − بدهی'}>
-          <Money rial={nw.netRial} short />
-        </Stat>
+      <dl className="fin-kpis home-metrics">
         <Stat label="پول در دسترس" sub="حساب‌ها + دارایی نقدشونده">
           <Money rial={nw.liquidRial} short />
         </Stat>
@@ -131,6 +124,8 @@ function Home({ d }: { d: FinanceData }) {
           <Money rial={next.netRial} short signed className={next.netRial >= 0 ? 'up' : 'down'} />
         </Stat>
       </dl>
+
+      <CashPlan d={d} />
 
       {al.length ? (
         <ul className="fin-alerts" aria-label="هشدارها">
