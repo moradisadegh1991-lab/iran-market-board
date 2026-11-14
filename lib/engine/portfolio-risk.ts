@@ -143,6 +143,8 @@ export function portfolioRisk(
     notes: [why],
   });
 
+  const missing = sleeves.filter((s) => s.weight > 0.005 && !isNum(s.fixedDaily) && (!s.series || s.series.prices.length < MIN_SERIES));
+  if (missing.length) return assumed('تاریخچه یک یا چند جزء پرریسک کافی نیست؛ برای جلوگیری از حذف ریسک آن‌ها، کل برآورد بر پایه همبستگی‌های فرضی است.');
   const risky = sleeves.filter((s) => s.weight > 0.005 && s.series && s.series.prices.length >= MIN_SERIES);
   if (!risky.length) return assumed('تاریخچه مشترک کافی برای اندازه‌گیری نبود؛ اعداد ریسک بر پایه همبستگی‌های فرضی است.');
 

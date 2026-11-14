@@ -7,6 +7,7 @@ import { WithSnapshot } from '../SnapshotProvider';
 import { Chips, FilterBar, PageHead } from '../ui';
 import HoldingsPanel from '../HoldingsPanel';
 import PortfolioCompare from '../finance/PortfolioCompare';
+import TradePlanner from '../finance/TradePlanner';
 
 const CLS_CLASS = { cash: 'c-cash', usd: 'c-usd', gold: 'c-gold', equity: 'c-equity', btc: 'c-btc', spec: 'c-spec' } as const;
 
@@ -36,13 +37,14 @@ export default function PortfolioView() {
                 </label>
               </FilterBar>
               <section className="panel pad">
+                <p className="note">این سبد یک سناریوی عمومی است و اهداف، نیاز نقدینگی و وضعیت شخصی شما را نمی‌سنجد. بازده و افت آینده تضمین‌شده نیستند؛ پیش از تخصیص، نیازهای کوتاه‌مدت و هزینه‌ها را بررسی کنید.</p>
                 <dl className="metrics">
                   <div>
                     <dt>نوسان سالانه تخمینی سبد</dt>
                     <dd className="num">{fmtPct(p.annualVolPct, 0, false)}</dd>
                   </div>
                   <div>
-                    <dt>افت محتمل در بدترین ۵٪ حالت‌ها طی {HORIZON_LABEL[horizon]}</dt>
+                    <dt>آستانه افت برآوردی ۵٪ طی {HORIZON_LABEL[horizon]}</dt>
                     <dd className="num">{fmtPct(p.varPct, 0, false)}</dd>
                   </div>
                   <div>
@@ -51,7 +53,7 @@ export default function PortfolioView() {
                   </div>
                   {hasAmount && p.varPct ? (
                     <div>
-                      <dt>معادل ریالی این افت</dt>
+                      <dt>معادل تومانی این افت</dt>
                       <dd className="num">
                         {fmtInt((amount * p.varPct) / 100)} تومان
                         {p.esPct ? <small className="muted"> · در بدترین حالت‌ها {fmtInt((amount * p.esPct) / 100)}</small> : null}
@@ -113,6 +115,7 @@ export default function PortfolioView() {
           );
         }}
       </WithSnapshot>
+      <TradePlanner />
       <HoldingsPanel />
     </div>
   );
