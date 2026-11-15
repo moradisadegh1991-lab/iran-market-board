@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { computeIndicators } from '../lib/indicators';
+import { parsePresets, validIndicators } from '../lib/indicator-presets';
+assert.deepEqual(validIndicators(['ma100', 'ema50', 'ma100', 'unknown', null]), ['ma100', 'ema50']);
+assert.deepEqual(parsePresets(JSON.stringify([{name:'روند',indicators:['ma100','ema50','bad']},{name:'',indicators:['rsi']},{name:'bad',indicators:[]} ])), [{name:'روند',indicators:['ma100','ema50']}]);
+assert.throws(() => parsePresets('{broken'));
+const points = Array.from({length:130},(_,i): [number,number] => [i+1,i+1]);
+const lines = computeIndicators(points.slice(100),points.slice(0,100),['ma100','ema50']);
+assert.equal(lines.overlays.find(x=>x.key==='ma100')?.points[0][1],51.5);
+assert.ok(Math.abs(lines.overlays.find(x=>x.key==='ema50')!.points[0][1]! - 76.5) < 1e-9);
+const cold=computeIndicators(points.slice(100),[],['ma100','ema50']);
+assert.ok(cold.overlays.every(x=>x.points.every(([,v])=>v===null)));
+console.log('indicator presets, warm-up and validation checks passed');

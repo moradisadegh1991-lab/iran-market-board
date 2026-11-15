@@ -2,13 +2,14 @@
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { fmtPct, fmtPrice, isNum } from '@/lib/num';
 import type { ChartData, Timeframe } from '@/lib/chart';
 import { FORECAST_ASSETS, FORECAST_HORIZONS } from '@/lib/forecast-meta';
 import { computeIndicators, indicatorEvidence, INDICATORS, readings, type IndicatorKey } from '@/lib/indicators';
 import IndicatorChips from '../IndicatorChips';
+import { INDICATOR_LAST_KEY, validIndicators } from '@/lib/indicator-presets';
 import ForecastPanel from '../ForecastPanel';
 import { useSnapshot } from '../SnapshotProvider';
 import { Chips, FilterBar, PageHead } from '../ui';
@@ -40,7 +41,6 @@ const isForecastAsset = (a: string | null) => FORECAST_ASSETS.some((x) => x.key 
 
 export default function ChartsView() {
   const params = useSearchParams();
-  const router = useRouter();
   const [mode, setMode] = useState<Mode>(params.get('mode') === 'forecast' ? 'forecast' : 'price');
   const [fAsset, setFAsset] = useState(() => (isForecastAsset(params.get('asset')) ? params.get('asset')! : 'usd'));
   const [fH, setFH] = useState(() => (FORECAST_HORIZONS.some((h) => h.key === params.get('h')) ? params.get('h')! : 'm1'));
@@ -50,6 +50,17 @@ export default function ChartsView() {
   const [asset, setAsset] = useState(params.get('asset') ?? 'usd');
   const [tf, setTf] = useState<Timeframe>((params.get('tf') as Timeframe) ?? '1m');
   const [ind, setInd] = useState<IndicatorKey[]>(() => (params.get('ind') ?? '').split(',').filter((k): k is IndicatorKey => INDICATORS.some((x) => x.key === k)));
+  const [indReady, setIndReady] = useState(false);
+  useEffect(() => {
+    if (!params.has('ind')) {
+      try { setInd(validIndicators(JSON.parse(localStorage.getItem(INDICATOR_LAST_KEY) ?? '[]'))); } catch { /* use empty selection */ }
+    }
+    setIndReady(true);
+  }, []);
+  useEffect(() => {
+    if (!indReady) return;
+    try { localStorage.setItem(INDICATOR_LAST_KEY, JSON.stringify(ind)); } catch { /* current session only */ }
+  }, [ind, indReady]);
   const [data, setData] = useState<ChartData | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading');
   const [err, setErr] = useState('');
@@ -71,24 +82,22 @@ export default function ChartsView() {
         setErr(e instanceof Error ? e.message : String(e));
         setState('error');
       });
-    router.replace(`/charts?asset=${encodeURIComponent(asset)}&tf=${tf}${ind.length ? `&ind=${ind.join(',')}` : ''}`, { scroll: false });
     return () => ctrl.abort();
-  }, [asset, tf, router, mode]);
+  }, [asset, tf, mode]);
 
   useEffect(() => {
-    if (mode === 'price') router.replace(`/charts?asset=${encodeURIComponent(asset)}&tf=${tf}${ind.length ? `&ind=${ind.join(',')}` : ''}`, { scroll: false });
-    else router.replace(`/charts?mode=forecast&asset=${encodeURIComponent(fAsset)}&h=${fH}${ind.length ? `&ind=${ind.join(',')}` : ''}`, { scroll: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ind]);
+    if (!indReady) return;
+    const url = mode === 'price'
+      ? `/charts?asset=${encodeURIComponent(asset)}&tf=${tf}&ind=${ind.join(',')}`
+      : `/charts?mode=forecast&asset=${encodeURIComponent(fAsset)}&h=${fH}&ind=${ind.join(',')}`;
+    window.history.replaceState(null, '', url);
+  }, [asset, tf, mode, fAsset, fH, ind, indReady]);
 
   const lines = useMemo(() => (data && ind.length && data.points.length >= 2 ? computeIndicators(data.points, data.warmup ?? [], ind) : null), [data, ind]);
   const said = useMemo(() => (data && lines ? readings(data.points, lines) : []), [data, lines]);
   const group = ['usd', 'usdt', 'g18', 'coin'].includes(asset) ? 'rial' : asset === 'btc' || asset === 'eth' || asset.startsWith('cg:') ? 'crypto' : 'other';
 
-  useEffect(() => {
-    if (mode === 'forecast') router.replace(`/charts?mode=forecast&asset=${encodeURIComponent(fAsset)}&h=${fH}${ind.length ? `&ind=${ind.join(',')}` : ''}`, { scroll: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, fAsset, fH, router]);
+
 
   const switchMode = (m: Mode) => {
     // carry the asset across when both sections have it

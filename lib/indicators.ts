@@ -10,13 +10,15 @@
 // (CLAUDE.md rules 25–28) — the page shows it next to them.
 import { emaSeries, rsiSeries } from './engine/stats';
 
-export type IndicatorKey = 'ma20' | 'ma50' | 'ma200' | 'ema20' | 'bb' | 'rsi' | 'macd';
+export type IndicatorKey = 'ma20' | 'ma50' | 'ma100' | 'ma200' | 'ema20' | 'ema50' | 'bb' | 'rsi' | 'macd';
 
 export const INDICATORS: { key: IndicatorKey; label: string; pane: boolean }[] = [
   { key: 'ma20', label: 'میانگین ۲۰', pane: false },
   { key: 'ma50', label: 'میانگین ۵۰', pane: false },
+  { key: 'ma100', label: 'میانگین ۱۰۰', pane: false },
   { key: 'ma200', label: 'میانگین ۲۰۰', pane: false },
   { key: 'ema20', label: 'EMA ۲۰', pane: false },
+  { key: 'ema50', label: 'EMA ۵۰', pane: false },
   { key: 'bb', label: 'بولینگر', pane: false },
   { key: 'rsi', label: 'RSI', pane: true },
   { key: 'macd', label: 'MACD', pane: true },
@@ -26,8 +28,10 @@ export const INDICATORS: { key: IndicatorKey; label: string; pane: boolean }[] =
 export const IND_COLOR: Record<string, string> = {
   ma20: '#D9A02A',
   ma50: '#0D7377',
+  ma100: '#2563eb',
   ma200: '#7A4FB5',
   ema20: '#C2410C',
+  ema50: '#be185d',
   bb: '#8A94A6',
   rsi: '#7A4FB5',
   macd: '#0D7377',
@@ -96,10 +100,10 @@ export function computeIndicators(points: [number, number][], warmup: [number, n
   const cut = (v: Vals): [number, number | null][] => points.map(([t], i) => [t, v[off + i] ?? null]);
   const out: IndicatorLines = { overlays: [], rsi: null, macd: null };
   for (const k of keys) {
-    if (k === 'ma20' || k === 'ma50' || k === 'ma200') {
+    if (k === 'ma20' || k === 'ma50' || k === 'ma100' || k === 'ma200') {
       const n = +k.slice(2);
       out.overlays.push({ key: k, label: INDICATORS.find((x) => x.key === k)!.label, color: IND_COLOR[k], points: cut(smaSeries(closes, n)) });
-    } else if (k === 'ema20') out.overlays.push({ key: k, label: 'EMA ۲۰', color: IND_COLOR.ema20, points: cut(emaSeries(closes, 20)) });
+    } else if (k === 'ema20' || k === 'ema50') out.overlays.push({ key: k, label: INDICATORS.find((x) => x.key === k)!.label, color: IND_COLOR[k], points: cut(emaSeries(closes, k === 'ema20' ? 20 : 50)) });
     else if (k === 'bb') {
       const b = bollinger(closes);
       out.overlays.push({ key: 'bb-up', label: 'بولینگر بالا', color: IND_COLOR.bb, dashed: true, points: cut(b.upper) });

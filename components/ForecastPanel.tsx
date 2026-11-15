@@ -129,7 +129,8 @@ export default function ForecastPanel({
 }) {
   const [data, setData] = useState<ForecastData | null>(null);
   const [tool, setTool] = useState<DrawTool>('none');
-  const [showPlan, setShowPlan] = useState(true);
+  const [showPlan, setShowPlan] = useState(false);
+  const [showWhy, setShowWhy] = useState(false);
   const [drawings, setDrawings] = useState<Drawings>({});
   useEffect(() => {
     try {
@@ -188,7 +189,7 @@ export default function ForecastPanel({
       <FilterBar>
         <Chips label="دارایی" value={asset} onChange={(a) => onChange(a, horizon)} options={ASSET_OPTS} />
         <Chips label="افق پیش‌بینی" value={horizon} onChange={(h) => onChange(asset, h)} options={H_OPTS} />
-        {onInd ? <IndicatorChips value={ind} onChange={onInd} /> : null}
+        {onInd ? <details className="forecast-indicators"><summary>اندیکاتورها {ind.length ? `(${ind.length.toLocaleString('fa-IR')} فعال)` : ''}</summary><IndicatorChips value={ind} onChange={onInd} /></details> : null}
       </FilterBar>
 
       <section className="panel chart-panel fc-panel" aria-busy={state === 'loading'} aria-labelledby="fc-h">
@@ -215,12 +216,6 @@ export default function ForecastPanel({
                 <dt>میانه، {row.label} بعد</dt>
                 <dd>
                   <span className="num">{fmt(row.base)}</span> <small className={`num ${row.basePct >= 0 ? 'up' : 'down'}`}>({fmtPct(row.basePct, 1)})</small>
-                </dd>
-              </div>
-              <div>
-                <dt>محدوده ۵۰٪ محتمل</dt>
-                <dd>
-                  <span className="num">{fmt(inner.p25)}</span> تا <span className="num">{fmt(inner.p75)}</span>
                 </dd>
               </div>
               <div>
@@ -329,89 +324,32 @@ export default function ForecastPanel({
           </div>
         ) : null}
 
-        {tm && state !== 'error' ? <TimingBox t={tm} fmt={fmt} unit={unit} hLabel={hLabel} /> : null}
+        {tm && state !== 'error' ? <details className="forecast-detail"><summary>سناریوی زمان‌بندی و کارنامهٔ آن</summary><TimingBox t={tm} fmt={fmt} unit={unit} hLabel={hLabel} /></details> : null}
 
         {shown && state !== 'error' ? (
           <div className="fc-notes">
-            {cal ? (
-              <p className={`fc-cal ${cal.insidePct < 80 ? 'warn' : ''}`}>
-                <b>کارنامه همین روش:</b> {cal.n.toLocaleString('fa-IR')} پیش‌بینی {hLabel} در گذشته ({fmtDateFa(cal.from)} تا {fmtDateFa(cal.to)}) — هر بار فقط با قیمت‌های تا همان روز — قیمت واقعی در{' '}
-                <b>{pctFa(cal.insidePct)}</b> مواقع داخل محدوده ۹۰٪ ماند، {pctFa(cal.abovePct)} بالاتر و {pctFa(cal.belowPct)} پایین‌تر رفت. خطای معمول میانه:{' '}
-                {cal.medianErrPct.toLocaleString('fa-IR', {
-                  maximumFractionDigits: 1,
-                })}
-                ٪.
-                {cal.insidePct < 80 ? ' یعنی برای این دارایی محدوده از واقعیت باریک‌تر بوده؛ حرکت بیرون از آن را دور از ذهن ندانید.' : ''}
-                {cal.abovePct >= cal.belowPct + 10 ? ' بیشتر خطاها رو به بالا بوده (جهش‌های ارزی).' : ''}
-              </p>
-            ) : (
-              <p className="fc-cal muted">تاریخچه این دارایی برای سنجیدن کارنامه این افق کافی نیست.</p>
-            )}
-            <ForecastWhy data={shown} hLabel={hLabel} />
-            {shown.ensemble ? (
-              <div className="fc-ens">
-                <h3>سه نگاه به {hLabel === 'هفتگی' ? 'هفته' : hLabel === 'ماهانه' ? 'ماه' : hLabel === '۳ ماهه' ? 'سه ماه' : 'سال'} آینده</h3>
-                <p className="muted small">
-                  مثل یک معامله‌گر که قبل از تصمیم چند نگاه را کنار هم می‌گذارد: «موتور سناریو» از نوسان و روند ۱۵ ماه اخیر، «حرکت‌های گذشته» از همه حرکت‌های واقعی هم‌اندازه در ۸ سال اخیر، و «الگوهای مشابه» از
-                  روزهایی که شکل قیمت شبیه امروز بود. هر کدام به‌تنهایی گاهی خطا می‌کند؛ میانگین این سه روی داده واقعی ۱۳۹۵ تا ۱۴۰۵ (دلار، سکه، طلا) در همه افق‌ها از موتور سناریو به‌تنهایی دقیق‌تر بوده و همین ترکیب در
-                  نمودار بالاست.
-                </p>
-                <div className="table-scroll">
-                  <table className="t fc-ens-t">
-                    <thead>
-                      <tr>
-                        <th scope="col">روش</th>
-                        <th scope="col">میانه</th>
-                        <th scope="col">محدوده ۹۰٪</th>
-                        <th scope="col">احتمال بالاتر</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(['engine', 'empirical', 'analog'] as const).map((k) => {
-                        const x = shown.ensemble!.parts[k];
-                        return (
-                          <tr key={k}>
-                            <th scope="row">{PART_LABEL[k]}</th>
-                            <td className={`num ${x.midPct >= 0 ? 'up' : 'down'}`}>{fmtPct(x.midPct, 0)}</td>
-                            <td className="num">
-                              {fmtPct(x.lowPct, 0)} تا {fmtPct(x.highPct, 0)}
-                            </td>
-                            <td className="num">{pctFa(x.pUp * 100)}</td>
-                          </tr>
-                        );
-                      })}
-                      {row ? (
-                        <tr className="fc-ens-sum">
-                          <th scope="row">ترکیب (نمودار بالا)</th>
-                          <td className={`num ${row.basePct >= 0 ? 'up' : 'down'}`}>{fmtPct(row.basePct, 0)}</td>
-                          <td className="num">
-                            {fmtPct(row.worstPct, 0)} تا {fmtPct(row.bestPct, 0)}
-                          </td>
-                          <td className="num">{typeof shown.pUp === 'number' ? pctFa(shown.pUp * 100) : '—'}</td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
-                {shown.ensemble.analog.matches.length ? (
-                  <>
-                    <h4>روزهایی از گذشته که الگوی قیمت شبیه امروز بود</h4>
-                    <p className="muted small">
-                      بازده یک هفته تا یک سال اخیر، نوسان و فاصله از میانگین ۲۰۰ روزه — {shown.ensemble.analog.n.toLocaleString('fa-IR')} روز مشابه‌تر از تاریخچه پیدا شد. نزدیک‌ترین‌ها و این‌که {hLabel === 'هفتگی' ? 'یک هفته' : row?.label}{' '}
-                      بعدشان چه شد:
-                    </p>
-                    <ul className="fc-matches">
-                      {shown.ensemble.analog.matches.map((m) => (
-                        <li key={m.date}>
-                          <span>{fmtDateFa(m.date)}</span>
-                          <b className={`num ${m.movePct >= 0 ? 'up' : 'down'}`}>{fmtPct(m.movePct, 0)}</b>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
+            <div className="forecast-brief" aria-label="خلاصه برای تصمیم">
+              <div><span>جهت میانه مدل</span><strong>{row ? `${row.basePct >= 0 ? 'افزایش' : 'کاهش'} ${fmtPct(Math.abs(row.basePct), 1)}` : 'داده ناکافی'}</strong><small>این برآورد، نتیجهٔ قطعی نیست</small></div>
+              <div><span>محدودهٔ ۹۰٪ مدل</span><strong>{row ? `${fmt(row.worst)} تا ${fmt(row.best)}` : '—'}</strong><small>{unit} · خروج از محدوده ممکن است</small></div>
+              <div><span>پوشش تاریخی محدوده</span><strong>{cal ? pctFa(cal.insidePct) : 'داده کافی نیست'}</strong><small>{cal ? `${cal.n.toLocaleString('fa-IR')} پیش‌بینی، ${cal.periods.toLocaleString('fa-IR')} دوره مستقل` : 'کارنامه قابل محاسبه نیست'}</small></div>
+            </div>
+            {cal && cal.insidePct < 80 ? <p className="banner warn">محدودهٔ ۹۰٪ این مدل در گذشته فقط {pctFa(cal.insidePct)} موارد را پوشش داده؛ ریسک خارج‌شدن از محدوده را جدی بگیرید.</p> : null}
+            {shown.ensemble ? <div className="forecast-compare" aria-label="مقایسه دیداری روش‌ها">
+              <div className="forecast-compare-head"><div><h3>مقایسهٔ سه نگاه</h3><p>میانهٔ تغییر تا پایان افق؛ محدوده‌ها در جزئیات آمده‌اند.</p></div><span>ترکیب، پیش‌بینی نمودار است</span></div>
+              <div className="forecast-methods">{(['engine', 'empirical', 'analog'] as const).map((k) => {
+                const x = shown.ensemble!.parts[k];
+                const width = Math.min(100, Math.abs(x.midPct));
+                return <article key={k}><span>{PART_LABEL[k]}</span><strong className={x.midPct >= 0 ? 'up' : 'down'}>{fmtPct(x.midPct, 1)}</strong><div className="method-track" aria-hidden="true"><i className={x.midPct >= 0 ? 'positive' : 'negative'} style={{width: `${width}%`}} /></div><small>احتمال بالاتر از امروز: {pctFa(x.pUp * 100)}</small></article>;
+              })}</div>
+              <p className="muted small">طول نوار قدر مطلق تغییر را نشان می‌دهد و در ۱۰۰٪ محدود شده است. تفاوت روش‌ها عدم‌قطعیت را نشان می‌دهد، نه سیگنال معامله.</p>
+              <details className="forecast-detail"><summary>محدوده‌ها و جزئیات هر روش</summary><div className="table-scroll"><table className="t"><thead><tr><th scope="col">روش</th><th scope="col">میانه</th><th scope="col">محدوده ۹۰٪</th><th scope="col">احتمال بالاتر</th></tr></thead><tbody>
+                {(['engine', 'empirical', 'analog'] as const).map((k) => { const x = shown.ensemble!.parts[k]; return <tr key={k}><th scope="row">{PART_LABEL[k]}</th><td>{fmtPct(x.midPct, 1)}</td><td>{fmtPct(x.lowPct, 1)} تا {fmtPct(x.highPct, 1)}</td><td>{pctFa(x.pUp * 100)}</td></tr>; })}
+                {row ? <tr><th scope="row">ترکیب</th><td>{fmtPct(row.basePct, 1)}</td><td>{fmtPct(row.worstPct, 1)} تا {fmtPct(row.bestPct, 1)}</td><td>{typeof shown.pUp === 'number' ? pctFa(shown.pUp * 100) : '—'}</td></tr> : null}
+              </tbody></table></div><p className="muted small">موتور سناریو از نوسان و روند، حرکت‌های گذشته از بازده دوره‌های تاریخی و الگوهای مشابه از روزهای شبیه امروز استفاده می‌کند. نمونه‌های مشابه: {shown.ensemble.analog.n.toLocaleString('fa-IR')}؛ دوره‌های تاریخی: {shown.ensemble.empiricalN.toLocaleString('fa-IR')}.</p></details>
+            </div> : <p className="note">برای این دارایی فقط موتور سناریو در دسترس است؛ مقایسه سه روش موجود نیست.</p>}
+            <details className="forecast-detail" onToggle={(e) => setShowWhy(e.currentTarget.open)}><summary>چرا این پیش‌بینی؟ کارنامه و فرض‌ها</summary>
+              {cal ? <p className="fc-cal">کارنامه از {fmtDateFa(cal.from)} تا {fmtDateFa(cal.to)}: پوشش محدوده ۹۰٪ {pctFa(cal.insidePct)}، بالاتر {pctFa(cal.abovePct)} و پایین‌تر {pctFa(cal.belowPct)}؛ خطای معمول میانه {cal.medianErrPct.toLocaleString('fa-IR', { maximumFractionDigits: 1 })}٪. نمونه‌ها می‌توانند هم‌پوشان باشند.</p> : <p className="fc-cal muted">تاریخچه برای کارنامه این افق کافی نیست.</p>}
+              {showWhy ? <ForecastWhy data={shown} hLabel={hLabel} /> : null}
             {shown.drivers.length ? (
               <ul className="notes">
                 {shown.drivers.map((d) => (
@@ -429,6 +367,7 @@ export default function ForecastPanel({
               ). الگوی شبیه، تکرار همان اتفاق را تضمین نمی‌کند و خبر سیاسی یا جهش ارزی می‌تواند قیمت را بیرون محدوده ببرد. وعده سود نیست.
               {shown.reconstructed ? ' بخشی از تاریخچه این دارایی بازسازی‌شده است، نه قیمت ثبت‌شده.' : ''}
             </p>
+            </details>
           </div>
         ) : null}
       </section>
