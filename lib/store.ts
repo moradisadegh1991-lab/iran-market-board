@@ -1,5 +1,6 @@
-// Upstash Redis (Vercel Marketplace) with an in-memory fallback for local dev.
+// Redis TCP or Upstash REST, with in-memory storage when neither is configured.
 import { Redis } from '@upstash/redis';
+import { tcpKV } from './store-tcp';
 
 export interface KV {
   get<T>(key: string): Promise<T | null>;
@@ -16,10 +17,11 @@ export interface KV {
   lrem(key: string, member: string): Promise<void>;
 }
 
+const tcpUrl = process.env.REDIS_URL;
 const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
-export const storeMode: 'redis' | 'memory' = url && token ? 'redis' : 'memory';
+export const storeMode: 'redis' | 'memory' = tcpUrl || (url && token) ? 'redis' : 'memory';
 
 function redisKV(): KV {
   // two quick retries: a Redis that is down or over its plan should be noticed in well under a second (cacheKv then
@@ -124,7 +126,7 @@ function memoryKV(): KV {
   };
 }
 
-export const kv: KV = storeMode === 'redis' ? redisKV() : memoryKV();
+export const kv: KV = tcpUrl ? tcpKV(tcpUrl) : url && token ? redisKV() : memoryKV();
 
 // ── caches: never take the board down ──────────────────────────────────────
 // Snapshot, source and history caches can be rebuilt from the sources, so a Redis failure (down, or the plan's limit
