@@ -1,4 +1,4 @@
-// Run against a disposable Redis 7 instance with an admin account on DB 0.
+// Run against a disposable Redis 7 instance that requires AUTH, with an admin URL on DB 0.
 import assert from 'node:assert/strict';
 import Redis from 'ioredis';
 import { tcpKV } from '../lib/store-tcp';
@@ -16,6 +16,10 @@ async function main() {
   try {
     await admin.acl('SETUSER', 'market-test', 'reset', 'on', password, ...rights);
     await admin.set('diag:fixture', 'db0');
+    const anonymous = new URL(adminUrl);
+    anonymous.username = '';
+    anonymous.password = '';
+    await assert.rejects(tcpKV(anonymous.href).get('diag:fixture'), /NOAUTH/);
     const denied = tcpKV(base.href);
     await assert.rejects(denied.get('diag:fixture'), /NOPERM/);
     assert.equal(await admin.get('diag:fixture'), 'db0');

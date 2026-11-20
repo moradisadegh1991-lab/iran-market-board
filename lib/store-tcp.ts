@@ -54,6 +54,9 @@ export function tcpKV(connectionUrl: string): KV {
       host,
       port: url.port ? Number(url.port) : 6379,
       tls: url.protocol === 'rediss:' ? { servername: isIP(host) ? undefined : host } : undefined,
+      // ioredis 6 defaults to RESP3 and issues HELLO before connect() resolves.
+      // Use RESP2 so our explicit AUTH can run first on password-protected servers.
+      protocol: 2,
       lazyConnect: true,
       connectTimeout: 2000,
       commandTimeout: 3000,
