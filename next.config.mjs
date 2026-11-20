@@ -2,5 +2,6 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  serverExternalPackages: ['ioredis'],
 };
 export default nextConfig;
